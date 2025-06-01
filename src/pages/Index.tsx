@@ -5,7 +5,7 @@ import { ChatInterface } from '../components/ChatInterface';
 import { CandidateCard } from '../components/CandidateCard';
 import { FilterPanel } from '../components/FilterPanel';
 import { StatsOverview } from '../components/StatsOverview';
-import { DataCollectionPanel } from '../components/DataCollectionPanel';
+import { DataCollectionDrawer } from '../components/DataCollectionDrawer';
 import { useCandidates } from '../hooks/useCandidates';
 import { useAuth } from '../hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
@@ -35,7 +35,7 @@ const Index = () => {
     setIsSearching(true);
 
     try {
-      const { data, error } = await supabase.functions.invoke('search-candidates', {
+      const { data, error } = await supabase.functions.invoke('enhanced-search-candidates', {
         body: { query, user_id: user.id }
       });
 
@@ -45,7 +45,7 @@ const Index = () => {
       
       toast({
         title: "Search completed",
-        description: `Found ${data.total_results} candidates matching your criteria.`,
+        description: `Found ${data.total_results} high-quality candidates matching your criteria.`,
       });
 
     } catch (error: any) {
@@ -94,7 +94,7 @@ const Index = () => {
             </div>
             <div className="flex items-center space-x-4">
               <button
-                onClick={() => setIsDataCollectionOpen(!isDataCollectionOpen)}
+                onClick={() => setIsDataCollectionOpen(true)}
                 className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
               >
                 <Database className="w-4 h-4" />
@@ -126,15 +126,9 @@ const Index = () => {
         <StatsOverview totalCandidates={displayCandidates.length} />
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mt-8">
-          {/* Left Sidebar */}
-          <div className="lg:col-span-1 space-y-6">
-            {/* Chat Interface */}
+          {/* Left Sidebar - Chat Only */}
+          <div className="lg:col-span-1">
             <ChatInterface onSearch={handleSearch} />
-            
-            {/* Data Collection Panel */}
-            {isDataCollectionOpen && (
-              <DataCollectionPanel />
-            )}
           </div>
 
           {/* Main Content */}
@@ -219,6 +213,13 @@ const Index = () => {
           </div>
         </div>
       </div>
+
+      {/* Data Collection Drawer */}
+      <DataCollectionDrawer 
+        isOpen={isDataCollectionOpen} 
+        onClose={() => setIsDataCollectionOpen(false)}
+        onDataCollected={refetch}
+      />
     </div>
   );
 };

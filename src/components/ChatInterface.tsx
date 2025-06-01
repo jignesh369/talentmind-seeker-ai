@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { MessageCircle, Send, Sparkles } from 'lucide-react';
+import { MessageCircle, Send, Sparkles, Bot } from 'lucide-react';
 
 interface ChatInterfaceProps {
   onSearch: (query: string) => void;
@@ -16,7 +16,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSearch }) => {
   const [messages, setMessages] = useState<Message[]>([
     {
       type: 'assistant',
-      content: 'Hi! I\'m here to help you find AI and ML talent. Try something like "Senior Python backend engineer with FastAPI experience, 5+ years, remote work in India"'
+      content: '🚀 Hi! I\'m your AI-powered talent scout. I use advanced AI to find, validate, and enrich candidate profiles. Try: "Senior ML engineer with PyTorch, 5+ years, San Francisco or remote"'
     }
   ]);
 
@@ -28,11 +28,11 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSearch }) => {
     setMessages(prev => [...prev, userMessage]);
     onSearch(input);
 
-    // Simulate AI response
+    // Enhanced AI response
     setTimeout(() => {
       const assistantMessage: Message = {
         type: 'assistant',
-        content: `Searching for candidates matching: "${input}". I've found ${Math.floor(Math.random() * 20 + 10)} potential matches across GitHub, Stack Overflow, and Reddit. Check the results on the right!`
+        content: `🔍 Searching for candidates matching: "${input}". I'm using AI to validate profiles, enrich data with real-time web search, and rank by relevance. This ensures you get only high-quality, verified candidates!`
       };
       setMessages(prev => [...prev, assistantMessage]);
     }, 1000);
@@ -41,9 +41,11 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSearch }) => {
   };
 
   const sampleQueries = [
-    "ML Engineer with PyTorch experience",
-    "Data Scientist, remote, 3+ years",
-    "Senior Python developer with AI background"
+    "Senior React developer with TypeScript, 4+ years",
+    "ML Engineer with Python and TensorFlow, remote",
+    "Full-stack engineer with Node.js and AWS experience",
+    "DevOps engineer with Kubernetes, San Francisco",
+    "Data Scientist with R and SQL, 3+ years experience"
   ];
 
   return (
@@ -51,11 +53,11 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSearch }) => {
       <div className="p-6 border-b border-slate-200">
         <div className="flex items-center space-x-3 mb-4">
           <div className="w-10 h-10 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-lg flex items-center justify-center">
-            <MessageCircle className="w-5 h-5 text-white" />
+            <Bot className="w-5 h-5 text-white" />
           </div>
           <div>
-            <h3 className="font-semibold text-slate-900">AI Search Assistant</h3>
-            <p className="text-sm text-slate-600">Describe your ideal candidate</p>
+            <h3 className="font-semibold text-slate-900">AI Talent Scout</h3>
+            <p className="text-sm text-slate-600">Enhanced with OpenAI & Perplexity</p>
           </div>
         </div>
       </div>
@@ -65,15 +67,15 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSearch }) => {
         <div className="space-y-4 mb-6 max-h-80 overflow-y-auto">
           {messages.map((message, index) => (
             <div key={index} className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-[80%] p-3 rounded-lg ${
+              <div className={`max-w-[85%] p-3 rounded-lg ${
                 message.type === 'user' 
                   ? 'bg-blue-600 text-white' 
-                  : 'bg-slate-100 text-slate-800'
+                  : 'bg-gradient-to-r from-blue-50 to-indigo-50 text-slate-800 border border-blue-100'
               }`}>
                 {message.type === 'assistant' && (
                   <Sparkles className="w-4 h-4 inline mr-2 text-blue-500" />
                 )}
-                <span className="text-sm">{message.content}</span>
+                <span className="text-sm leading-relaxed">{message.content}</span>
               </div>
             </div>
           ))}
@@ -85,32 +87,46 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSearch }) => {
             <textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Describe the candidate you're looking for..."
-              className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none"
+              placeholder="Describe your ideal candidate (be specific for better AI matching)..."
+              className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none text-sm"
               rows={3}
             />
             <button
               type="submit"
-              className="absolute bottom-3 right-3 p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              disabled={!input.trim()}
+              className="absolute bottom-3 right-3 p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Send className="w-4 h-4" />
             </button>
           </div>
         </form>
 
-        {/* Sample Queries */}
+        {/* Enhanced Sample Queries */}
         <div className="mt-4">
-          <p className="text-xs text-slate-600 mb-2">Try these examples:</p>
+          <p className="text-xs text-slate-600 mb-3 flex items-center">
+            <Sparkles className="w-3 h-3 mr-1" />
+            AI-powered examples (click to try):
+          </p>
           <div className="space-y-2">
             {sampleQueries.map((query, index) => (
               <button
                 key={index}
                 onClick={() => setInput(query)}
-                className="block w-full text-left text-sm text-blue-600 hover:text-blue-700 hover:bg-blue-50 p-2 rounded transition-colors"
+                className="block w-full text-left text-sm text-blue-600 hover:text-blue-700 hover:bg-blue-50 p-2 rounded transition-colors border border-blue-100 hover:border-blue-200"
               >
-                "{query}"
+                <span className="font-medium">"{query}"</span>
               </button>
             ))}
+          </div>
+          
+          <div className="mt-4 p-3 bg-green-50 rounded-lg border border-green-200">
+            <p className="text-xs text-green-700 font-medium mb-1">✨ AI Enhancement Features:</p>
+            <ul className="text-xs text-green-600 space-y-1">
+              <li>• Real-time profile validation</li>
+              <li>• Web-based profile enrichment</li>
+              <li>• Intelligent relevance ranking</li>
+              <li>• Quality filtering & scoring</li>
+            </ul>
           </div>
         </div>
       </div>
