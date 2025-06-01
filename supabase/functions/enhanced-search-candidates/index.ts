@@ -55,13 +55,16 @@ serve(async (req) => {
           }),
         })
 
-        const data = await response.json()
-        const content = data.choices[0].message.content
-        
-        try {
-          searchParams = JSON.parse(content.replace(/```json\s*|\s*```/g, ''))
-        } catch {
-          console.log('Failed to parse AI response, using fallback search')
+        if (response.ok) {
+          const data = await response.json()
+          const content = data.choices[0].message.content
+          
+          try {
+            searchParams = JSON.parse(content.replace(/```json\s*|\s*```/g, ''))
+            console.log('AI parsed search params:', searchParams)
+          } catch {
+            console.log('Failed to parse AI response, using fallback search')
+          }
         }
       } catch (error) {
         console.error('AI query parsing error:', error)
@@ -75,19 +78,20 @@ serve(async (req) => {
 
     let hasFilters = false
 
-    // Add text search with proper PostgREST syntax
+    // Add text search for candidate names and titles
     const searchTerms = query.toLowerCase().split(' ').filter(term => term.length > 2)
     if (searchTerms.length > 0) {
-      // Use textSearch for full-text search across multiple columns
-      const searchTerm = searchTerms.join(' & ')
-      
       try {
-        // Try advanced search first
-        dbQuery = dbQuery.or(`name.ilike.%${searchTerms[0]}%,title.ilike.%${searchTerms[0]}%,summary.ilike.%${searchTerms[0]}%`)
+        // Search in name, title, and summary fields
+        const searchConditions = searchTerms.map(term => 
+          `name.ilike.%${term}%,title.ilike.%${term}%,summary.ilike.%${term}%`
+        ).join(',')
+        
+        dbQuery = dbQuery.or(searchConditions)
         hasFilters = true
-        console.log(`Applied text search for: ${searchTerms[0]}`)
+        console.log(`Applied text search for terms: ${searchTerms.join(', ')}`)
       } catch (error) {
-        console.log('Text search failed, falling back to simpler query:', error)
+        console.log('Text search failed, using simple name search:', error)
         // Fallback to simple name search
         dbQuery = dbQuery.ilike('name', `%${searchTerms[0]}%`)
         hasFilters = true
@@ -195,21 +199,24 @@ serve(async (req) => {
           }),
         })
 
-        const rankingData = await rankingResponse.json()
-        const rankedIds = JSON.parse(rankingData.choices[0].message.content.replace(/```json\s*|\s*```/g, ''))
-        
-        // Reorder candidates based on AI ranking
-        const rankedTop = []
-        const remaining = [...topCandidates]
-        
-        rankedIds.forEach(id => {
-          const index = remaining.findIndex(c => c.id === id)
-          if (index !== -1) {
-            rankedTop.push(remaining.splice(index, 1)[0])
-          }
-        })
-        
-        rankedCandidates = [...rankedTop, ...remaining, ...rankedCandidates.slice(20)]
+        if (rankingResponse.ok) {
+          const rankingData = await rankingResponse.json()
+          const rankedIds = JSON.parse(rankingData.choices[0].message.content.replace(/```json\s*|\s*```/g, ''))
+          
+          // Reorder candidates based on AI ranking
+          const rankedTop = []
+          const remaining = [...topCandidates]
+          
+          rankedIds.forEach(id => {
+            const index = remaining.findIndex(c => c.id === id)
+            if (index !== -1) {
+              rankedTop.push(remaining.splice(index, 1)[0])
+            }
+          })
+          
+          rankedCandidates = [...rankedTop, ...remaining, ...rankedCandidates.slice(20)]
+          console.log('Applied AI ranking to results')
+        }
         
       } catch (error) {
         console.error('AI ranking error:', error)
