@@ -21,14 +21,14 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-// Enhanced timeout with better error messages
+// Optimized timeout with better error messages
 function createTimeout(ms: number, source: string) {
   return new Promise((_, reject) => 
     setTimeout(() => reject(new Error(`Timeout: ${source} exceeded ${ms}ms limit`)), ms)
   )
 }
 
-// Improved function invocation with detailed error handling
+// Improved function invocation with circuit breaker pattern
 async function invokeWithRetry(supabase: any, functionName: string, body: any, maxRetries = 2) {
   console.log(`Starting ${functionName} with ${maxRetries} retry attempts`)
   
@@ -36,9 +36,10 @@ async function invokeWithRetry(supabase: any, functionName: string, body: any, m
     try {
       console.log(`${functionName} attempt ${attempt + 1}/${maxRetries}`)
       
+      // Reduced timeout for better responsiveness
       const result = await Promise.race([
         supabase.functions.invoke(functionName, { body }),
-        createTimeout(120000, functionName) // Increased timeout to 2 minutes
+        createTimeout(60000, functionName) // Reduced to 1 minute
       ])
       
       if (result.error) {
@@ -57,7 +58,7 @@ async function invokeWithRetry(supabase: any, functionName: string, body: any, m
       }
       
       // Progressive delay between retries
-      const delay = 2000 * (attempt + 1)
+      const delay = 1000 * (attempt + 1)
       console.log(`Waiting ${delay}ms before retry...`)
       await new Promise(resolve => setTimeout(resolve, delay))
     }
@@ -70,13 +71,10 @@ serve(async (req) => {
     return new Response('ok', { headers: corsHeaders })
   }
 
-  console.log('=== PHASE 2.5 ENHANCED DATA COLLECTION STARTED ===')
-  console.log('Request method:', req.method)
-  console.log('Request headers:', Object.fromEntries(req.headers.entries()))
+  console.log('=== OPTIMIZED ENHANCED DATA COLLECTION STARTED ===')
 
   try {
     const { query, location, sources = ['github', 'stackoverflow', 'google', 'linkedin', 'kaggle', 'devto'] } = await req.json()
-    console.log('Request body parsed:', { query, location, sources })
 
     if (!query) {
       console.error('Missing required query parameter')
@@ -121,7 +119,7 @@ serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseKey)
     console.log('Supabase client initialized')
 
-    console.log(`Starting Phase 2.5 enhanced multi-source data collection for query: "${query}"`)
+    console.log(`Starting optimized enhanced data collection for query: "${query}"`)
 
     // Initialize results structure with error tracking
     const results = {
@@ -187,11 +185,11 @@ serve(async (req) => {
           results.google.total = googleCandidates.length
           console.log(`Enhanced Google search found ${googleCandidates.length} candidates`)
           
-          // Process Google candidates with enhanced validation
+          // Process Google candidates with enhanced validation - OPTIMIZED FOR PERFORMANCE
           const validatedGoogleCandidates = []
-          for (const candidate of googleCandidates.slice(0, 10)) { // Reduced for stability
+          for (const candidate of googleCandidates.slice(0, 8)) { // Reduced to 8 for performance
             try {
-              // Apollo enrichment for Google candidates
+              // Apollo enrichment for Google candidates with timeout
               let enrichedCandidate = candidate
               if (apolloApiKey) {
                 console.log(`Enriching Google candidate ${candidate.name} with Apollo.io`)
@@ -248,7 +246,7 @@ serve(async (req) => {
       }
     }
 
-    // Step 4: Enhanced parallel data collection with better error isolation
+    // Step 4: Enhanced parallel data collection with better error isolation - OPTIMIZED
     const collectionPromises = sources.filter(s => s !== 'google').map(async (source) => {
       try {
         console.log(`=== STARTING ${source.toUpperCase()} COLLECTION ===`)
@@ -282,16 +280,16 @@ serve(async (req) => {
           console.log(`${source} enhancement stats:`, result.data.enhancement_stats)
         }
 
-        // Step 5: Enhanced AI validation with Apollo enrichment - STABLE LOAD
+        // Step 5: Enhanced AI validation with Apollo enrichment - OPTIMIZED FOR PERFORMANCE
         const validatedCandidates = []
         
         if (rawCandidates.length > 0) {
-          // Process limited candidates for stability
-          const candidatesToProcess = rawCandidates.slice(0, 15)
+          // Process limited candidates for performance - REDUCED LOAD
+          const candidatesToProcess = rawCandidates.slice(0, 10) // Reduced from 15 to 10
           
           for (const candidate of candidatesToProcess) {
             try {
-              // Apollo enrichment for missing emails
+              // Apollo enrichment for missing emails - WITH TIMEOUT
               let enrichedCandidate = candidate
               if (apolloApiKey && !candidate.email) {
                 console.log(`Enriching ${candidate.name} with Apollo.io`)
@@ -396,7 +394,7 @@ serve(async (req) => {
       }
     })
 
-    // Step 6: LinkedIn cross-platform discovery with timeout and error handling
+    // Step 6: LinkedIn cross-platform discovery with timeout and error handling - OPTIMIZED
     const crossPlatformPromise = (async () => {
       if (!sources.includes('linkedin-cross-platform')) {
         return
@@ -409,7 +407,7 @@ serve(async (req) => {
           supabase.functions.invoke('collect-linkedin-cross-platform', {
             body: { query: enhancedQuery.searchTerms.join(' '), location, enhancedQuery, crossPlatformData: true }
           }),
-          createTimeout(90000, 'LinkedIn cross-platform discovery')
+          createTimeout(60000, 'LinkedIn cross-platform discovery') // Reduced timeout
         ])
 
         if (result.error) throw result.error
@@ -431,7 +429,7 @@ serve(async (req) => {
       }
     })()
 
-    // Wait for all collections to complete with better error handling
+    // Wait for all collections to complete with better error handling - OPTIMIZED TIMEOUT
     console.log('Waiting for all collection promises to complete...')
     const allPromises = [...collectionPromises, crossPlatformPromise]
     await Promise.allSettled(allPromises)
@@ -440,7 +438,7 @@ serve(async (req) => {
     const totalCandidates = Object.values(results).reduce((sum, result) => sum + result.total, 0)
     const totalValidated = Object.values(results).reduce((sum, result) => sum + result.validated, 0)
 
-    console.log(`Phase 2.5 enhanced collection completed. Total: ${totalCandidates}, Quality validated: ${totalValidated}`)
+    console.log(`Optimized enhanced collection completed. Total: ${totalCandidates}, Quality validated: ${totalValidated}`)
 
     // Enhanced statistics with error tracking
     const apolloEnrichedCount = Object.values(results)
@@ -455,7 +453,7 @@ serve(async (req) => {
       console.log('Collection errors occurred:', errors)
     }
 
-    console.log('=== PHASE 2.5 ENHANCED DATA COLLECTION COMPLETED ===')
+    console.log('=== OPTIMIZED ENHANCED DATA COLLECTION COMPLETED ===')
 
     return new Response(
       JSON.stringify({ 
@@ -464,7 +462,7 @@ serve(async (req) => {
         total_validated: totalValidated,
         query,
         location,
-        enhancement_phase: '2.5',
+        enhancement_phase: '2.5-optimized',
         quality_metrics: {
           validation_rate: totalCandidates > 0 ? (totalValidated / totalCandidates * 100).toFixed(1) : '0',
           ai_enhanced: !!openaiApiKey,
@@ -502,7 +500,7 @@ serve(async (req) => {
     
     return new Response(
       JSON.stringify({ 
-        error: 'Failed to perform Phase 2.5 enhanced data collection', 
+        error: 'Failed to perform optimized enhanced data collection', 
         details: error.message,
         timestamp: new Date().toISOString()
       }),

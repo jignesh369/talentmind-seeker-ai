@@ -72,7 +72,8 @@ serve(async (req) => {
       programmingLanguages.includes(skill.toLowerCase())
     )
 
-    for (const searchQuery of searchQueries) {
+    // OPTIMIZED: Reduce search scope for better performance
+    for (const searchQuery of searchQueries.slice(0, 3)) { // Reduced from all queries to 3
       try {
         const { rateLimitHit, users } = await searchGitHubUsers(searchQuery, githubToken)
         
@@ -83,13 +84,25 @@ serve(async (req) => {
 
         console.log(`Found ${users.length} GitHub users for query: ${searchQuery}`)
 
-        for (const user of users.slice(0, 25)) {
+        // OPTIMIZED: Process fewer users per query
+        for (const user of users.slice(0, 15)) { // Reduced from 25 to 15
           if (seenUsers.has(user.login)) continue
           seenUsers.add(user.login)
 
+          // Break early if we have enough candidates
+          if (candidates.length >= 20) { // Limit total candidates for performance
+            console.log('Reached candidate limit, stopping collection')
+            break
+          }
+
           try {
-            // Get detailed user info and repositories
-            const userDetails = await getUserDetails(user.url, githubToken)
+            // Get detailed user info and repositories with timeout protection
+            const userDetailsPromise = getUserDetails(user.url, githubToken)
+            const timeoutPromise = new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('GitHub API timeout')), 15000)
+            )
+            
+            const userDetails = await Promise.race([userDetailsPromise, timeoutPromise])
             if (!userDetails) {
               console.log(`Failed to get user details for ${user.login}`)
               continue
@@ -97,8 +110,17 @@ serve(async (req) => {
 
             const repositories = await getUserRepositories(user.url, githubToken)
 
-            // Enhanced README crawling for email discovery
-            const emailFromReadme = await extractEmailFromReadmes(repositories, githubToken)
+            // Enhanced README crawling for email discovery with timeout
+            let emailFromReadme = null
+            try {
+              const emailPromise = extractEmailFromReadmes(repositories, githubToken)
+              const emailTimeoutPromise = new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('README extraction timeout')), 10000)
+              )
+              emailFromReadme = await Promise.race([emailPromise, emailTimeoutPromise])
+            } catch (error) {
+              console.log(`README email extraction failed for ${user.login}:`, error.message)
+            }
             
             // Enhanced skill extraction
             const extractedSkills = extractEnhancedSkillsFromGitHub(userDetails, repositories, enhancedQuery)
@@ -144,26 +166,37 @@ serve(async (req) => {
 
             candidates.push(candidate)
 
-            // Save enhanced source data
-            await supabase
-              .from('candidate_sources')
-              .upsert({
-                candidate_id: userDetails.login,
-                platform: 'github',
-                platform_id: userDetails.login,
-                url: userDetails.html_url,
-                data: { 
-                  ...userDetails, 
-                  repositories: repositories.slice(0, 8),
-                  readme_email: emailFromReadme,
-                  language_stats: calculateLanguageStats(repositories)
-                }
-              }, { onConflict: 'platform,platform_id' })
+            // Save enhanced source data with error handling
+            try {
+              await supabase
+                .from('candidate_sources')
+                .insert({
+                  candidate_id: userDetails.login,
+                  platform: 'github',
+                  platform_id: userDetails.login,
+                  url: userDetails.html_url,
+                  data: { 
+                    ...userDetails, 
+                    repositories: repositories.slice(0, 8),
+                    readme_email: emailFromReadme,
+                    language_stats: calculateLanguageStats(repositories)
+                  }
+                })
+                .onConflict('platform,platform_id')
+                .ignore()
+            } catch (error) {
+              console.error(`Error saving source data for ${userDetails.login}:`, error)
+            }
 
           } catch (error) {
             console.error(`Error processing GitHub user ${user.login}:`, error)
             continue
           }
+        }
+
+        // Break early if we have enough candidates
+        if (candidates.length >= 20) {
+          break
         }
 
       } catch (error) {
@@ -175,7 +208,7 @@ serve(async (req) => {
     // Sort by overall score and language expertise
     const sortedCandidates = candidates
       .sort((a, b) => (b.overall_score + b.language_expertise) - (a.overall_score + a.language_expertise))
-      .slice(0, 30)
+      .slice(0, 25) // Reduced from 30 to 25
 
     console.log(`Collected ${sortedCandidates.length} enhanced candidates from GitHub`)
 
@@ -187,7 +220,7 @@ serve(async (req) => {
         enhancement_stats: {
           emails_from_readme: sortedCandidates.filter(c => c.readme_email_found).length,
           language_based_searches: detectedLanguages.length,
-          avg_language_expertise: Math.round(sortedCandidates.reduce((sum, c) => sum + c.language_expertise, 0) / sortedCandidates.length)
+          avg_language_expertise: Math.round(sortedCandidates.reduce((sum, c) => sum + c.language_expertise, 0) / sortedCandidates.length || 0)
         }
       }),
       { 

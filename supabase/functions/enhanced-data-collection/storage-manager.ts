@@ -24,7 +24,7 @@ export async function storeWithEnhancedDeduplication(candidates: any[], supabase
           continue
         }
 
-        // Enhanced multi-field duplicate detection with better error handling
+        // Enhanced multi-field duplicate detection with proper constraint handling
         const { data: existing, error: searchError } = await supabase
           .from('candidates')
           .select('id, name, github_username, email, overall_score, linkedin_url')
@@ -46,7 +46,7 @@ export async function storeWithEnhancedDeduplication(candidates: any[], supabase
             // Enhanced update with proper email handling and validation
             const updateData = {
               ...sanitizeCandidateData(candidate),
-              email: extractBestEmail(candidate) || existingCandidate.email, // Preserve existing email if new one is empty
+              email: extractBestEmail(candidate) || existingCandidate.email,
               enhanced_by_platform: platform,
               last_enhanced: new Date().toISOString(),
               updated_at: new Date().toISOString()
@@ -78,7 +78,7 @@ export async function storeWithEnhancedDeduplication(candidates: any[], supabase
           title: candidate.title,
           location: candidate.location,
           avatar_url: candidate.avatar_url,
-          email: extractBestEmail(candidate), // Enhanced email extraction
+          email: extractBestEmail(candidate),
           github_username: candidate.github_username,
           stackoverflow_id: candidate.stackoverflow_id,
           linkedin_url: candidate.linkedin_url,
@@ -134,7 +134,7 @@ export async function storeWithEnhancedDeduplication(candidates: any[], supabase
     console.error('Platform:', platform)
     console.error('Error:', error)
     console.error('Stack:', error.stack)
-    throw error // Re-throw to let caller handle it
+    throw error
   }
 }
 
@@ -254,7 +254,6 @@ async function storeCandidateSource(supabase: any, candidateId: string, platform
         }
         break
       case 'google':
-        // Enhanced Google source handling
         if (candidateData.profile_url || candidateData.url) {
           platformUrl = candidateData.profile_url || candidateData.url
           platformId = candidateData.name || candidateData.title || 'unknown'
@@ -267,7 +266,6 @@ async function storeCandidateSource(supabase: any, candidateId: string, platform
         }
         break
       default:
-        // For other platforms, use available data
         platformUrl = candidateData.profile_url || candidateData.url || ''
         platformId = candidateData.platform_id || candidateData.id || candidateData.name || 'unknown'
         sourceData = {
@@ -292,38 +290,23 @@ async function storeCandidateSource(supabase: any, candidateId: string, platform
 
     console.log(`Attempting to store source: ${platformUrl} (Platform ID: ${platformId})`)
 
-    // Check if source already exists with better error handling
-    const { data: existingSource, error: checkError } = await supabase
+    // Use INSERT with ON CONFLICT DO NOTHING to handle duplicates gracefully
+    const { error: sourceError } = await supabase
       .from('candidate_sources')
-      .select('id')
-      .eq('candidate_id', candidateId)
-      .eq('platform', platform)
-      .eq('platform_id', platformId)
-      .maybeSingle()
+      .insert({
+        candidate_id: candidateId,
+        platform: platform,
+        platform_id: platformId,
+        url: platformUrl || `https://${platform}.com/${platformId}`,
+        data: sourceData
+      })
+      .onConflict('platform,platform_id')
+      .ignore()
 
-    if (checkError) {
-      console.error(`Error checking existing source for ${platform}:`, checkError)
-      return
-    }
-
-    if (!existingSource) {
-      const { error: sourceError } = await supabase
-        .from('candidate_sources')
-        .insert({
-          candidate_id: candidateId,
-          platform: platform,
-          platform_id: platformId,
-          url: platformUrl || `https://${platform}.com/${platformId}`,
-          data: sourceData
-        })
-
-      if (sourceError) {
-        console.error(`Error storing source for ${platform}:`, sourceError)
-      } else {
-        console.log(`Successfully stored source for ${candidateData.name} on ${platform}`)
-      }
+    if (sourceError) {
+      console.error(`Error storing source for ${platform}:`, sourceError)
     } else {
-      console.log(`Source already exists for ${candidateData.name} on ${platform}`)
+      console.log(`Successfully stored source for ${candidateData.name} on ${platform}`)
     }
   } catch (error) {
     console.error(`Critical error storing candidate source for ${platform}:`, error)
@@ -364,7 +347,12 @@ export async function enrichWithApollo(candidate: any, apolloApiKey: string): Pr
     
     console.log('Apollo search payload:', searchPayload)
     
-    const searchResponse = await fetch('https://api.apollo.io/v1/mixed_people/search', {
+    // Add timeout to Apollo request
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Apollo request timeout')), 15000)
+    )
+    
+    const apolloPromise = fetch('https://api.apollo.io/v1/mixed_people/search', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -373,6 +361,8 @@ export async function enrichWithApollo(candidate: any, apolloApiKey: string): Pr
       },
       body: JSON.stringify(searchPayload)
     })
+
+    const searchResponse = await Promise.race([apolloPromise, timeoutPromise])
 
     if (!searchResponse.ok) {
       const errorText = await searchResponse.text()
@@ -390,7 +380,7 @@ export async function enrichWithApollo(candidate: any, apolloApiKey: string): Pr
       if (apolloPerson.email && isValidEmail(apolloPerson.email)) {
         console.log(`Found Apollo email for ${candidate.name}: ${apolloPerson.email}`)
         candidate.apollo_email = apolloPerson.email
-        candidate.email = candidate.email || apolloPerson.email // Use as fallback
+        candidate.email = candidate.email || apolloPerson.email
         candidate.apollo_enriched = true
       }
       

@@ -1,14 +1,14 @@
 
 import React, { useState } from 'react';
 import { Search, Database, Github, Globe, Users, AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
-import { useDataCollection } from '../hooks/useDataCollection';
+import { useEnhancedDataCollection } from '../hooks/useEnhancedDataCollection';
 import { useCandidates } from '../hooks/useCandidates';
 
 export const DataCollectionPanel = () => {
   const [query, setQuery] = useState('');
   const [location, setLocation] = useState('');
   const [selectedSources, setSelectedSources] = useState(['github', 'stackoverflow', 'google']);
-  const { collectData, isCollecting, collectionResult } = useDataCollection();
+  const { collectData, isCollecting, collectionResult, progress } = useEnhancedDataCollection();
   const { refetch } = useCandidates();
 
   const handleCollectData = async (e: React.FormEvent) => {
@@ -50,7 +50,7 @@ export const DataCollectionPanel = () => {
             id="query"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="e.g., Python machine learning engineer"
+            placeholder="e.g., JavaScript React developer"
             className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
             required
           />
@@ -114,30 +114,42 @@ export const DataCollectionPanel = () => {
         </button>
       </form>
 
+      {/* Progress Indicator */}
+      {isCollecting && progress && (
+        <div className="mt-4 p-3 bg-blue-50 border border-blue-100 rounded-lg">
+          <div className="flex items-center space-x-2">
+            <Loader2 className="w-4 h-4 text-blue-500 animate-spin" />
+            <p className="text-sm text-blue-700">{progress}</p>
+          </div>
+        </div>
+      )}
+
       {/* Results Summary */}
       {collectionResult && (
         <div className="mt-6 pt-6 border-t border-slate-200">
           <h4 className="font-medium text-slate-900 mb-3">Collection Results</h4>
           <div className="space-y-2">
-            {Object.entries(collectionResult.results).map(([source, result]) => (
-              <div key={source} className="flex items-center justify-between p-2 bg-slate-50 rounded-lg">
-                <div className="flex items-center space-x-2">
-                  {result.error ? (
-                    <AlertCircle className="w-4 h-4 text-red-500" />
-                  ) : (
-                    <CheckCircle className="w-4 h-4 text-green-500" />
-                  )}
-                  <span className="text-sm font-medium capitalize">{source}</span>
+            {Object.entries(collectionResult.results)
+              .filter(([source, result]) => selectedSources.includes(source) || result.validated > 0)
+              .map(([source, result]) => (
+                <div key={source} className="flex items-center justify-between p-2 bg-slate-50 rounded-lg">
+                  <div className="flex items-center space-x-2">
+                    {result.error ? (
+                      <AlertCircle className="w-4 h-4 text-red-500" />
+                    ) : (
+                      <CheckCircle className="w-4 h-4 text-green-500" />
+                    )}
+                    <span className="text-sm font-medium capitalize">{source.replace('-', ' ')}</span>
+                  </div>
+                  <div className="text-sm text-slate-600">
+                    {result.error ? 'Failed' : `${result.validated}/${result.total} candidates`}
+                  </div>
                 </div>
-                <div className="text-sm text-slate-600">
-                  {result.error ? 'Failed' : `${result.total} candidates`}
-                </div>
-              </div>
-            ))}
+              ))}
           </div>
           <div className="mt-3 p-3 bg-green-50 rounded-lg">
             <div className="text-sm font-medium text-green-800">
-              Total: {collectionResult.total_candidates} candidates collected
+              Total: {collectionResult.total_validated} candidates collected
             </div>
           </div>
         </div>

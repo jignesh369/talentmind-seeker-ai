@@ -66,36 +66,65 @@ export const useEnhancedDataCollection = () => {
 
     setIsCollecting(true);
     setCollectionResult(null);
-    setProgress('🚀 Initializing Phase 2.5 enhanced multi-source collection...');
+    setProgress('🚀 Initializing optimized multi-source collection...');
+    
+    const updateProgress = (message: string) => {
+      setProgress(message);
+    };
 
     try {
-      setProgress('🔍 Building enhanced semantic understanding with Apollo.io email discovery...');
+      // Set up a progress update interval
+      let phaseCount = 0;
+      const phases = [
+        '🔍 Building semantic understanding of search query...',
+        '🌐 Preparing API connections for data sources...',
+        '👩‍💻 Searching for developer profiles across platforms...',
+        '🧠 Validating candidate relevance with AI...',
+        '📊 Applying cross-platform scoring bonuses...',
+        '✉️ Discovering contact information when available...',
+      ];
       
-      console.log('Starting enhanced data collection with:', { query, location, sources });
+      const progressInterval = setInterval(() => {
+        phaseCount = (phaseCount + 1) % phases.length;
+        updateProgress(phases[phaseCount]);
+      }, 3000);
       
-      const { data, error } = await supabase.functions.invoke('enhanced-data-collection', {
+      console.log('Starting optimized data collection with:', { query, location, sources });
+      
+      // Set up timeout for the entire collection process
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Data collection timeout')), 120000);
+      });
+      
+      const collectionPromise = supabase.functions.invoke('enhanced-data-collection', {
         body: { query, location, sources }
       });
+      
+      // Use Promise.race to handle potential timeouts
+      const { data, error } = await Promise.race([collectionPromise, timeoutPromise]);
+      
+      clearInterval(progressInterval);
 
       console.log('Enhanced data collection response:', { data, error });
 
       if (error) {
-        console.error('Phase 2.5 enhanced data collection error:', error);
-        throw new Error(error.message || 'Enhanced multi-source collection failed');
+        console.error('Data collection error:', error);
+        throw new Error(error.message || 'Data collection failed');
       }
 
       if (!data) {
-        throw new Error('No data returned from enhanced collection');
+        throw new Error('No data returned from collection');
       }
 
       setCollectionResult(data);
       setProgress('');
       
+      // Calculate success metrics
       const successfulSources = Object.values(data.results).filter((result: any) => !result.error).length;
       const failedSources = sources.length - successfulSources;
       const validationRate = data.quality_metrics?.validation_rate || '0';
       
-      // Enhanced success message with new features and error reporting
+      // Generate feature highlights
       const readmeEmails = data.enhancement_stats?.readme_emails_found || 0;
       const apolloEmails = data.enhancement_stats?.apollo_enriched_candidates || 0;
       const expertiseCandidates = data.enhancement_stats?.expertise_level_candidates || 0;
@@ -103,63 +132,58 @@ export const useEnhancedDataCollection = () => {
       const googleDiscoveries = data.enhancement_stats?.enhanced_google_discoveries || 0;
       
       const featureHighlights = [];
-      if (readmeEmails > 0) featureHighlights.push(`${readmeEmails} GitHub README emails`);
-      if (apolloEmails > 0) featureHighlights.push(`${apolloEmails} Apollo.io enriched`);
+      if (readmeEmails > 0) featureHighlights.push(`${readmeEmails} README emails`);
+      if (apolloEmails > 0) featureHighlights.push(`${apolloEmails} Apollo enriched`);
       if (googleDiscoveries > 0) featureHighlights.push(`${googleDiscoveries} Google discoveries`);
-      if (expertiseCandidates > 0) featureHighlights.push(`${expertiseCandidates} expertise-validated`);
-      if (crossPlatformMatches > 0) featureHighlights.push(`${crossPlatformMatches} cross-platform matches`);
+      if (expertiseCandidates > 0) featureHighlights.push(`${expertiseCandidates} expert-level`);
+      if (crossPlatformMatches > 0) featureHighlights.push(`${crossPlatformMatches} cross-platform`);
       
-      // Check for errors and include them in the message
+      // Check for errors
       const errorSources = data.errors || [];
       const errorMessage = errorSources.length > 0 
-        ? ` (${errorSources.length} sources had issues: ${errorSources.map(e => e.source).join(', ')})`
+        ? ` (${errorSources.length} sources had issues)`
         : failedSources > 0 
         ? ` (${failedSources} sources failed)`
         : '';
       
       toast({
-        title: "🚀 Phase 2.5 Enhanced Collection Completed",
-        description: `🎯 Found ${data.total_validated} quality candidates (${validationRate}% success rate)${data.quality_metrics?.apollo_enriched ? ' with Apollo.io email discovery' : ''}${data.quality_metrics?.enhanced_google_search ? ' + targeted Google search' : ''}${data.quality_metrics?.github_readme_crawling ? ' + README email extraction' : ''}${featureHighlights.length > 0 ? `. Features: ${featureHighlights.join(', ')}` : ''}${errorMessage}`,
+        title: "✅ Collection Completed",
+        description: `Found ${data.total_validated} quality candidates (${validationRate}% success rate)${featureHighlights.length > 0 ? `. Features: ${featureHighlights.join(', ')}` : ''}${errorMessage}`,
         variant: data.total_validated > 0 ? "default" : "destructive",
       });
 
       return data;
 
     } catch (error: any) {
-      console.error('Phase 2.5 enhanced data collection error:', error);
+      console.error('Data collection error:', error);
       setProgress('');
       
-      let errorMessage = "Failed to collect candidates with Phase 2.5 enhancements";
+      let errorMessage = "Failed to collect candidates";
       let debugInfo = "";
       
-      if (error.message?.includes('Failed to fetch')) {
-        errorMessage = "Network error: Unable to connect to the data collection service. Please check your connection and try again.";
-        debugInfo = "This might indicate an edge function deployment issue or network connectivity problem.";
+      if (error.message?.includes('Failed to fetch') || error.message?.includes('fetch failed')) {
+        errorMessage = "Network issue: Unable to connect to the data collection service";
+        debugInfo = "Check your connection or try again later";
       } else if (error.message?.includes('timeout')) {
-        errorMessage = "Request timed out. The enhanced validation with Apollo.io enrichment takes time. Please try again.";
-        debugInfo = "Consider reducing the number of sources or try again with a more specific query.";
+        errorMessage = "Collection timeout: Operation took too long";
+        debugInfo = "Try fewer sources or a more specific query";
       } else if (error.message?.includes('API')) {
-        errorMessage = "AI or Apollo service temporarily unavailable. Please try again later.";
-        debugInfo = "Some external services may be experiencing issues.";
-      } else if (error.message?.includes('configuration')) {
-        errorMessage = "Server configuration error. Please contact support.";
-        debugInfo = "This indicates missing API keys or environment setup issues.";
+        errorMessage = "External API issue";
+        debugInfo = "Some services may be experiencing problems";
       }
       
-      console.error('Detailed error information:', {
+      console.error('Error information:', {
         originalError: error,
-        errorMessage,
-        debugInfo,
-        timestamp: new Date().toISOString()
+        message: errorMessage,
+        debugInfo
       });
       
       toast({
-        title: "Phase 2.5 Collection Failed",
-        description: errorMessage + (debugInfo ? ` ${debugInfo}` : ''),
+        title: "Collection Failed",
+        description: errorMessage + (debugInfo ? ` - ${debugInfo}` : ''),
         variant: "destructive",
       });
       
-      // Return partial result for debugging if available
       return null;
     } finally {
       setIsCollecting(false);
