@@ -1,119 +1,26 @@
 
-import React, { useState, useEffect } from 'react';
-import { Search, MessageCircle, Filter, Users, TrendingUp, Zap, LogOut, Database } from 'lucide-react';
+import React from 'react';
 import { ChatInterface } from '../components/ChatInterface';
-import { CandidateCard } from '../components/CandidateCard';
 import { FilterPanel } from '../components/FilterPanel';
 import { StatsOverview } from '../components/StatsOverview';
 import { DataCollectionDrawer } from '../components/DataCollectionDrawer';
+import { Header } from '../components/layout/Header';
+import { SearchResults } from '../components/candidates/SearchResults';
+import { CandidatesList } from '../components/candidates/CandidatesList';
 import { useCandidates } from '../hooks/useCandidates';
 import { useAuth } from '../hooks/useAuth';
-import { supabase } from '@/integrations/supabase/client';
+import { useSearch } from '../hooks/useSearch';
+import { useFilters } from '../hooks/useFilters';
+import { useUIState } from '../hooks/useUIState';
 import { useToast } from '@/hooks/use-toast';
 
 const Index = () => {
   const { candidates, loading, refetch } = useCandidates();
   const { user, signOut } = useAuth();
   const { toast } = useToast();
-  const [isFilterOpen, setIsFilterOpen] = useState(false);
-  const [isDataCollectionOpen, setIsDataCollectionOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<any[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
-  const [filters, setFilters] = useState({
-    minScore: 0,
-    maxScore: 100,
-    location: '',
-    lastActive: '',
-    skills: []
-  });
-
-  const handleSearch = async (query: string) => {
-    if (!user) {
-      toast({
-        title: "Authentication required",
-        description: "Please sign in to search candidates",
-        variant: "destructive",
-      });
-      return;
-    }
-    
-    setSearchQuery(query);
-    setIsSearching(true);
-
-    try {
-      console.log('Starting search with query:', query);
-      
-      // Try enhanced search first, fall back to basic search if it fails
-      let searchResponse;
-      
-      try {
-        searchResponse = await supabase.functions.invoke('enhanced-search-candidates', {
-          body: { query, user_id: user.id }
-        });
-        
-        if (searchResponse.error) {
-          console.warn('Enhanced search failed, trying basic search:', searchResponse.error);
-          throw new Error('Enhanced search failed');
-        }
-      } catch (enhancedError) {
-        console.log('Enhanced search failed, falling back to basic search');
-        
-        // Fallback to basic search
-        searchResponse = await supabase.functions.invoke('search-candidates', {
-          body: { query, user_id: user.id }
-        });
-      }
-
-      if (searchResponse.error) {
-        console.error('Both search methods failed:', searchResponse.error);
-        throw new Error(searchResponse.error.message || 'All search methods failed');
-      }
-
-      if (!searchResponse.data) {
-        throw new Error('No data returned from search');
-      }
-
-      const searchData = searchResponse.data;
-      setSearchResults(searchData.candidates || []);
-      
-      const resultCount = searchData.total_results || searchData.candidates?.length || 0;
-      
-      toast({
-        title: "Search completed",
-        description: `Found ${resultCount} candidates matching your search criteria.`,
-      });
-
-      console.log('Search completed successfully:', {
-        query,
-        resultCount,
-        searchType: searchData.fallback_used ? 'basic' : 'enhanced'
-      });
-
-    } catch (error: any) {
-      console.error('Search error:', error);
-      
-      let errorMessage = "Failed to search candidates";
-      if (error.message?.includes('Edge Function')) {
-        errorMessage = "Search service is currently unavailable. Please try again later.";
-      } else if (error.message?.includes('timeout')) {
-        errorMessage = "Search request timed out. Please try a simpler query.";
-      } else if (error.message) {
-        errorMessage = error.message;
-      }
-      
-      toast({
-        title: "Search failed",
-        description: errorMessage,
-        variant: "destructive",
-      });
-      
-      // Clear search results on error
-      setSearchResults([]);
-    } finally {
-      setIsSearching(false);
-    }
-  };
+  const { searchQuery, searchResults, isSearching, handleSearch, clearSearch } = useSearch();
+  const { filters, setFilters, applyFilters } = useFilters();
+  const { isFilterOpen, setIsFilterOpen, isDataCollectionOpen, setIsDataCollectionOpen } = useUIState();
 
   const handleSignOut = async () => {
     await signOut();
@@ -125,59 +32,18 @@ const Index = () => {
 
   // Use search results if available, otherwise use all candidates
   const displayCandidates = searchResults.length > 0 ? searchResults : candidates;
-
-  const filteredCandidates = displayCandidates.filter(candidate => {
-    if (filters.minScore && candidate.overall_score < filters.minScore) return false;
-    if (filters.maxScore && candidate.overall_score > filters.maxScore) return false;
-    if (filters.location && !candidate.location?.toLowerCase().includes(filters.location.toLowerCase())) return false;
-    return true;
-  });
+  const filteredCandidates = applyFilters(displayCandidates);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100">
-      {/* Header */}
-      <header className="bg-white/90 backdrop-blur-sm border-b border-slate-200 sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center space-x-3">
-              <div className="w-8 h-8 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-lg flex items-center justify-center">
-                <Zap className="w-5 h-5 text-white" />
-              </div>
-              <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
-                TalentMind
-              </h1>
-            </div>
-            <div className="flex items-center space-x-4">
-              <button
-                onClick={() => setIsDataCollectionOpen(true)}
-                className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-              >
-                <Database className="w-4 h-4" />
-                <span>Collect Data</span>
-              </button>
-              <button
-                onClick={() => setIsFilterOpen(!isFilterOpen)}
-                className="flex items-center space-x-2 px-4 py-2 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors"
-              >
-                <Filter className="w-4 h-4" />
-                <span>Filters</span>
-              </button>
-              <div className="flex items-center space-x-2">
-                <span className="text-sm text-slate-600">Welcome, {user?.email}</span>
-                <button
-                  onClick={handleSignOut}
-                  className="p-2 text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors"
-                >
-                  <LogOut className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </header>
+      <Header 
+        user={user}
+        onSignOut={handleSignOut}
+        onToggleFilters={() => setIsFilterOpen(!isFilterOpen)}
+        onOpenDataCollection={() => setIsDataCollectionOpen(true)}
+      />
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Stats Overview */}
         <StatsOverview totalCandidates={displayCandidates.length} />
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mt-8">
@@ -188,27 +54,11 @@ const Index = () => {
 
           {/* Main Content */}
           <div className="lg:col-span-2">
-            {/* Results Header */}
-            <div className="flex justify-between items-center mb-6">
-              <div>
-                <h2 className="text-xl font-semibold text-slate-900">
-                  {searchQuery ? 'Search Results' : 'All Candidates'}
-                </h2>
-                <p className="text-slate-600 mt-1">
-                  {isSearching ? 'Searching...' : `${filteredCandidates.length} candidates found`}
-                  {searchQuery && (
-                    <span className="ml-2 text-blue-600">
-                      for "{searchQuery}"
-                    </span>
-                  )}
-                </p>
-              </div>
-              <select className="px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                <option>Sort by Overall Score</option>
-                <option>Sort by Experience</option>
-                <option>Sort by Last Active</option>
-              </select>
-            </div>
+            <SearchResults 
+              searchQuery={searchQuery}
+              isSearching={isSearching}
+              candidateCount={filteredCandidates.length}
+            />
 
             {/* Filter Panel */}
             {isFilterOpen && (
@@ -217,54 +67,14 @@ const Index = () => {
               </div>
             )}
 
-            {/* Loading State */}
-            {(loading || isSearching) && (
-              <div className="text-center py-8">
-                <div className="w-8 h-8 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-full animate-spin mx-auto mb-4"></div>
-                <p className="text-slate-600">{isSearching ? 'Searching candidates...' : 'Loading candidates...'}</p>
-              </div>
-            )}
-
-            {/* Candidate Grid */}
-            {!loading && !isSearching && (
-              <div className="space-y-6">
-                {filteredCandidates.length > 0 ? (
-                  filteredCandidates.map((candidate) => (
-                    <CandidateCard key={candidate.id} candidate={candidate} />
-                  ))
-                ) : (
-                  <div className="text-center py-8">
-                    <p className="text-slate-600">
-                      {searchQuery ? 'No candidates found matching your search criteria.' : 'No candidates available.'}
-                    </p>
-                    {searchQuery && (
-                      <button
-                        onClick={() => {
-                          setSearchQuery('');
-                          setSearchResults([]);
-                        }}
-                        className="mt-2 text-blue-600 hover:text-blue-700"
-                      >
-                        Show all candidates
-                      </button>
-                    )}
-                    {!searchQuery && candidates.length === 0 && (
-                      <div className="mt-4">
-                        <p className="text-sm text-slate-500 mb-4">
-                          Get started by collecting candidate data from various sources.
-                        </p>
-                        <button
-                          onClick={() => setIsDataCollectionOpen(true)}
-                          className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-                        >
-                          Start Collecting Data
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
+            <CandidatesList 
+              candidates={filteredCandidates}
+              loading={loading}
+              isSearching={isSearching}
+              searchQuery={searchQuery}
+              onClearSearch={clearSearch}
+              onOpenDataCollection={() => setIsDataCollectionOpen(true)}
+            />
           </div>
         </div>
       </div>
