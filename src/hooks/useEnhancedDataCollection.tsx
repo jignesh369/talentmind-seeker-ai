@@ -1,4 +1,3 @@
-
 import { useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from './useAuth';
@@ -70,21 +69,20 @@ export const useEnhancedDataCollection = () => {
 
     setIsCollecting(true);
     setCollectionResult(null);
-    setProgress('⚡ Initializing time-budget architecture...');
+    setProgress('⚡ Initializing optimized collection...');
     
     const updateProgress = (message: string) => {
       setProgress(message);
     };
 
     try {
-      // Fast progress phases with time-budget awareness
+      // Optimized progress phases
       let phaseCount = 0;
       const phases = [
-        '📊 Analyzing market intelligence (5s budget)...',
-        '🎯 Processing enhanced query (3s budget)...',
+        '🎯 Processing query (fast mode)...',
         '🌐 Parallel source collection (60s budget)...',
-        '🔄 Fast deduplication and ranking (5s budget)...',
-        '✨ Selective AI enhancement (remaining time)...',
+        '🔄 Fast deduplication...',
+        '✨ Finalizing results...',
       ];
       
       const progressInterval = setInterval(() => {
@@ -92,22 +90,21 @@ export const useEnhancedDataCollection = () => {
           phaseCount++;
           updateProgress(phases[phaseCount]);
         }
-      }, 12000); // Slower updates for more accurate representation
+      }, 8000); // Faster updates
       
-      console.log('🚀 Starting time-budget enhanced collection with:', { query, location, sources });
+      console.log('🚀 Starting optimized collection with:', { query, location, sources });
       
-      // Reduced timeout to 75 seconds (from 120)
+      // Reduced timeout to 65 seconds
       const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error('Time budget exceeded')), 75000);
+        setTimeout(() => reject(new Error('Collection timeout')), 65000);
       });
       
       const collectionPromise = supabase.functions.invoke('enhanced-data-collection', {
         body: { 
           query, 
           location, 
-          sources,
-          enhanced_mode: true,
-          time_budget: 90 // 90 second budget
+          sources: sources.slice(0, 4), // Limit to 4 sources max
+          time_budget: 60 // 60 second budget
         }
       });
       
@@ -116,53 +113,52 @@ export const useEnhancedDataCollection = () => {
         response = await Promise.race([collectionPromise, timeoutPromise]);
       } catch (error) {
         clearInterval(progressInterval);
-        if (error instanceof Error && error.message === 'Time budget exceeded') {
-          throw new Error('Collection exceeded time budget: Search took too long');
+        if (error instanceof Error && error.message === 'Collection timeout') {
+          throw new Error('Collection timeout: Search exceeded time limit');
         }
         throw error;
       }
       
       clearInterval(progressInterval);
 
-      console.log('🎉 Time-budget collection response:', response);
+      console.log('🎉 Collection response:', response);
 
       if (response.error) {
-        console.error('Enhanced collection error:', response.error);
-        throw new Error(response.error.message || 'Enhanced data collection failed');
+        console.error('Collection error:', response.error);
+        throw new Error(response.error.message || 'Data collection failed');
       }
 
       if (!response.data) {
-        throw new Error('No data returned from enhanced collection');
+        throw new Error('No data returned from collection');
       }
 
       const data = response.data;
       setCollectionResult(data);
       setProgress('');
       
-      // Enhanced success metrics with time efficiency
+      // Enhanced success metrics
       const successfulSources = Object.values(data.results).filter((result: any) => !result.error).length;
       const processingTime = data.performance_metrics?.total_time_ms || 0;
       const timeEfficiency = data.quality_metrics?.time_efficiency || 'N/A';
-      const timeBudgetUsed = data.enhancement_stats?.time_budget_used || 0;
+      const successRate = data.performance_metrics?.success_rate || 0;
       
       // Generate performance highlights
       const performanceHighlights = [];
-      if (processingTime < 30000) performanceHighlights.push('⚡ Ultra-fast');
-      if (processingTime < 60000) performanceHighlights.push('🚀 Fast');
+      if (processingTime < 20000) performanceHighlights.push('⚡ Ultra-fast');
+      else if (processingTime < 40000) performanceHighlights.push('🚀 Fast');
       if (data.quality_metrics?.parallel_processing) performanceHighlights.push('🔀 Parallel');
-      if (data.quality_metrics?.smart_limiting) performanceHighlights.push('🎯 Smart limits');
-      if (data.quality_metrics?.early_returns) performanceHighlights.push('⏰ Early return');
+      if (successRate >= 75) performanceHighlights.push('✅ High success');
       
-      const timeMessage = `${Math.round(processingTime / 1000)}s (${timeBudgetUsed}% budget)`;
-      const efficiencyMessage = timeEfficiency !== 'N/A' ? `${timeEfficiency} efficiency` : '';
+      const timeMessage = `${Math.round(processingTime / 1000)}s`;
+      const sourcesMessage = `${successfulSources}/${Object.keys(data.results).length} sources`;
       
       const successMessage = `Found ${data.total_validated} candidates in ${timeMessage}`;
       const performanceMessage = performanceHighlights.length > 0 ? ` • ${performanceHighlights.join(' ')}` : '';
-      const efficiencyDisplayMessage = efficiencyMessage ? ` • ${efficiencyMessage}` : '';
+      const sourcesDisplayMessage = ` • ${sourcesMessage}`;
       
       toast({
-        title: "⚡ Fast Collection Completed",
-        description: `${successMessage}${performanceMessage}${efficiencyDisplayMessage}`,
+        title: "⚡ Optimized Collection Completed",
+        description: `${successMessage}${performanceMessage}${sourcesDisplayMessage}`,
         variant: data.total_validated > 0 ? "default" : "destructive",
       });
 
@@ -172,28 +168,28 @@ export const useEnhancedDataCollection = () => {
       console.error('Enhanced data collection error:', error);
       setProgress('');
       
-      let errorMessage = "Failed to collect candidates with time-budget optimization";
+      let errorMessage = "Failed to collect candidates";
       let debugInfo = "";
       
-      if (error.message?.includes('Time budget exceeded')) {
-        errorMessage = "Collection exceeded time budget";
+      if (error.message?.includes('Collection timeout')) {
+        errorMessage = "Collection timeout";
         debugInfo = "Try fewer sources or a more specific query";
       } else if (error.message?.includes('timeout')) {
-        errorMessage = "Time budget optimization timeout";
+        errorMessage = "Request timeout";
         debugInfo = "Some sources took longer than expected";
       } else if (error.message?.includes('Failed to fetch')) {
-        errorMessage = "Network issue during optimized collection";
+        errorMessage = "Network issue";
         debugInfo = "Check connection and try again";
       }
       
-      console.error('Time-budget collection error:', {
+      console.error('Collection error:', {
         originalError: error,
         message: errorMessage,
         debugInfo
       });
       
       toast({
-        title: "Fast Collection Failed",
+        title: "Collection Failed",
         description: errorMessage + (debugInfo ? ` - ${debugInfo}` : ''),
         variant: "destructive",
       });

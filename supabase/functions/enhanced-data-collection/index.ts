@@ -1,19 +1,70 @@
+
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { TimeBudgetManager } from './time-budget-manager.ts'
 
-export default async function handler(req: Request) {
-  const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+}
+
+interface SourceResult {
+  source: string;
+  candidates: any[];
+  total: number;
+  validated: number;
+  error: string | null;
+  processingTime: number;
+}
+
+interface TimeBudget {
+  total: number;
+  perSource: number;
+  startTime: number;
+  remaining: number;
+}
+
+class SimplifiedTimeBudgetManager {
+  private budget: TimeBudget;
+
+  constructor(totalTimeSeconds: number = 60) {
+    this.budget = {
+      total: totalTimeSeconds * 1000,
+      perSource: 15000, // 15 seconds max per source
+      startTime: Date.now(),
+      remaining: totalTimeSeconds * 1000
+    };
   }
 
+  hasTimeRemaining(): boolean {
+    this.budget.remaining = Math.max(0, this.budget.total - (Date.now() - this.budget.startTime));
+    return this.budget.remaining > 2000; // At least 2 seconds remaining
+  }
+
+  getTimeForSource(): number {
+    return Math.min(this.budget.perSource, this.budget.remaining);
+  }
+
+  async withTimeout<T>(operation: Promise<T>, timeoutMs: number): Promise<T | null> {
+    try {
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('Operation timeout')), timeoutMs);
+      });
+
+      return await Promise.race([operation, timeoutPromise]);
+    } catch (error) {
+      console.log(`Operation timed out after ${timeoutMs}ms:`, error.message);
+      return null;
+    }
+  }
+}
+
+serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
 
   try {
-    const { query, location, sources = ['github', 'stackoverflow', 'google'], enhanced_mode = true, time_budget = 90 } = await req.json()
+    const { query, location, sources = ['github', 'stackoverflow', 'google'], time_budget = 60 } = await req.json()
 
     if (!query) {
       return new Response(
@@ -22,43 +73,35 @@ export default async function handler(req: Request) {
       )
     }
 
-    console.log('🚀 Starting enhanced data collection with time budget:', time_budget, 'seconds')
+    console.log('🚀 Starting enhanced data collection with 60s time budget')
 
     const startTime = Date.now()
-    const timeBudget = new TimeBudgetManager(time_budget)
+    const timeBudget = new SimplifiedTimeBudgetManager(time_budget)
     
     // Simplify query for better results
-    const simplifiedQuery = query.split(' ').slice(0, 5).join(' ')
+    const simplifiedQuery = query.split(' ').slice(0, 3).join(' ')
     console.log('📝 Simplified query:', simplifiedQuery)
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     const supabase = createClient(supabaseUrl, supabaseKey)
 
-    // Phase 1: Market Intelligence (5s budget)
-    console.log('📊 Phase 1: Analyzing market intelligence...')
-    const marketIntelligence = await getMarketIntelligence(simplifiedQuery, location)
+    // Phase 1: Parallel Source Collection with Individual Timeouts
+    console.log('🌐 Starting parallel source collection...')
     
-    // Phase 2: Enhanced Query Processing (3s budget)
-    console.log('🎯 Phase 2: Processing enhanced query...')
-    const enhancedQuery = await enhanceQuery(simplifiedQuery, location, marketIntelligence)
-    
-    // Phase 3: Parallel Source Collection (60s budget)
-    console.log('🌐 Phase 3: Parallel source collection...')
-    timeBudget.updateProgress('Collecting from sources', 0, sources.length, 0)
-    
-    const collectionPromises = sources.map(async (source) => {
+    const sourcePromises = sources.slice(0, 4).map(async (source): Promise<SourceResult> => { // Limit to 4 sources max
+      const sourceStartTime = Date.now()
       const sourceTimeout = timeBudget.getTimeForSource()
       
       try {
-        const sourceStartTime = Date.now()
-        
+        console.log(`🚀 Processing source: ${source} with ${sourceTimeout}ms timeout`)
+
         let result = null
         switch (source) {
           case 'github':
             result = await timeBudget.withTimeout(
               supabase.functions.invoke('collect-github-data', {
-                body: { query: simplifiedQuery, location, enhancedQuery }
+                body: { query: simplifiedQuery, location }
               }),
               sourceTimeout
             )
@@ -66,7 +109,7 @@ export default async function handler(req: Request) {
           case 'stackoverflow':
             result = await timeBudget.withTimeout(
               supabase.functions.invoke('collect-stackoverflow-data', {
-                body: { query: simplifiedQuery, location, enhancedQuery }
+                body: { query: simplifiedQuery }
               }),
               sourceTimeout
             )
@@ -74,7 +117,7 @@ export default async function handler(req: Request) {
           case 'google':
             result = await timeBudget.withTimeout(
               supabase.functions.invoke('collect-google-search-data', {
-                body: { query: simplifiedQuery, location, enhancedQuery }
+                body: { query: simplifiedQuery, location }
               }),
               sourceTimeout
             )
@@ -82,7 +125,7 @@ export default async function handler(req: Request) {
           case 'kaggle':
             result = await timeBudget.withTimeout(
               supabase.functions.invoke('collect-kaggle-data', {
-                body: { query: simplifiedQuery, location, enhancedQuery }
+                body: { query: simplifiedQuery }
               }),
               sourceTimeout
             )
@@ -90,84 +133,104 @@ export default async function handler(req: Request) {
           case 'devto':
             result = await timeBudget.withTimeout(
               supabase.functions.invoke('collect-devto-data', {
-                body: { query: simplifiedQuery, location, enhancedQuery }
+                body: { query: simplifiedQuery }
               }),
               sourceTimeout
             )
             break
           default:
             console.log(`⚠️ Unknown source: ${source}`)
-            return { source, candidates: [], total: 0, error: 'Unknown source' }
+            return {
+              source,
+              candidates: [],
+              total: 0,
+              validated: 0,
+              error: 'Unknown source',
+              processingTime: Date.now() - sourceStartTime
+            }
         }
 
-        const sourceTime = Date.now() - sourceStartTime
-        console.log(`✅ ${source}: ${result?.data?.candidates?.length || 0} candidates in ${sourceTime}ms`)
+        const processingTime = Date.now() - sourceStartTime
 
-        if (result?.error) {
-          console.error(`❌ ${source} error:`, result.error)
-          return { source, candidates: [], total: 0, error: result.error.message || 'Unknown error' }
-        }
-
-        if (!result?.data) {
+        if (result?.data) {
+          const candidates = (result.data.candidates || []).slice(0, 8) // Limit to 8 candidates per source
+          console.log(`✅ ${source}: ${candidates.length} candidates in ${processingTime}ms`)
+          
+          return {
+            source,
+            candidates,
+            total: result.data.total || 0,
+            validated: candidates.length,
+            error: null,
+            processingTime
+          }
+        } else {
           console.log(`❌ ${source}: No data returned`)
-          return { source, candidates: [], total: 0, error: 'No data returned' }
-        }
-
-        return {
-          source,
-          candidates: result.data.candidates || [],
-          total: result.data.total || 0,
-          validated: result.data.candidates?.length || 0,
-          error: null
+          return {
+            source,
+            candidates: [],
+            total: 0,
+            validated: 0,
+            error: result?.error?.message || 'No data returned',
+            processingTime
+          }
         }
       } catch (error) {
+        const processingTime = Date.now() - sourceStartTime
         console.error(`❌ ${source} collection failed:`, error.message)
-        return { source, candidates: [], total: 0, error: error.message }
+        return {
+          source,
+          candidates: [],
+          total: 0,
+          validated: 0,
+          error: error.message,
+          processingTime
+        }
       }
     })
 
-    const sourceResults = await Promise.all(collectionPromises)
-    console.log('✅ Parallel processing completed:', sourceResults.length, 'sources processed')
+    // Wait for all sources with graceful degradation
+    const sourceResults = await Promise.allSettled(sourcePromises)
+    const processedResults: SourceResult[] = []
 
-    // Phase 4: Fast Deduplication and Ranking (5s budget)
-    console.log('🔄 Phase 4: Fast deduplication and ranking...')
+    sourceResults.forEach((result) => {
+      if (result.status === 'fulfilled') {
+        processedResults.push(result.value)
+      } else {
+        console.error('Source promise rejected:', result.reason)
+      }
+    })
+
+    console.log(`✅ Parallel processing completed: ${processedResults.length} sources processed`)
+
+    // Phase 2: Fast Deduplication
+    console.log('🔄 Fast deduplication...')
     const allCandidates = []
     const seenEmails = new Set()
     const seenGitHubUsers = new Set()
-    const seenStackOverflowIds = new Set()
 
-    sourceResults.forEach(result => {
+    processedResults.forEach(result => {
       if (result.candidates) {
         result.candidates.forEach(candidate => {
           // Simple deduplication
           const isDuplicate = 
             (candidate.email && seenEmails.has(candidate.email)) ||
-            (candidate.github_username && seenGitHubUsers.has(candidate.github_username)) ||
-            (candidate.stackoverflow_id && seenStackOverflowIds.has(candidate.stackoverflow_id))
+            (candidate.github_username && seenGitHubUsers.has(candidate.github_username))
 
           if (!isDuplicate) {
             if (candidate.email) seenEmails.add(candidate.email)
             if (candidate.github_username) seenGitHubUsers.add(candidate.github_username)
-            if (candidate.stackoverflow_id) seenStackOverflowIds.add(candidate.stackoverflow_id)
             allCandidates.push(candidate)
           }
         })
       }
     })
 
-    console.log(`📊 Collected ${allCandidates.length} candidates from ${sources.length} sources`)
-
-    // Phase 5: Selective AI Enhancement (remaining time)
-    console.log('✨ Phase 5: Selective AI enhancement...')
-    const topCandidates = allCandidates
-      .sort((a, b) => (b.overall_score || 0) - (a.overall_score || 0))
-      .slice(0, Math.min(allCandidates.length, 15)) // Limit to top 15 for enhancement
-
-    console.log(`✨ Enhancing top ${topCandidates.length} candidates with AI...`)
+    console.log(`📊 Collected ${allCandidates.length} unique candidates`)
 
     // Build results object
     const results = {}
-    sourceResults.forEach(result => {
+    processedResults.forEach(result => {
       results[result.source] = {
         candidates: result.candidates || [],
         total: result.total || 0,
@@ -187,36 +250,33 @@ export default async function handler(req: Request) {
       total_validated: allCandidates.length,
       query: simplifiedQuery,
       location,
-      enhancement_phase: enhanced_mode ? 'AI Enhanced' : 'Standard',
+      enhancement_phase: 'Parallel Optimized',
       quality_metrics: {
         validation_rate: '100%',
         processing_time: `${Math.round(totalTime / 1000)}s`,
-        time_efficiency: timeBudgetUsed <= 90 ? 'Excellent' : timeBudgetUsed <= 110 ? 'Good' : 'Acceptable',
+        time_efficiency: timeBudgetUsed <= 80 ? 'Excellent' : timeBudgetUsed <= 100 ? 'Good' : 'Acceptable',
         parallel_processing: true,
         smart_limiting: true,
-        early_returns: timeBudgetUsed < 80
+        early_returns: timeBudgetUsed < 70
       },
       performance_metrics: {
         total_time_ms: totalTime,
         average_time_per_source: Math.round(totalTime / sources.length),
-        timeout_rate: 0,
-        success_rate: 100
+        timeout_rate: processedResults.filter(r => r.error?.includes('timeout')).length / processedResults.length * 100,
+        success_rate: Math.round(processedResults.filter(r => !r.error).length / processedResults.length * 100)
       },
       enhancement_stats: {
         total_processed: allCandidates.length,
         unique_candidates: allCandidates.length,
         processing_time_ms: totalTime,
         time_budget_used: timeBudgetUsed,
-        sources_successful: sourceResults.filter(r => !r.error).length,
+        sources_successful: processedResults.filter(r => !r.error).length,
         parallel_processing: true,
         ai_enhancements: 0,
         apollo_enriched: 0
       },
       timestamp: new Date().toISOString()
     }
-
-    // Cache the result
-    console.log(`💾 Cached result for query: ${simplifiedQuery}... (${JSON.stringify(response).length} bytes)`)
 
     return new Response(JSON.stringify(response), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -238,13 +298,4 @@ export default async function handler(req: Request) {
       }
     )
   }
-}
-
-// Simplified helper functions
-async function getMarketIntelligence(query: string, location?: string) {
-  return { skills: query.split(' ').slice(0, 3), keywords: [query] }
-}
-
-async function enhanceQuery(query: string, location?: string, intelligence?: any) {
-  return { skills: intelligence?.skills || [], keywords: intelligence?.keywords || [] }
-}
+})
