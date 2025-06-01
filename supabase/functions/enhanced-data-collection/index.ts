@@ -16,48 +16,6 @@ interface SourceResult {
   processingTime: number;
 }
 
-interface TimeBudget {
-  total: number;
-  perSource: number;
-  startTime: number;
-  remaining: number;
-}
-
-class SimplifiedTimeBudgetManager {
-  private budget: TimeBudget;
-
-  constructor(totalTimeSeconds: number = 60) {
-    this.budget = {
-      total: totalTimeSeconds * 1000,
-      perSource: 15000, // 15 seconds max per source
-      startTime: Date.now(),
-      remaining: totalTimeSeconds * 1000
-    };
-  }
-
-  hasTimeRemaining(): boolean {
-    this.budget.remaining = Math.max(0, this.budget.total - (Date.now() - this.budget.startTime));
-    return this.budget.remaining > 2000; // At least 2 seconds remaining
-  }
-
-  getTimeForSource(): number {
-    return Math.min(this.budget.perSource, this.budget.remaining);
-  }
-
-  async withTimeout<T>(operation: Promise<T>, timeoutMs: number): Promise<T | null> {
-    try {
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error('Operation timeout')), timeoutMs);
-      });
-
-      return await Promise.race([operation, timeoutPromise]);
-    } catch (error) {
-      console.log(`Operation timed out after ${timeoutMs}ms:`, error.message);
-      return null;
-    }
-  }
-}
-
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -73,12 +31,10 @@ serve(async (req) => {
       )
     }
 
-    console.log('🚀 Starting enhanced data collection with 60s time budget')
+    console.log('🚀 Starting enhanced data collection with improved error handling')
+    console.log(`Query: "${query}", Location: "${location}", Sources: [${sources.join(', ')}]`)
 
     const startTime = Date.now()
-    const timeBudget = new SimplifiedTimeBudgetManager(time_budget)
-    
-    // Simplify query for better results
     const simplifiedQuery = query.split(' ').slice(0, 3).join(' ')
     console.log('📝 Simplified query:', simplifiedQuery)
 
@@ -86,74 +42,56 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     const supabase = createClient(supabaseUrl, supabaseKey)
 
-    // Phase 1: Parallel Source Collection with Individual Timeouts
-    console.log('🌐 Starting parallel source collection...')
+    // Enhanced parallel processing with individual timeouts
+    console.log('🌐 Starting parallel source collection with 15s per source timeout...')
     
-    const sourcePromises = sources.slice(0, 4).map(async (source): Promise<SourceResult> => { // Limit to 4 sources max
+    const sourcePromises = sources.slice(0, 4).map(async (source): Promise<SourceResult> => {
       const sourceStartTime = Date.now()
-      const sourceTimeout = timeBudget.getTimeForSource()
+      const sourceTimeout = 15000 // 15 seconds per source
       
       try {
-        console.log(`🚀 Processing source: ${source} with ${sourceTimeout}ms timeout`)
+        console.log(`🚀 Processing source: ${source}`)
 
-        let result = null
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error('Source timeout')), sourceTimeout)
+        })
+
+        let functionPromise: Promise<any>
         switch (source) {
           case 'github':
-            result = await timeBudget.withTimeout(
-              supabase.functions.invoke('collect-github-data', {
-                body: { query: simplifiedQuery, location }
-              }),
-              sourceTimeout
-            )
+            functionPromise = supabase.functions.invoke('collect-github-data', {
+              body: { query: simplifiedQuery, location }
+            })
             break
           case 'stackoverflow':
-            result = await timeBudget.withTimeout(
-              supabase.functions.invoke('collect-stackoverflow-data', {
-                body: { query: simplifiedQuery }
-              }),
-              sourceTimeout
-            )
+            functionPromise = supabase.functions.invoke('collect-stackoverflow-data', {
+              body: { query: simplifiedQuery }
+            })
             break
           case 'google':
-            result = await timeBudget.withTimeout(
-              supabase.functions.invoke('collect-google-search-data', {
-                body: { query: simplifiedQuery, location }
-              }),
-              sourceTimeout
-            )
-            break
-          case 'kaggle':
-            result = await timeBudget.withTimeout(
-              supabase.functions.invoke('collect-kaggle-data', {
-                body: { query: simplifiedQuery }
-              }),
-              sourceTimeout
-            )
+            functionPromise = supabase.functions.invoke('collect-google-search-data', {
+              body: { query: simplifiedQuery, location }
+            })
             break
           case 'devto':
-            result = await timeBudget.withTimeout(
-              supabase.functions.invoke('collect-devto-data', {
-                body: { query: simplifiedQuery }
-              }),
-              sourceTimeout
-            )
+            functionPromise = supabase.functions.invoke('collect-devto-data', {
+              body: { query: simplifiedQuery }
+            })
+            break
+          case 'kaggle':
+            functionPromise = supabase.functions.invoke('collect-kaggle-data', {
+              body: { query: simplifiedQuery }
+            })
             break
           default:
-            console.log(`⚠️ Unknown source: ${source}`)
-            return {
-              source,
-              candidates: [],
-              total: 0,
-              validated: 0,
-              error: 'Unknown source',
-              processingTime: Date.now() - sourceStartTime
-            }
+            throw new Error(`Unknown source: ${source}`)
         }
 
+        const result = await Promise.race([functionPromise, timeoutPromise])
         const processingTime = Date.now() - sourceStartTime
 
         if (result?.data) {
-          const candidates = (result.data.candidates || []).slice(0, 8) // Limit to 8 candidates per source
+          const candidates = (result.data.candidates || []).slice(0, 6) // Limit to 6 per source
           console.log(`✅ ${source}: ${candidates.length} candidates in ${processingTime}ms`)
           
           return {
@@ -165,45 +103,56 @@ serve(async (req) => {
             processingTime
           }
         } else {
-          console.log(`❌ ${source}: No data returned`)
+          const errorMsg = result?.error?.message || 'No data returned'
+          console.log(`⚠️ ${source}: ${errorMsg}`)
           return {
             source,
             candidates: [],
             total: 0,
             validated: 0,
-            error: result?.error?.message || 'No data returned',
+            error: errorMsg,
             processingTime
           }
         }
       } catch (error) {
         const processingTime = Date.now() - sourceStartTime
-        console.error(`❌ ${source} collection failed:`, error.message)
+        const errorMsg = error.message || 'Unknown error'
+        console.error(`❌ ${source} failed: ${errorMsg}`)
         return {
           source,
           candidates: [],
           total: 0,
           validated: 0,
-          error: error.message,
+          error: errorMsg,
           processingTime
         }
       }
     })
 
-    // Wait for all sources with graceful degradation
+    // Wait for all sources with proper error handling
     const sourceResults = await Promise.allSettled(sourcePromises)
     const processedResults: SourceResult[] = []
 
-    sourceResults.forEach((result) => {
+    sourceResults.forEach((result, index) => {
+      const sourceName = sources[index]
       if (result.status === 'fulfilled') {
         processedResults.push(result.value)
       } else {
-        console.error('Source promise rejected:', result.reason)
+        console.error(`Source ${sourceName} promise rejected:`, result.reason)
+        processedResults.push({
+          source: sourceName,
+          candidates: [],
+          total: 0,
+          validated: 0,
+          error: result.reason?.message || 'Promise rejected',
+          processingTime: 0
+        })
       }
     })
 
     console.log(`✅ Parallel processing completed: ${processedResults.length} sources processed`)
 
-    // Phase 2: Fast Deduplication
+    // Fast deduplication
     console.log('🔄 Fast deduplication...')
     const allCandidates = []
     const seenEmails = new Set()
@@ -212,7 +161,6 @@ serve(async (req) => {
     processedResults.forEach(result => {
       if (result.candidates) {
         result.candidates.forEach(candidate => {
-          // Simple deduplication
           const isDuplicate = 
             (candidate.email && seenEmails.has(candidate.email)) ||
             (candidate.github_username && seenGitHubUsers.has(candidate.github_username))
@@ -228,8 +176,10 @@ serve(async (req) => {
 
     console.log(`📊 Collected ${allCandidates.length} unique candidates`)
 
-    // Build results object
+    // Build results object with detailed error reporting
     const results = {}
+    const errors = []
+    
     processedResults.forEach(result => {
       results[result.source] = {
         candidates: result.candidates || [],
@@ -237,12 +187,18 @@ serve(async (req) => {
         validated: result.validated || 0,
         error: result.error
       }
+      
+      if (result.error) {
+        errors.push({ source: result.source, error: result.error })
+      }
     })
 
     const totalTime = Date.now() - startTime
-    const timeBudgetUsed = Math.round((totalTime / (time_budget * 1000)) * 100)
+    const successfulSources = processedResults.filter(r => !r.error).length
+    const successRate = Math.round((successfulSources / processedResults.length) * 100)
 
     console.log(`🎉 Enhanced collection completed in ${totalTime}ms: ${allCandidates.length} unique candidates`)
+    console.log(`📊 Success rate: ${successRate}% (${successfulSources}/${processedResults.length} sources)`)
 
     const response = {
       results,
@@ -254,27 +210,28 @@ serve(async (req) => {
       quality_metrics: {
         validation_rate: '100%',
         processing_time: `${Math.round(totalTime / 1000)}s`,
-        time_efficiency: timeBudgetUsed <= 80 ? 'Excellent' : timeBudgetUsed <= 100 ? 'Good' : 'Acceptable',
+        time_efficiency: totalTime < 30000 ? 'Excellent' : totalTime < 60000 ? 'Good' : 'Acceptable',
         parallel_processing: true,
         smart_limiting: true,
-        early_returns: timeBudgetUsed < 70
+        early_returns: totalTime < 40000
       },
       performance_metrics: {
         total_time_ms: totalTime,
         average_time_per_source: Math.round(totalTime / sources.length),
         timeout_rate: processedResults.filter(r => r.error?.includes('timeout')).length / processedResults.length * 100,
-        success_rate: Math.round(processedResults.filter(r => !r.error).length / processedResults.length * 100)
+        success_rate: successRate
       },
       enhancement_stats: {
         total_processed: allCandidates.length,
         unique_candidates: allCandidates.length,
         processing_time_ms: totalTime,
-        time_budget_used: timeBudgetUsed,
-        sources_successful: processedResults.filter(r => !r.error).length,
+        time_budget_used: Math.round((totalTime / (time_budget * 1000)) * 100),
+        sources_successful: successfulSources,
         parallel_processing: true,
         ai_enhancements: 0,
         apollo_enriched: 0
       },
+      errors: errors.length > 0 ? errors : undefined,
       timestamp: new Date().toISOString()
     }
 

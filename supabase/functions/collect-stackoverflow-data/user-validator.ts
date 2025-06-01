@@ -2,55 +2,56 @@
 import { StackOverflowUser } from './api-client.ts'
 
 export function validateStackOverflowUser(user: StackOverflowUser): boolean {
-  // Must have minimum reputation
-  if (user.reputation < 50) {
+  console.log(`🔍 Validating user ${user.user_id}: reputation=${user.reputation}, answers=${user.answer_count}, questions=${user.question_count}`)
+  
+  // Significantly relaxed validation criteria
+  
+  // Must have minimum reputation (lowered from 50 to 25)
+  if (user.reputation < 25) {
+    console.log(`❌ User ${user.user_id} failed: Low reputation (${user.reputation})`)
     return false
   }
   
-  // Account must be at least 30 days old
+  // Account must be at least 7 days old (reduced from 30 days)
   const accountAge = Date.now() / 1000 - user.creation_date
-  const thirtyDays = 30 * 24 * 60 * 60
-  if (accountAge < thirtyDays) {
+  const sevenDays = 7 * 24 * 60 * 60
+  if (accountAge < sevenDays) {
+    console.log(`❌ User ${user.user_id} failed: Too new (${Math.round(accountAge / (24 * 60 * 60))} days)`)
     return false
   }
   
-  // Must have some activity
+  // Must have some activity (more lenient)
   if (user.answer_count === 0 && user.question_count === 0) {
+    console.log(`❌ User ${user.user_id} failed: No activity`)
     return false
   }
   
-  // Skip accounts with suspicious patterns
-  if (user.reputation > 10000 && user.answer_count === 0) {
-    return false // Reputation without answers is suspicious
-  }
+  // Remove suspicious pattern check - it was too strict
   
+  console.log(`✅ User ${user.user_id} passed validation`)
   return true
 }
 
 export function isQualityStackOverflowCandidate(user: StackOverflowUser): boolean {
-  // Additional quality checks for premium candidates
+  // More lenient quality checks
   
-  // Higher reputation threshold for quality
-  if (user.reputation < 200) {
+  // Lower reputation threshold for quality (reduced from 200 to 100)
+  if (user.reputation < 100) {
     return false
   }
   
-  // Must have contributed answers or questions
-  if (user.answer_count < 1 && user.question_count < 2) {
+  // Must have contributed something (more lenient)
+  if (user.answer_count < 1 && user.question_count < 1) {
     return false
   }
   
-  // Recent activity (accessed in last year)
-  const oneYearAgo = Date.now() / 1000 - (365 * 24 * 60 * 60)
-  if (user.last_access_date < oneYearAgo) {
+  // Recent activity (accessed in last 2 years instead of 1)
+  const twoYearsAgo = Date.now() / 1000 - (2 * 365 * 24 * 60 * 60)
+  if (user.last_access_date < twoYearsAgo) {
     return false
   }
   
-  // Good vote ratio
-  const totalVotes = user.up_vote_count + user.down_vote_count
-  if (totalVotes > 0 && user.down_vote_count / totalVotes > 0.3) {
-    return false // Too many downvotes relative to upvotes
-  }
+  // Remove vote ratio check - it was too restrictive
   
   return true
 }

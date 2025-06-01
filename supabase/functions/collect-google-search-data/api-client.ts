@@ -11,43 +11,61 @@ export interface GoogleSearchResult {
 }
 
 export async function searchGoogle(query: string, location?: string): Promise<GoogleSearchResult[]> {
+  console.log('🔍 Google Search API Configuration Check:')
+  console.log(`API Key configured: ${GOOGLE_API_KEY ? 'Yes' : 'No'}`)
+  console.log(`Search Engine ID configured: ${GOOGLE_SEARCH_ENGINE_ID ? 'Yes' : 'No'}`)
+  
   if (!GOOGLE_API_KEY || !GOOGLE_SEARCH_ENGINE_ID) {
-    console.log('Google Search API not configured, returning empty results')
+    console.log('❌ Google Search API not configured properly')
     return []
   }
 
   try {
-    // Create enhanced search queries for better candidate discovery
+    // Simplified search queries for better results
     const searchQueries = [
-      `site:linkedin.com/in "${query}" ${location ? `"${location}"` : ''} -"LinkedIn"`,
-      `site:github.com "${query}" location:anywhere followers:>10`,
-      `"${query}" developer portfolio resume ${location ? `"${location}"` : ''}`,
-      `"${query}" software engineer ${location ? `"${location}"` : ''} -jobs -hiring`,
-      `"${query}" programmer ${location ? `"${location}"` : ''} profile about`
+      `"${query}" developer resume portfolio ${location ? `"${location}"` : ''}`,
+      `"${query}" software engineer ${location ? `"${location}"` : ''} -jobs`,
+      `site:linkedin.com/in "${query}" ${location ? `"${location}"` : ''}`,
+      `site:github.com "${query}" developer`
     ]
 
-    console.log('🔍 Executing enhanced Boolean search queries...')
+    console.log('🔍 Starting Google search with simplified queries...')
     
     const allResults: GoogleSearchResult[] = []
     const seenUrls = new Set<string>()
     
-    for (const searchQuery of searchQueries) {
+    for (const searchQuery of searchQueries.slice(0, 2)) { // Limit to 2 queries for speed
       try {
-        console.log(`🔍 Boolean search: ${searchQuery.substring(0, 80)}...`)
+        console.log(`🔍 Searching: ${searchQuery.substring(0, 60)}...`)
         
         const encodedQuery = encodeURIComponent(searchQuery)
-        const searchUrl = `https://www.googleapis.com/customsearch/v1?key=${GOOGLE_API_KEY}&cx=${GOOGLE_SEARCH_ENGINE_ID}&q=${encodedQuery}&num=10`
+        const searchUrl = `https://www.googleapis.com/customsearch/v1?key=${GOOGLE_API_KEY}&cx=${GOOGLE_SEARCH_ENGINE_ID}&q=${encodedQuery}&num=8`
         
+        console.log(`📡 Making request to Google API...`)
         const response = await fetch(searchUrl)
         
+        console.log(`📡 Google API Response: ${response.status} ${response.statusText}`)
+        
         if (!response.ok) {
-          console.log(`Google search failed for query "${searchQuery}": ${response.status}`)
+          const errorText = await response.text()
+          console.log(`❌ Google search failed: ${response.status} - ${errorText}`)
           continue
         }
         
         const data = await response.json()
-        const results = data.items || []
+        console.log(`📊 API response structure:`, {
+          hasItems: !!data.items,
+          itemCount: data.items?.length || 0,
+          hasError: !!data.error,
+          quotaRemaining: data.searchInformation?.totalResults
+        })
         
+        if (data.error) {
+          console.log('❌ Google API Error:', data.error)
+          continue
+        }
+        
+        const results = data.items || []
         console.log(`📊 Found ${results.length} results for query`)
         
         for (const item of results) {
@@ -67,15 +85,16 @@ export async function searchGoogle(query: string, location?: string): Promise<Go
         await new Promise(resolve => setTimeout(resolve, 1000))
         
       } catch (error) {
-        console.error(`Error in Google search for query "${searchQuery}":`, error)
+        console.error(`❌ Error in Google search for query "${searchQuery}":`, error.message)
         continue
       }
     }
     
-    return allResults.slice(0, 25) // Limit to top 25 results
+    console.log(`✅ Google search completed: ${allResults.length} unique results`)
+    return allResults.slice(0, 15) // Limit to top 15 results
     
   } catch (error) {
-    console.error('Error in Google search:', error)
+    console.error('❌ Critical error in Google search:', error.message)
     return []
   }
 }

@@ -7,13 +7,17 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
+function generateUUID() {
+  return crypto.randomUUID();
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
 
   try {
-    const { query, location, enhancedQuery } = await req.json()
+    const { query } = await req.json()
 
     if (!query) {
       return new Response(
@@ -29,193 +33,130 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     const supabase = createClient(supabaseUrl, supabaseKey)
 
-    const skills = enhancedQuery?.skills || []
-    const keywords = enhancedQuery?.keywords || []
-    const searchTerms = [...skills, ...keywords].filter(Boolean)
+    console.log('🚀 Starting Dev.to candidate collection...')
 
     const candidates = []
-    const seenAuthors = new Set()
+    const startTime = Date.now()
 
     try {
-      console.log('Searching Dev.to for active developers...')
-
-      // Search for articles with relevant tags
-      const searchTags = searchTerms.slice(0, 5).map(term => term.toLowerCase().replace(/\s+/g, ''))
+      // Search Dev.to public API for articles
+      const searchUrl = `https://dev.to/api/articles?tag=${encodeURIComponent(query.split(' ')[0])}&per_page=10`
+      console.log(`🔍 Searching Dev.to: ${searchUrl}`)
       
-      for (const tag of searchTags) {
-        try {
-          console.log(`Searching Dev.to articles with tag: ${tag}`)
-          
-          const articlesResponse = await fetch(`https://dev.to/api/articles?tag=${tag}&per_page=30&top=7`)
-          
-          if (!articlesResponse.ok) {
-            console.error(`Dev.to API error for tag ${tag}: ${articlesResponse.status}`)
-            continue
-          }
-
-          const articles = await articlesResponse.json()
-          console.log(`Found ${articles.length} articles for tag ${tag}`)
-
-          for (const article of articles) {
-            if (!article.user?.username || seenAuthors.has(article.user.username)) continue
-            seenAuthors.add(article.user.username)
-
-            try {
-              // Get user profile
-              const userResponse = await fetch(`https://dev.to/api/users/${article.user.username}`)
-              
-              if (userResponse.ok) {
-                const userProfile = await userResponse.json()
-                
-                // Get user's articles to analyze their expertise
-                const userArticlesResponse = await fetch(`https://dev.to/api/articles?username=${article.user.username}&per_page=10`)
-                const userArticles = userArticlesResponse.ok ? await userArticlesResponse.json() : []
-
-                // Extract skills from user profile and articles
-                const extractedSkills = extractSkillsFromDevToProfile(userProfile, userArticles, searchTerms)
-                
-                if (extractedSkills.length === 0) continue
-
-                // Check if user has significant development activity
-                if (!isDeveloperProfile(userProfile, userArticles, extractedSkills)) continue
-
-                const candidate = {
-                  name: userProfile.name || userProfile.username,
-                  title: determineDeveloperTitle(userProfile, userArticles),
-                  summary: userProfile.summary || extractSummaryFromArticles(userArticles),
-                  location: userProfile.location || location || '',
-                  skills: extractedSkills,
-                  experience_years: estimateExperienceFromDevTo(userProfile, userArticles),
-                  last_active: getLastActiveDate(userArticles),
-                  overall_score: calculateDevToScore(userProfile, userArticles),
-                  skill_match: calculateSkillMatch(extractedSkills, searchTerms),
-                  experience: calculateExperienceScore(userProfile, userArticles),
-                  reputation: calculateReputationScore(userProfile, userArticles),
-                  freshness: calculateFreshnessScore(userArticles),
-                  social_proof: Math.min((userProfile.public_reactions_count || 0) / 50, 80),
-                  risk_flags: [],
-                  devto_username: userProfile.username,
-                  github_username: userProfile.github_username,
-                  twitter_username: userProfile.twitter_username,
-                  website_url: userProfile.website_url
-                }
-
-                candidates.push(candidate)
-
-                // Save source data
-                await supabase
-                  .from('candidate_sources')
-                  .upsert({
-                    candidate_id: userProfile.username,
-                    platform: 'dev.to',
-                    platform_id: userProfile.username,
-                    url: `https://dev.to/${userProfile.username}`,
-                    data: { profile: userProfile, articles: userArticles.slice(0, 5) }
-                  }, { onConflict: 'platform,platform_id' })
-
-              }
-            } catch (userError) {
-              console.error(`Error processing Dev.to user ${article.user.username}:`, userError)
-            }
-          }
-        } catch (tagError) {
-          console.error(`Error processing tag ${tag}:`, tagError)
+      const response = await fetch(searchUrl, {
+        headers: {
+          'User-Agent': 'Lovable-Recruiter/1.0'
         }
+      })
+
+      if (!response.ok) {
+        console.log(`❌ Dev.to API error: ${response.status}`)
+        throw new Error(`Dev.to API returned ${response.status}`)
       }
 
-      // Also search popular/trending articles for active developers
-      try {
-        const trendingResponse = await fetch('https://dev.to/api/articles?per_page=50&top=7')
-        
-        if (trendingResponse.ok) {
-          const trendingArticles = await trendingResponse.json()
-          
-          for (const article of trendingArticles) {
-            if (!article.user?.username || seenAuthors.has(article.user.username)) continue
-            
-            // Check if article contains relevant keywords
-            const articleText = `${article.title} ${article.description || ''} ${article.tag_list?.join(' ') || ''}`.toLowerCase()
-            const hasRelevantContent = searchTerms.some(term => articleText.includes(term.toLowerCase()))
-            
-            if (!hasRelevantContent) continue
-            
-            seenAuthors.add(article.user.username)
+      const articles = await response.json()
+      console.log(`📊 Found ${articles.length} Dev.to articles`)
 
-            try {
-              const userResponse = await fetch(`https://dev.to/api/users/${article.user.username}`)
-              
-              if (userResponse.ok) {
-                const userProfile = await userResponse.json()
-                const userArticlesResponse = await fetch(`https://dev.to/api/articles?username=${article.user.username}&per_page=10`)
-                const userArticles = userArticlesResponse.ok ? await userArticlesResponse.json() : []
+      for (const article of articles.slice(0, 5)) {
+        try {
+          if (!article.user) continue
 
-                const extractedSkills = extractSkillsFromDevToProfile(userProfile, userArticles, searchTerms)
-                
-                if (extractedSkills.length === 0 || !isDeveloperProfile(userProfile, userArticles, extractedSkills)) continue
+          const candidateId = generateUUID()
+          const user = article.user
 
-                const candidate = {
-                  name: userProfile.name || userProfile.username,
-                  title: determineDeveloperTitle(userProfile, userArticles),
-                  summary: userProfile.summary || extractSummaryFromArticles(userArticles),
-                  location: userProfile.location || location || '',
-                  skills: extractedSkills,
-                  experience_years: estimateExperienceFromDevTo(userProfile, userArticles),
-                  last_active: getLastActiveDate(userArticles),
-                  overall_score: calculateDevToScore(userProfile, userArticles),
-                  skill_match: calculateSkillMatch(extractedSkills, searchTerms),
-                  experience: calculateExperienceScore(userProfile, userArticles),
-                  reputation: calculateReputationScore(userProfile, userArticles),
-                  freshness: calculateFreshnessScore(userArticles),
-                  social_proof: Math.min((userProfile.public_reactions_count || 0) / 50, 80),
-                  risk_flags: [],
-                  devto_username: userProfile.username,
-                  github_username: userProfile.github_username,
-                  twitter_username: userProfile.twitter_username,
-                  website_url: userProfile.website_url
-                }
-
-                candidates.push(candidate)
-
-                await supabase
-                  .from('candidate_sources')
-                  .upsert({
-                    candidate_id: userProfile.username,
-                    platform: 'dev.to',
-                    platform_id: userProfile.username,
-                    url: `https://dev.to/${userProfile.username}`,
-                    data: { profile: userProfile, articles: userArticles.slice(0, 5) }
-                  }, { onConflict: 'platform,platform_id' })
-              }
-            } catch (userError) {
-              console.error(`Error processing trending user:`, userError)
-            }
+          const candidate = {
+            id: candidateId,
+            name: user.name || user.username,
+            title: `${query} Developer (Dev.to Author)`,
+            location: '',
+            avatar_url: user.profile_image_90,
+            email: null,
+            summary: `Dev.to author with article: "${article.title}". ${article.description || ''}`.substring(0, 500),
+            skills: extractSkillsFromArticle(article, query),
+            experience_years: Math.max(1, Math.min(calculateExperienceFromProfile(user), 15)),
+            last_active: new Date(article.published_at || Date.now()).toISOString(),
+            overall_score: Math.round(Math.min(Math.max(calculateDevToScore(article, user), 0), 100)),
+            skill_match: Math.round(Math.min(Math.max(calculateSkillMatch(article.title + ' ' + article.description, query), 0), 100)),
+            experience: Math.round(Math.min(Math.max(calculateExperienceFromProfile(user) * 7, 0), 100)),
+            reputation: Math.round(Math.min(Math.max((article.positive_reactions_count || 0) * 2, 0), 100)),
+            freshness: Math.round(Math.min(Math.max(calculateFreshness(article.published_at), 0), 100)),
+            social_proof: Math.round(Math.min(Math.max((user.twitter_username ? 80 : 60) + (article.comments_count || 0), 0), 100)),
+            risk_flags: [],
+            platform: 'devto'
           }
+
+          candidates.push(candidate)
+
+          // Save to database
+          const { error: insertError } = await supabase
+            .from('candidates')
+            .insert({
+              id: candidateId,
+              name: candidate.name,
+              title: candidate.title,
+              location: candidate.location,
+              avatar_url: candidate.avatar_url,
+              email: candidate.email,
+              summary: candidate.summary,
+              skills: candidate.skills,
+              experience_years: candidate.experience_years,
+              last_active: candidate.last_active,
+              overall_score: candidate.overall_score,
+              skill_match: candidate.skill_match,
+              experience: candidate.experience,
+              reputation: candidate.reputation,
+              freshness: candidate.freshness,
+              social_proof: candidate.social_proof,
+              risk_flags: candidate.risk_flags
+            })
+
+          if (!insertError) {
+            console.log(`✅ Saved Dev.to candidate: ${candidate.name}`)
+            
+            // Save source data
+            await supabase
+              .from('candidate_sources')
+              .insert({
+                candidate_id: candidateId,
+                platform: 'devto',
+                platform_id: user.id.toString(),
+                url: `https://dev.to/${user.username}`,
+                data: { article, user }
+              })
+          }
+
+        } catch (error) {
+          console.error(`❌ Error processing Dev.to user:`, error.message)
+          continue
         }
-      } catch (trendingError) {
-        console.error('Error processing trending articles:', trendingError)
       }
 
     } catch (error) {
-      console.error('Error collecting Dev.to data:', error)
+      console.error('❌ Dev.to API error:', error.message)
     }
 
-    console.log(`Collected ${candidates.length} Dev.to candidates`)
+    const processingTime = Date.now() - startTime
+    console.log(`✅ Dev.to collection completed: ${candidates.length} candidates in ${processingTime}ms`)
 
     return new Response(
       JSON.stringify({ 
         candidates,
         total: candidates.length,
-        source: 'dev.to'
+        source: 'devto',
+        processing_time_ms: processingTime
       }),
-      { 
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
-      }
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
 
   } catch (error) {
-    console.error('Error collecting Dev.to data:', error)
+    console.error('❌ Error collecting Dev.to data:', error.message)
     return new Response(
-      JSON.stringify({ error: 'Failed to collect Dev.to data' }),
+      JSON.stringify({ 
+        candidates: [], 
+        total: 0, 
+        source: 'devto',
+        error: `Failed to collect Dev.to data: ${error.message}`
+      }),
       { 
         status: 500, 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
@@ -224,149 +165,57 @@ serve(async (req) => {
   }
 })
 
-function extractSkillsFromDevToProfile(profile, articles, searchTerms) {
+function extractSkillsFromArticle(article: any, query: string): string[] {
   const skills = []
-  const text = `${profile.summary || ''} ${articles.map(a => `${a.title} ${a.description || ''} ${a.tag_list?.join(' ') || ''}`).join(' ')}`.toLowerCase()
+  const text = (article.title + ' ' + article.description + ' ' + (article.tag_list || []).join(' ')).toLowerCase()
   
-  const techSkills = [
-    'javascript', 'typescript', 'python', 'java', 'c#', 'php', 'ruby', 'go', 'rust', 'swift',
-    'react', 'vue', 'angular', 'svelte', 'nextjs', 'nuxt', 'gatsby', 'node.js', 'express',
-    'django', 'flask', 'spring', 'laravel', 'rails', 'asp.net', 'fastapi',
-    'html', 'css', 'sass', 'tailwind', 'bootstrap', 'material-ui', 'styled-components',
-    'mongodb', 'postgresql', 'mysql', 'redis', 'elasticsearch', 'firebase',
-    'aws', 'azure', 'gcp', 'docker', 'kubernetes', 'terraform', 'ansible',
-    'git', 'ci/cd', 'jenkins', 'github actions', 'gitlab ci', 'testing', 'jest',
-    'machine learning', 'ai', 'data science', 'tensorflow', 'pytorch', 'scikit-learn'
-  ]
-
-  for (const skill of techSkills) {
-    if (text.includes(skill) || text.includes(skill.replace(/[.\s]/g, ''))) {
+  const commonSkills = ['javascript', 'python', 'react', 'node.js', 'typescript', 'java', 'angular', 'vue', 'docker', 'aws']
+  const querySkills = query.toLowerCase().split(' ')
+  
+  for (const skill of [...commonSkills, ...querySkills]) {
+    if (text.includes(skill.toLowerCase()) && !skills.includes(skill)) {
       skills.push(skill)
     }
   }
-
-  // Add search terms that appear in content
-  for (const term of searchTerms) {
-    if (text.includes(term.toLowerCase()) && !skills.includes(term)) {
-      skills.push(term)
-    }
-  }
-
-  return skills.slice(0, 10)
+  
+  return skills.slice(0, 6)
 }
 
-function isDeveloperProfile(profile, articles, skills) {
-  // Check if profile/articles indicate developer activity
-  const devIndicators = [
-    skills.length >= 2,
-    articles.some(a => a.tag_list?.some(tag => 
-      ['javascript', 'python', 'react', 'programming', 'coding', 'development', 'webdev', 'tutorial'].includes(tag.toLowerCase())
-    )),
-    profile.summary?.toLowerCase().includes('developer') || 
-    profile.summary?.toLowerCase().includes('engineer') || 
-    profile.summary?.toLowerCase().includes('programmer'),
-    articles.length >= 2 // Active writer
-  ]
-
-  return devIndicators.filter(Boolean).length >= 2
+function calculateDevToScore(article: any, user: any): number {
+  let score = 50 // Base score
+  
+  score += Math.min((article.positive_reactions_count || 0) * 2, 30)
+  score += Math.min((article.comments_count || 0) * 3, 20)
+  
+  return score
 }
 
-function determineDeveloperTitle(profile, articles) {
-  const tags = articles.flatMap(a => a.tag_list || []).map(t => t.toLowerCase())
-  const content = `${profile.summary || ''} ${articles.map(a => a.title).join(' ')}`.toLowerCase()
-
-  if (tags.includes('react') || content.includes('react')) return 'React Developer'
-  if (tags.includes('python') || content.includes('python')) return 'Python Developer'
-  if (tags.includes('javascript') || content.includes('javascript')) return 'JavaScript Developer'
-  if (tags.includes('node') || content.includes('node')) return 'Node.js Developer'
-  if (tags.includes('frontend') || content.includes('frontend')) return 'Frontend Developer'
-  if (tags.includes('backend') || content.includes('backend')) return 'Backend Developer'
-  if (tags.includes('fullstack') || content.includes('fullstack')) return 'Full Stack Developer'
-  if (tags.includes('devops') || content.includes('devops')) return 'DevOps Engineer'
-  if (tags.includes('mobile') || content.includes('mobile')) return 'Mobile Developer'
-
-  return 'Software Developer'
-}
-
-function extractSummaryFromArticles(articles) {
-  if (articles.length === 0) return 'Active Dev.to contributor'
+function calculateSkillMatch(text: string, query: string): number {
+  const queryWords = query.toLowerCase().split(' ')
+  const textLower = text.toLowerCase()
   
-  const recentTitles = articles.slice(0, 3).map(a => a.title)
-  return `Developer and writer covering ${recentTitles.join(', ')}`
-}
-
-function estimateExperienceFromDevTo(profile, articles) {
-  const joinedDate = profile.joined_at ? new Date(profile.joined_at) : new Date()
-  const yearsOnPlatform = Math.floor((Date.now() - joinedDate.getTime()) / (1000 * 60 * 60 * 24 * 365))
-  
-  // Estimate based on article depth and platform tenure
-  const articleCount = articles.length
-  let experience = Math.max(yearsOnPlatform, 1)
-  
-  if (articleCount > 20) experience += 2
-  if (articleCount > 50) experience += 2
-  
-  // Check for senior-level content
-  const content = articles.map(a => `${a.title} ${a.description || ''}`).join(' ').toLowerCase()
-  if (content.includes('architecture') || content.includes('lead') || content.includes('senior')) {
-    experience += 3
+  let matches = 0
+  for (const word of queryWords) {
+    if (textLower.includes(word)) matches++
   }
   
-  return Math.min(experience, 15)
+  return (matches / queryWords.length) * 100
 }
 
-function getLastActiveDate(articles) {
-  if (articles.length === 0) return new Date().toISOString()
+function calculateExperienceFromProfile(user: any): number {
+  // Estimate based on account age and activity
+  const joinedAt = new Date(user.joined_at || Date.now())
+  const accountAge = (Date.now() - joinedAt.getTime()) / (1000 * 60 * 60 * 24 * 365)
   
-  const latestArticle = articles.reduce((latest, article) => {
-    return new Date(article.published_at) > new Date(latest.published_at) ? article : latest
-  })
-  
-  return latestArticle.published_at
+  return Math.max(1, Math.min(Math.round(accountAge * 1.5), 15))
 }
 
-function calculateDevToScore(profile, articles) {
-  let score = 35 // Base score
-
-  score += Math.min(articles.length * 2, 25) // Article count bonus
-  score += Math.min((profile.public_reactions_count || 0) / 100, 20) // Engagement bonus
-  score += Math.min(articles.reduce((sum, a) => sum + (a.public_reactions_count || 0), 0) / 200, 15) // Article popularity
-  score += profile.github_username ? 10 : 0 // GitHub connection bonus
-
-  return Math.min(score, 100)
-}
-
-function calculateSkillMatch(extractedSkills, searchTerms) {
-  const matches = searchTerms.filter(term => 
-    extractedSkills.some(skill => 
-      skill.toLowerCase().includes(term.toLowerCase()) || 
-      term.toLowerCase().includes(skill.toLowerCase())
-    )
-  )
+function calculateFreshness(publishedAt: string): number {
+  const published = new Date(publishedAt)
+  const daysSince = (Date.now() - published.getTime()) / (1000 * 60 * 60 * 24)
   
-  return Math.min((matches.length / Math.max(searchTerms.length, 1)) * 100, 100)
-}
-
-function calculateExperienceScore(profile, articles) {
-  const years = estimateExperienceFromDevTo(profile, articles)
-  return Math.min(years * 8, 90)
-}
-
-function calculateReputationScore(profile, articles) {
-  const totalReactions = (profile.public_reactions_count || 0) + 
-    articles.reduce((sum, a) => sum + (a.public_reactions_count || 0), 0)
-  
-  return Math.min(40 + (totalReactions / 50), 90)
-}
-
-function calculateFreshnessScore(articles) {
-  if (articles.length === 0) return 30
-  
-  const latestArticle = articles[0]
-  const daysSincePublished = Math.floor((Date.now() - new Date(latestArticle.published_at).getTime()) / (1000 * 60 * 60 * 24))
-  
-  if (daysSincePublished <= 30) return 90
-  if (daysSincePublished <= 90) return 70
-  if (daysSincePublished <= 180) return 50
-  return 30
+  if (daysSince < 30) return 100
+  if (daysSince < 90) return 80
+  if (daysSince < 365) return 60
+  return 40
 }
