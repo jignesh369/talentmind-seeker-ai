@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from './useAuth';
 import { useToast } from './use-toast';
+import { Button } from '@/components/ui/button';
 
 interface SearchError {
   type: 'validation' | 'network' | 'service' | 'unknown';
@@ -207,14 +208,22 @@ export const useSearch = () => {
         return;
       }
       
+      // Create retry action element if retryable
+      const retryAction = categorizedError.retryable ? (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => handleSearch(query, true)}
+        >
+          Retry
+        </Button>
+      ) : undefined;
+      
       toast({
         title: "Search failed",
         description: categorizedError.message,
         variant: "destructive",
-        action: categorizedError.retryable ? {
-          label: "Retry",
-          onClick: () => handleSearch(query, true)
-        } : undefined
+        action: retryAction
       });
       
       // Clear search results on error
