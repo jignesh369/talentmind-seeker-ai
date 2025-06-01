@@ -125,6 +125,125 @@ export type Database = {
         }
         Relationships: []
       }
+      email_logs: {
+        Row: {
+          body: string
+          bounced_at: string | null
+          candidate_id: string
+          created_at: string
+          id: string
+          openai_response_id: string | null
+          opened_at: string | null
+          recipient_email: string
+          recruiter_id: string
+          resend_message_id: string | null
+          sender_email: string
+          status: string
+          subject: string
+          updated_at: string
+        }
+        Insert: {
+          body: string
+          bounced_at?: string | null
+          candidate_id: string
+          created_at?: string
+          id?: string
+          openai_response_id?: string | null
+          opened_at?: string | null
+          recipient_email: string
+          recruiter_id: string
+          resend_message_id?: string | null
+          sender_email: string
+          status?: string
+          subject: string
+          updated_at?: string
+        }
+        Update: {
+          body?: string
+          bounced_at?: string | null
+          candidate_id?: string
+          created_at?: string
+          id?: string
+          openai_response_id?: string | null
+          opened_at?: string | null
+          recipient_email?: string
+          recruiter_id?: string
+          resend_message_id?: string | null
+          sender_email?: string
+          status?: string
+          subject?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "email_logs_candidate_id_fkey"
+            columns: ["candidate_id"]
+            isOneToOne: false
+            referencedRelation: "candidates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      email_suppressions: {
+        Row: {
+          created_at: string
+          email: string
+          id: string
+          reason: string
+          suppressed_at: string
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          id?: string
+          reason: string
+          suppressed_at?: string
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          id?: string
+          reason?: string
+          suppressed_at?: string
+        }
+        Relationships: []
+      }
+      email_templates: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          is_default: boolean
+          job_role: string
+          name: string
+          system_prompt: string
+          tone: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_default?: boolean
+          job_role: string
+          name: string
+          system_prompt: string
+          tone: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_default?: boolean
+          job_role?: string
+          name?: string
+          system_prompt?: string
+          tone?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           avatar_url: string | null
@@ -154,6 +273,36 @@ export type Database = {
           full_name?: string | null
           id?: string
           role?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      recruiter_quotas: {
+        Row: {
+          created_at: string
+          date: string
+          emails_sent: number
+          id: string
+          quota_limit: number
+          recruiter_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          date?: string
+          emails_sent?: number
+          id?: string
+          quota_limit?: number
+          recruiter_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          date?: string
+          emails_sent?: number
+          id?: string
+          quota_limit?: number
+          recruiter_id?: string
           updated_at?: string
         }
         Relationships: []
