@@ -1,10 +1,11 @@
 
 import React, { useState, useEffect } from 'react';
-import { Search, MessageCircle, Filter, Users, TrendingUp, Zap, LogOut } from 'lucide-react';
+import { Search, MessageCircle, Filter, Users, TrendingUp, Zap, LogOut, Database } from 'lucide-react';
 import { ChatInterface } from '../components/ChatInterface';
 import { CandidateCard } from '../components/CandidateCard';
 import { FilterPanel } from '../components/FilterPanel';
 import { StatsOverview } from '../components/StatsOverview';
+import { DataCollectionPanel } from '../components/DataCollectionPanel';
 import { useCandidates } from '../hooks/useCandidates';
 import { useAuth } from '../hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
@@ -15,6 +16,7 @@ const Index = () => {
   const { user, signOut } = useAuth();
   const { toast } = useToast();
   const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [isDataCollectionOpen, setIsDataCollectionOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -92,6 +94,13 @@ const Index = () => {
             </div>
             <div className="flex items-center space-x-4">
               <button
+                onClick={() => setIsDataCollectionOpen(!isDataCollectionOpen)}
+                className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+              >
+                <Database className="w-4 h-4" />
+                <span>Collect Data</span>
+              </button>
+              <button
                 onClick={() => setIsFilterOpen(!isFilterOpen)}
                 className="flex items-center space-x-2 px-4 py-2 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors"
               >
@@ -117,9 +126,15 @@ const Index = () => {
         <StatsOverview totalCandidates={displayCandidates.length} />
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mt-8">
-          {/* Chat Interface */}
-          <div className="lg:col-span-1">
+          {/* Left Sidebar */}
+          <div className="lg:col-span-1 space-y-6">
+            {/* Chat Interface */}
             <ChatInterface onSearch={handleSearch} />
+            
+            {/* Data Collection Panel */}
+            {isDataCollectionOpen && (
+              <DataCollectionPanel />
+            )}
           </div>
 
           {/* Main Content */}
@@ -183,6 +198,19 @@ const Index = () => {
                       >
                         Show all candidates
                       </button>
+                    )}
+                    {!searchQuery && candidates.length === 0 && (
+                      <div className="mt-4">
+                        <p className="text-sm text-slate-500 mb-4">
+                          Get started by collecting candidate data from various sources.
+                        </p>
+                        <button
+                          onClick={() => setIsDataCollectionOpen(true)}
+                          className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                        >
+                          Start Collecting Data
+                        </button>
+                      </div>
                     )}
                   </div>
                 )}
