@@ -104,11 +104,11 @@ serve(async (req) => {
 
           candidates.push(candidate)
 
-          // Save to database with proper UUID
+          // Save to database with proper UUID - FIXED database saving
           try {
-            const { error: candidateError } = await supabase
+            const { data: insertedCandidate, error: candidateError } = await supabase
               .from('candidates')
-              .upsert({
+              .insert({
                 id: candidateId,
                 name: candidate.name,
                 title: candidate.title,
@@ -126,19 +126,21 @@ serve(async (req) => {
                 freshness: candidate.freshness,
                 social_proof: candidate.social_proof,
                 risk_flags: candidate.risk_flags
-              }, { 
-                onConflict: 'email',
-                ignoreDuplicates: true 
               })
+              .select()
+              .single()
 
             if (candidateError) {
               console.error(`Error saving Google candidate:`, candidateError)
+              continue
             }
+
+            console.log(`Successfully saved Google candidate: ${candidate.name} with ID: ${candidateId}`)
 
             // Save source data
             const { error: sourceError } = await supabase
               .from('candidate_sources')
-              .upsert({
+              .insert({
                 candidate_id: candidateId,
                 platform: 'google',
                 platform_id: result.link,
@@ -149,13 +151,12 @@ serve(async (req) => {
                   search_query: searchQuery,
                   platform: candidate.source_platform
                 }
-              }, { 
-                onConflict: 'platform,platform_id',
-                ignoreDuplicates: true 
               })
 
             if (sourceError) {
               console.error(`Error saving Google source data:`, sourceError)
+            } else {
+              console.log(`Successfully saved source data for Google candidate: ${candidate.name}`)
             }
 
           } catch (error) {

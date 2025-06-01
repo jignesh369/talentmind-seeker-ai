@@ -175,11 +175,11 @@ serve(async (req) => {
 
             candidates.push(candidate)
 
-            // Save enhanced candidate to database with proper UUID
+            // Save enhanced candidate to database - FIXED upsert logic
             try {
-              const { error: candidateError } = await supabase
+              const { data: insertedCandidate, error: candidateError } = await supabase
                 .from('candidates')
-                .upsert({
+                .insert({
                   id: candidateId,
                   name: candidate.name,
                   title: candidate.title,
@@ -198,19 +198,21 @@ serve(async (req) => {
                   freshness: candidate.freshness,
                   social_proof: candidate.social_proof,
                   risk_flags: candidate.risk_flags
-                }, { 
-                  onConflict: 'github_username',
-                  ignoreDuplicates: false 
                 })
+                .select()
+                .single()
 
               if (candidateError) {
                 console.error(`Error saving candidate ${userDetails.login}:`, candidateError)
+                continue
               }
+
+              console.log(`Successfully saved candidate: ${candidate.name} with ID: ${candidateId}`)
 
               // Save enhanced source data with error handling
               const { error: sourceError } = await supabase
                 .from('candidate_sources')
-                .upsert({
+                .insert({
                   candidate_id: candidateId,
                   platform: 'github',
                   platform_id: userDetails.login,
@@ -221,13 +223,12 @@ serve(async (req) => {
                     readme_email: emailFromReadme,
                     language_stats: calculateLanguageStats(repositories)
                   }
-                }, { 
-                  onConflict: 'platform,platform_id',
-                  ignoreDuplicates: false 
                 })
 
               if (sourceError) {
                 console.error(`Error saving source data for ${userDetails.login}:`, sourceError)
+              } else {
+                console.log(`Successfully saved source data for ${candidate.name}`)
               }
 
             } catch (error) {
