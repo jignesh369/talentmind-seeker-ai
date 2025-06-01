@@ -20,6 +20,13 @@ const Index = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [filters, setFilters] = useState({
+    minScore: 0,
+    maxScore: 100,
+    location: '',
+    lastActive: '',
+    skills: []
+  });
 
   const handleSearch = async (query: string) => {
     if (!user) return;
@@ -136,7 +143,7 @@ const Index = () => {
               {/* Filter Panel */}
               {isFilterOpen && (
                 <div className="mt-6">
-                  <FilterPanel filters={{}} setFilters={() => {}} />
+                  <FilterPanel filters={filters} setFilters={setFilters} />
                 </div>
               )}
             </div>
