@@ -3,21 +3,13 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { searchGitHubUsers, getGitHubUserProfile, getGitHubUserRepos } from './api-client.ts'
 import { buildEnhancedProfile } from './profile-builder.ts'
-import { 
-  calculateRepoScore,
-  calculateContributionScore,
-  calculateSkillScore,
-  calculateActivityScore
-} from './scoring-engine.ts'
 import { validateGitHubUser } from './user-validator.ts'
+import { saveCandidateWithSource, generateUUID } from '../shared/database-operations.ts'
+import { buildCandidate } from '../shared/candidate-builder.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-}
-
-function generateUUID() {
-  return crypto.randomUUID();
 }
 
 serve(async (req) => {
@@ -26,7 +18,7 @@ serve(async (req) => {
   }
 
   try {
-    const { query, location, enhancedQuery } = await req.json()
+    const { query, location } = await req.json()
 
     if (!query) {
       return new Response(
@@ -49,23 +41,19 @@ serve(async (req) => {
     const startTime = Date.now()
     const MAX_PROCESSING_TIME = 12000 // 12 seconds max
     
-    // Simplified search strategy for speed
     const searchStrategy = {
       name: 'Fast Search',
-      query: query.split(' ').slice(0, 2).join(' '), // Use only first 2 words
+      query: query.split(' ').slice(0, 2).join(' '),
       sort: 'followers'
     }
 
     try {
       console.log(`🔍 GitHub search: ${searchStrategy.name}`)
       
-      const { users, hasMore } = await searchGitHubUsers(searchStrategy.query, searchStrategy.sort)
-      
+      const { users } = await searchGitHubUsers(searchStrategy.query, searchStrategy.sort)
       console.log(`📋 Found ${users.length} GitHub users`)
 
-      // Process users with time limit
-      for (const user of users.slice(0, 8)) { // Reduced to 8 users max
-        // Check time limit
+      for (const user of users.slice(0, 8)) {
         if (Date.now() - startTime > MAX_PROCESSING_TIME) {
           console.log('⏰ Time limit reached, stopping processing')
           break
@@ -74,7 +62,7 @@ serve(async (req) => {
         if (seenUsers.has(user.login)) continue
         seenUsers.add(user.login)
 
-        if (candidates.length >= 8) { // Reduced to 8 candidates max
+        if (candidates.length >= 8) {
           console.log('✅ Reached candidate limit, stopping collection')
           break
         }
@@ -91,21 +79,10 @@ serve(async (req) => {
             continue
           }
 
-          // Skip repo fetching for speed - use profile data only
           const repos = []
           const enhancedProfile = buildEnhancedProfile(userProfile, repos)
 
-          // Simplified scoring for speed
-          const repoScore = Math.round(Math.min(Math.max((userProfile.public_repos || 0) * 3, 0), 100))
-          const contributionScore = Math.round(Math.min(Math.max((userProfile.followers || 0) * 2, 0), 100))
-          const skillScore = Math.round(Math.min(Math.max(enhancedProfile.skills.length * 15, 0), 100))
-          const activityScore = 80 // Default good activity score
-          const overallScore = Math.round((repoScore + contributionScore + skillScore + activityScore) / 4)
-
-          const candidateId = generateUUID()
-
-          const candidate = {
-            id: candidateId,
+          const candidate = buildCandidate({
             name: userProfile.name || userProfile.login,
             title: enhancedProfile.title,
             location: userProfile.location || location || '',
@@ -116,133 +93,31 @@ serve(async (req) => {
             skills: enhancedProfile.skills,
             experience_years: Math.round(Math.min(Math.max(enhancedProfile.estimatedExperience, 1), 20)),
             last_active: userProfile.updated_at || new Date().toISOString(),
-            overall_score: overallScore,
-            skill_match: skillScore,
-            experience: Math.round(Math.min(Math.max(enhancedProfile.estimatedExperience * 10, 0), 100)),
-            reputation: repoScore,
-            freshness: activityScore,
-            social_proof: Math.round(Math.min(Math.max((userProfile.followers || 0) / 10, 0), 100)),
-            risk_flags: enhancedProfile.riskFlags,
-            platform: 'github'
+            platform: 'github',
+            platformSpecificData: {
+              public_repos: userProfile.public_repos,
+              followers: userProfile.followers
+            }
+          })
+
+          const sourceData = {
+            candidate_id: candidate.id,
+            platform: 'github',
+            platform_id: user.login,
+            url: userProfile.html_url,
+            data: {
+              profile: userProfile,
+              enhanced_profile: enhancedProfile
+            }
           }
 
-          candidates.push(candidate)
-
-          // Improved database save with proper error handling
-          try {
-            console.log(`💾 Saving candidate: ${candidate.name} (${user.login})`)
-            
-            // First, try to find existing candidate by github_username
-            const { data: existingCandidate, error: selectError } = await supabase
-              .from('candidates')
-              .select('id')
-              .eq('github_username', user.login)
-              .maybeSingle()
-
-            if (selectError) {
-              console.error(`❌ Error checking existing candidate for ${user.login}:`, selectError.message)
-              continue
-            }
-
-            if (existingCandidate) {
-              // Update existing candidate
-              const { error: updateError } = await supabase
-                .from('candidates')
-                .update({
-                  name: candidate.name,
-                  title: candidate.title,
-                  location: candidate.location,
-                  avatar_url: candidate.avatar_url,
-                  email: candidate.email,
-                  summary: candidate.summary,
-                  skills: candidate.skills,
-                  experience_years: candidate.experience_years,
-                  last_active: candidate.last_active,
-                  overall_score: candidate.overall_score,
-                  skill_match: candidate.skill_match,
-                  experience: candidate.experience,
-                  reputation: candidate.reputation,
-                  freshness: candidate.freshness,
-                  social_proof: candidate.social_proof,
-                  risk_flags: candidate.risk_flags,
-                  updated_at: new Date().toISOString()
-                })
-                .eq('id', existingCandidate.id)
-
-              if (updateError) {
-                console.error(`❌ Error updating candidate ${user.login}:`, updateError.message)
-                continue
-              }
-
-              console.log(`✅ Updated existing candidate: ${candidate.name}`)
-              candidate.id = existingCandidate.id
-            } else {
-              // Insert new candidate
-              const { error: insertError } = await supabase
-                .from('candidates')
-                .insert({
-                  id: candidateId,
-                  name: candidate.name,
-                  title: candidate.title,
-                  location: candidate.location,
-                  avatar_url: candidate.avatar_url,
-                  email: candidate.email,
-                  github_username: candidate.github_username,
-                  summary: candidate.summary,
-                  skills: candidate.skills,
-                  experience_years: candidate.experience_years,
-                  last_active: candidate.last_active,
-                  overall_score: candidate.overall_score,
-                  skill_match: candidate.skill_match,
-                  experience: candidate.experience,
-                  reputation: candidate.reputation,
-                  freshness: candidate.freshness,
-                  social_proof: candidate.social_proof,
-                  risk_flags: candidate.risk_flags
-                })
-
-              if (insertError) {
-                console.error(`❌ Error inserting candidate ${user.login}:`, insertError.message)
-                continue
-              }
-
-              console.log(`✅ Inserted new candidate: ${candidate.name}`)
-            }
-
-            // Add candidate source record
-            try {
-              const { error: sourceError } = await supabase
-                .from('candidate_sources')
-                .insert({
-                  candidate_id: candidate.id,
-                  platform: 'github',
-                  platform_id: user.login,
-                  url: userProfile.html_url,
-                  data: {
-                    profile: userProfile,
-                    enhanced_profile: enhancedProfile,
-                    scores: {
-                      repo_score: repoScore,
-                      contribution_score: contributionScore,
-                      skill_score: skillScore,
-                      activity_score: activityScore
-                    }
-                  }
-                })
-
-              if (sourceError) {
-                console.error(`⚠️ Failed to save source for ${user.login}:`, sourceError.message)
-                // Don't fail the whole operation, just log the error
-              } else {
-                console.log(`📝 Saved source record for ${user.login}`)
-              }
-            } catch (sourceErr) {
-              console.error(`⚠️ Exception saving source for ${user.login}:`, sourceErr)
-            }
-
-          } catch (error) {
-            console.error(`❌ Database operation failed for ${user.login}:`, error.message)
-            continue
+          const saveResult = await saveCandidateWithSource(supabase, candidate, sourceData)
+          
+          if (saveResult.success) {
+            candidates.push(candidate)
+            console.log(`💾 Saved candidate: ${candidate.name} (${user.login})`)
+          } else {
+            console.error(`❌ Failed to save candidate ${user.login}:`, saveResult.error)
           }
 
         } catch (error) {
