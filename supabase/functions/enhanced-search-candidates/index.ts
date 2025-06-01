@@ -68,29 +68,61 @@ serve(async (req) => {
       }
     }
 
-    // Build database query
+    // Start with base query
     let dbQuery = supabase
       .from('candidates')
       .select('*')
 
-    // Add text search
+    let hasFilters = false
+
+    // Add text search with proper PostgREST syntax
     const searchTerms = query.toLowerCase().split(' ').filter(term => term.length > 2)
     if (searchTerms.length > 0) {
-      const searchConditions = searchTerms.map(term => 
-        `(name.ilike.%${term}% or title.ilike.%${term}% or summary.ilike.%${term}% or skills.cs.{"${term}"})`
-      ).join(' and ')
+      // Use textSearch for full-text search across multiple columns
+      const searchTerm = searchTerms.join(' & ')
       
-      dbQuery = dbQuery.or(searchConditions)
+      try {
+        // Try advanced search first
+        dbQuery = dbQuery.or(`name.ilike.%${searchTerms[0]}%,title.ilike.%${searchTerms[0]}%,summary.ilike.%${searchTerms[0]}%`)
+        hasFilters = true
+        console.log(`Applied text search for: ${searchTerms[0]}`)
+      } catch (error) {
+        console.log('Text search failed, falling back to simpler query:', error)
+        // Fallback to simple name search
+        dbQuery = dbQuery.ilike('name', `%${searchTerms[0]}%`)
+        hasFilters = true
+      }
     }
 
     // Add location filter if specified
-    if (searchParams.location) {
+    if (searchParams.location && searchParams.location.trim()) {
       dbQuery = dbQuery.ilike('location', `%${searchParams.location}%`)
+      hasFilters = true
+      console.log(`Applied location filter: ${searchParams.location}`)
     }
 
     // Add experience filter
     if (searchParams.experience_min > 0) {
       dbQuery = dbQuery.gte('experience_years', searchParams.experience_min)
+      hasFilters = true
+      console.log(`Applied experience filter: ${searchParams.experience_min}+ years`)
+    }
+
+    // Add skills filter with proper array syntax
+    if (searchParams.skills && searchParams.skills.length > 0) {
+      try {
+        // Use overlaps operator for array intersection
+        dbQuery = dbQuery.overlaps('skills', searchParams.skills)
+        hasFilters = true
+        console.log(`Applied skills filter: ${searchParams.skills.join(', ')}`)
+      } catch (error) {
+        console.log('Skills filter failed:', error)
+      }
+    }
+
+    // If no specific filters applied, get all candidates
+    if (!hasFilters) {
+      console.log('No specific filters applied, returning all candidates')
     }
 
     // Order by overall score and limit results
@@ -102,12 +134,38 @@ serve(async (req) => {
 
     if (error) {
       console.error('Database search error:', error)
-      throw error
+      
+      // Fallback to simple query if complex search fails
+      console.log('Attempting fallback search...')
+      const { data: fallbackCandidates, error: fallbackError } = await supabase
+        .from('candidates')
+        .select('*')
+        .order('overall_score', { ascending: false })
+        .limit(50)
+      
+      if (fallbackError) {
+        console.error('Fallback search also failed:', fallbackError)
+        throw fallbackError
+      }
+      
+      console.log(`Fallback search returned ${fallbackCandidates?.length || 0} candidates`)
+      return new Response(
+        JSON.stringify({ 
+          candidates: fallbackCandidates || [],
+          total_results: fallbackCandidates?.length || 0,
+          search_params: searchParams,
+          query,
+          fallback_used: true
+        }),
+        { 
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        }
+      )
     }
 
     console.log(`Found ${candidates?.length || 0} candidates`)
 
-    // Enhanced ranking using AI if available
+    // Enhanced ranking using AI if available (only for successful searches)
     let rankedCandidates = candidates || []
     if (openaiApiKey && rankedCandidates.length > 0) {
       try {
@@ -164,7 +222,8 @@ serve(async (req) => {
         candidates: rankedCandidates,
         total_results: rankedCandidates.length,
         search_params: searchParams,
-        query
+        query,
+        fallback_used: false
       }),
       { 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
@@ -174,7 +233,7 @@ serve(async (req) => {
   } catch (error) {
     console.error('Error in enhanced search:', error)
     return new Response(
-      JSON.stringify({ error: 'Failed to search candidates' }),
+      JSON.stringify({ error: 'Failed to search candidates', details: error.message }),
       { 
         status: 500, 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
