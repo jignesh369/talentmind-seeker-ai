@@ -27,8 +27,36 @@ serve(async (req) => {
   }
 
   try {
+    // Validate OpenAI API key first
+    console.log('Checking OpenAI API key configuration...');
+    if (!openAIApiKey) {
+      console.error('OpenAI API key is not configured in Supabase secrets');
+      return new Response(JSON.stringify({ 
+        error: 'OpenAI API key not configured. Please set the OPENAI_API_KEY in Supabase secrets.',
+        code: 'API_KEY_MISSING'
+      }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    if (openAIApiKey.length < 10) {
+      console.error('OpenAI API key appears to be invalid (too short)');
+      return new Response(JSON.stringify({ 
+        error: 'OpenAI API key appears to be invalid. Please verify the key in Supabase secrets.',
+        code: 'API_KEY_INVALID'
+      }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    console.log('OpenAI API key found, length:', openAIApiKey.length);
+
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
     const { candidate_id, job_title, company, job_description, tone, template_id }: DraftEmailRequest = await req.json();
+
+    console.log('Processing request for candidate:', candidate_id);
 
     // Get candidate details with sources
     const { data: candidate, error: candidateError } = await supabase
@@ -46,8 +74,11 @@ serve(async (req) => {
       .single();
 
     if (candidateError || !candidate) {
+      console.error('Candidate not found:', candidateError);
       throw new Error('Candidate not found');
     }
+
+    console.log('Candidate data retrieved for:', candidate.name);
 
     // Prepare enriched candidate context
     const candidateContext = {
@@ -114,6 +145,8 @@ PERSONALIZATION REQUIREMENTS:
 Return JSON with "subject" and "body" fields. Make it feel like a real human recruiter wrote this after researching the candidate.
 `;
 
+    console.log('Making OpenAI API request...');
+
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -132,11 +165,29 @@ Return JSON with "subject" and "body" fields. Make it feel like a real human rec
       }),
     });
 
+    console.log('OpenAI API response status:', response.status);
+
     if (!response.ok) {
-      throw new Error(`OpenAI API error: ${response.status}`);
+      const errorText = await response.text();
+      console.error('OpenAI API error details:', errorText);
+      
+      if (response.status === 401) {
+        return new Response(JSON.stringify({ 
+          error: 'OpenAI API authentication failed. Please verify your API key is correct and has not expired.',
+          code: 'API_KEY_UNAUTHORIZED',
+          details: 'The API key may be invalid, expired, or lack the necessary permissions.'
+        }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      
+      throw new Error(`OpenAI API error: ${response.status} - ${errorText}`);
     }
 
     const data = await response.json();
+    console.log('OpenAI API response received successfully');
+
     const generatedContent = JSON.parse(data.choices[0].message.content);
 
     return new Response(JSON.stringify({
@@ -149,7 +200,10 @@ Return JSON with "subject" and "body" fields. Make it feel like a real human rec
     });
   } catch (error) {
     console.error('Error in draft-email function:', error);
-    return new Response(JSON.stringify({ error: error.message }), {
+    return new Response(JSON.stringify({ 
+      error: error.message,
+      code: 'FUNCTION_ERROR'
+    }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
