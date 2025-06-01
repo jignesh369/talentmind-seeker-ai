@@ -6,11 +6,16 @@ interface ChatInterfaceProps {
   onSearch: (query: string) => void;
 }
 
+type Message = {
+  type: 'assistant' | 'user';
+  content: string;
+};
+
 export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSearch }) => {
   const [input, setInput] = useState('');
-  const [messages, setMessages] = useState([
+  const [messages, setMessages] = useState<Message[]>([
     {
-      type: 'assistant' as const,
+      type: 'assistant',
       content: 'Hi! I\'m here to help you find AI and ML talent. Try something like "Senior Python backend engineer with FastAPI experience, 5+ years, remote work in India"'
     }
   ]);
@@ -19,14 +24,14 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSearch }) => {
     e.preventDefault();
     if (!input.trim()) return;
 
-    const userMessage = { type: 'user' as const, content: input };
+    const userMessage: Message = { type: 'user', content: input };
     setMessages(prev => [...prev, userMessage]);
     onSearch(input);
 
     // Simulate AI response
     setTimeout(() => {
-      const assistantMessage = {
-        type: 'assistant' as const,
+      const assistantMessage: Message = {
+        type: 'assistant',
         content: `Searching for candidates matching: "${input}". I've found ${Math.floor(Math.random() * 20 + 10)} potential matches across GitHub, Stack Overflow, and Reddit. Check the results on the right!`
       };
       setMessages(prev => [...prev, assistantMessage]);
