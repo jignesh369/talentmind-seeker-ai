@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Search, Database, Github, Globe, Users, AlertCircle, CheckCircle, Loader2, X, Clock } from 'lucide-react';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription } from './ui/drawer';
@@ -17,7 +16,7 @@ export const DataCollectionDrawer: React.FC<DataCollectionDrawerProps> = ({
 }) => {
   const [query, setQuery] = useState('');
   const [location, setLocation] = useState('');
-  const [selectedSources, setSelectedSources] = useState(['github', 'stackoverflow', 'google']);
+  const [selectedSources, setSelectedSources] = useState(['github', 'stackoverflow', 'google', 'linkedin', 'kaggle', 'devto']);
   const { collectData, isCollecting, collectionResult, progress } = useEnhancedDataCollection();
 
   const handleCollectData = async (e: React.FormEvent) => {
@@ -31,9 +30,12 @@ export const DataCollectionDrawer: React.FC<DataCollectionDrawerProps> = ({
   };
 
   const sources = [
-    { id: 'github', name: 'GitHub', icon: Github, description: 'Developers with public repositories' },
-    { id: 'stackoverflow', name: 'Stack Overflow', icon: Users, description: 'Active community contributors' },
-    { id: 'google', name: 'Google Search', icon: Globe, description: 'General web presence and portfolios' }
+    { id: 'github', name: 'GitHub', icon: Github, description: 'Developers with public repositories and contributions' },
+    { id: 'stackoverflow', name: 'Stack Overflow', icon: Users, description: 'Active community contributors and problem solvers' },
+    { id: 'google', name: 'Google Search', icon: Globe, description: 'General web presence, portfolios, and profiles' },
+    { id: 'linkedin', name: 'LinkedIn', icon: Users, description: 'Professional networks and career profiles' },
+    { id: 'kaggle', name: 'Kaggle', icon: Database, description: 'Data science competitions and ML practitioners' },
+    { id: 'devto', name: 'Dev.to', icon: Globe, description: 'Active technical writers and community members' }
   ];
 
   return (
@@ -193,12 +195,13 @@ export const DataCollectionDrawer: React.FC<DataCollectionDrawerProps> = ({
 
           {/* Tips */}
           <div className="mt-6 p-4 bg-amber-50 rounded-lg border border-amber-200">
-            <h5 className="text-sm font-medium text-amber-800 mb-2">💡 Tips for better results:</h5>
+            <h5 className="text-sm font-medium text-amber-800 mb-2">💡 Enhanced Data Collection Tips:</h5>
             <ul className="text-xs text-amber-700 space-y-1">
-              <li>• Use specific technical skills (e.g., "React", "Python", "TensorFlow")</li>
-              <li>• Include experience level (e.g., "Senior", "5+ years")</li>
-              <li>• Add location for targeted search</li>
-              <li>• The system uses AI to validate and enrich profiles automatically</li>
+              <li>• <strong>Multi-platform search:</strong> Combines GitHub, LinkedIn, Kaggle, Dev.to & more</li>
+              <li>• <strong>AI validation:</strong> Each candidate is validated for quality and relevance</li>
+              <li>• <strong>Smart deduplication:</strong> Automatically merges profiles across platforms</li>
+              <li>• <strong>Professional enrichment:</strong> Profiles enhanced with additional context</li>
+              <li>• <strong>Quality scoring:</strong> Advanced algorithms rate candidate fit and quality</li>
             </ul>
           </div>
         </div>

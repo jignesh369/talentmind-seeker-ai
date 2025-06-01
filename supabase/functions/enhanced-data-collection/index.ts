@@ -1,4 +1,3 @@
-
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
@@ -13,7 +12,7 @@ serve(async (req) => {
   }
 
   try {
-    const { query, location, sources = ['github', 'stackoverflow', 'google'] } = await req.json()
+    const { query, location, sources = ['github', 'stackoverflow', 'google', 'linkedin', 'kaggle', 'devto'] } = await req.json()
 
     if (!query) {
       return new Response(
@@ -36,7 +35,10 @@ serve(async (req) => {
     const results = {
       github: { candidates: [], total: 0, validated: 0, error: null },
       stackoverflow: { candidates: [], total: 0, validated: 0, error: null },
-      google: { candidates: [], total: 0, validated: 0, error: null }
+      google: { candidates: [], total: 0, validated: 0, error: null },
+      linkedin: { candidates: [], total: 0, validated: 0, error: null },
+      kaggle: { candidates: [], total: 0, validated: 0, error: null },
+      devto: { candidates: [], total: 0, validated: 0, error: null }
     }
 
     // Step 1: Parse and enhance the query using OpenAI
@@ -48,14 +50,14 @@ serve(async (req) => {
       try {
         console.log(`Collecting from ${source}...`)
         
-        const functionName = source === 'google' ? 'collect-google-search-data' : `collect-${source}-data`
+        const functionName = getFunctionNameForSource(source)
         
         // Collect raw data with timeout
         const { data: rawData, error: collectError } = await Promise.race([
           supabase.functions.invoke(functionName, {
             body: { query: enhancedQuery.searchTerms.join(' '), location, enhancedQuery }
           }),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 45000))
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 60000))
         ])
 
         if (collectError) throw collectError
@@ -69,9 +71,9 @@ serve(async (req) => {
         const validatedCandidates = []
         
         if (rawCandidates.length > 0) {
-          for (const candidate of rawCandidates.slice(0, 15)) {
+          for (const candidate of rawCandidates.slice(0, 20)) {
             try {
-              // Step 3a: Pre-validation using AI
+              // Step 3a: Enhanced pre-validation using AI
               const isValidCandidate = await validateCandidateWithAI(candidate, enhancedQuery, openaiApiKey)
               
               if (!isValidCandidate) {
@@ -79,14 +81,17 @@ serve(async (req) => {
                 continue
               }
 
-              // Step 3b: Enrich candidate profile using Perplexity
-              const enrichedCandidate = await enrichCandidateProfile(candidate, perplexityApiKey)
+              // Step 3b: Enrich candidate profile using Perplexity (if available)
+              let enrichedCandidate = candidate
+              if (perplexityApiKey) {
+                enrichedCandidate = await enrichCandidateProfile(candidate, perplexityApiKey)
+              }
               
               // Step 3c: Calculate enhanced scoring with AI
               const scoredCandidate = await calculateEnhancedScoring(enrichedCandidate, enhancedQuery, openaiApiKey)
               
-              // Step 3d: Final quality check
-              if (scoredCandidate.overall_score >= 40) {
+              // Step 3d: Final quality check with higher threshold
+              if (scoredCandidate.overall_score >= 50) {
                 validatedCandidates.push(scoredCandidate)
               }
             } catch (error) {
@@ -98,7 +103,7 @@ serve(async (req) => {
         results[source].candidates = validatedCandidates
         results[source].validated = validatedCandidates.length
 
-        // Step 4: Store validated candidates with deduplication
+        // Step 4: Store validated candidates with enhanced deduplication
         if (validatedCandidates.length > 0) {
           await storeCandidatesWithDeduplication(validatedCandidates, supabase)
         }
@@ -109,8 +114,8 @@ serve(async (req) => {
       }
     }
 
-    const totalCandidates = results.github.total + results.stackoverflow.total + results.google.total
-    const totalValidated = results.github.validated + results.stackoverflow.validated + results.google.validated
+    const totalCandidates = Object.values(results).reduce((sum, result) => sum + result.total, 0)
+    const totalValidated = Object.values(results).reduce((sum, result) => sum + result.validated, 0)
 
     console.log(`Enhanced data collection completed. Total: ${totalCandidates}, Validated: ${totalValidated}`)
 
@@ -139,6 +144,19 @@ serve(async (req) => {
     )
   }
 })
+
+function getFunctionNameForSource(source) {
+  const functionMap = {
+    'github': 'collect-github-data',
+    'stackoverflow': 'collect-stackoverflow-data',
+    'google': 'collect-google-search-data',
+    'linkedin': 'collect-linkedin-data',
+    'kaggle': 'collect-kaggle-data',
+    'devto': 'collect-devto-data'
+  }
+  
+  return functionMap[source] || `collect-${source}-data`
+}
 
 function extractJSON(text) {
   try {
@@ -237,29 +255,41 @@ async function validateCandidateWithAI(candidate, enhancedQuery, openaiApiKey) {
         messages: [
           {
             role: 'system',
-            content: `You are a candidate validation expert. Determine if this candidate is a good match for the search criteria.
+            content: `You are a senior technical recruiter with expertise in validating developer profiles. Your task is to determine if a candidate is a genuine, high-quality match for the search criteria.
+
+            Validation criteria:
+            1. TECHNICAL RELEVANCE: Does the candidate have demonstrable technical skills matching the query?
+            2. PROFILE COMPLETENESS: Is their profile substantial with real professional information?
+            3. AUTHENTICITY: Does this appear to be a real, active professional (not spam/fake)?
+            4. SKILL ALIGNMENT: Do their stated skills align with the search requirements?
+            5. EXPERIENCE INDICATORS: Are there clear indicators of relevant professional experience?
             
-            Validate based on:
-            1. Does the candidate have relevant technical skills matching the query?
-            2. Is their experience level appropriate?
-            3. Is their profile complete and professional?
-            4. Are they likely a real, active developer/professional?
-            5. Do their skills match the required keywords?
+            Be particularly strict about:
+            - Candidates with empty or minimal profiles
+            - Profiles that seem auto-generated or spammy
+            - Lack of technical depth or relevant skills
+            - Misalignment with search criteria
             
-            Return only "true" if the candidate passes ALL validation criteria, "false" otherwise.
-            Be strict - only validate high-quality, relevant candidates.`
+            Return ONLY "true" for genuinely qualified candidates, "false" otherwise.`
           },
           {
             role: 'user',
             content: `Search criteria: ${JSON.stringify(enhancedQuery)}
             
-            Candidate: ${JSON.stringify({
-              name: candidate.name,
-              title: candidate.title,
-              summary: candidate.summary,
-              skills: candidate.skills,
-              experience_years: candidate.experience_years,
-              location: candidate.location
+            Candidate to validate:
+            Name: ${candidate.name}
+            Title: ${candidate.title || 'N/A'}
+            Summary: ${candidate.summary || 'N/A'}
+            Skills: ${JSON.stringify(candidate.skills || [])}
+            Experience: ${candidate.experience_years || 'N/A'} years
+            Location: ${candidate.location || 'N/A'}
+            Platform: ${candidate.platform || 'Unknown'}
+            
+            Additional context: ${JSON.stringify({
+              github_username: candidate.github_username,
+              kaggle_tier: candidate.kaggle_tier,
+              linkedin_url: candidate.linkedin_url,
+              devto_username: candidate.devto_username
             })}`
           }
         ],
@@ -268,9 +298,10 @@ async function validateCandidateWithAI(candidate, enhancedQuery, openaiApiKey) {
     })
 
     const data = await response.json()
-    return data.choices[0].message.content.trim().toLowerCase() === 'true'
+    const result = data.choices[0].message.content.trim().toLowerCase()
+    return result === 'true'
   } catch (error) {
-    console.error('Error validating candidate:', error)
+    console.error('Error in AI validation:', error)
     return false
   }
 }
@@ -334,25 +365,34 @@ async function calculateEnhancedScoring(candidate, enhancedQuery, openaiApiKey) 
         messages: [
           {
             role: 'system',
-            content: `You are a technical recruiter scoring candidates. Return ONLY a valid JSON object (no markdown) with scores (0-100) for:
-            - overall_score: overall match quality (weighted average of other scores)
-            - skill_match: how well skills match requirements
-            - experience: experience level appropriateness
-            - reputation: professional reputation and activity
-            - freshness: recent activity and relevance
-            - social_proof: community involvement and recognition
-            - risk_flags: array of any concerns (strings)
-            
-            Be thorough and consider all available information.`
+            content: `You are an expert technical recruiter scoring candidates. Analyze the candidate comprehensively and return ONLY a valid JSON object with scores (0-100):
+
+            Scoring Guidelines:
+            - overall_score: Holistic assessment (40-100, with 70+ being exceptional)
+            - skill_match: How well skills align with search criteria (0-100)
+            - experience: Experience level appropriateness (0-100, consider both years and depth)
+            - reputation: Professional reputation and credibility (0-100)
+            - freshness: Recent activity and market relevance (0-100)
+            - social_proof: Community engagement and recognition (0-100)
+            - risk_flags: Array of potential concerns ["concern1", "concern2"]
+
+            Consider platform-specific factors:
+            - GitHub: Repository quality, contribution frequency, code quality
+            - LinkedIn: Professional network, endorsements, company reputation
+            - Kaggle: Competition rankings, dataset contributions, community standing
+            - Dev.to: Article quality, engagement, technical depth
+            - Stack Overflow: Answer quality, reputation points, helpful contributions
+
+            Be generous with high-quality candidates but strict about minimum thresholds.`
           },
           {
             role: 'user',
-            content: `Search criteria: ${JSON.stringify(enhancedQuery)}
+            content: `Search requirements: ${JSON.stringify(enhancedQuery)}
             
-            Candidate: ${JSON.stringify(candidate)}`
+            Candidate profile: ${JSON.stringify(candidate)}`
           }
         ],
-        temperature: 0.3
+        temperature: 0.2
       }),
     })
 
@@ -362,12 +402,12 @@ async function calculateEnhancedScoring(candidate, enhancedQuery, openaiApiKey) 
     
     return {
       ...candidate,
-      overall_score: scores.overall_score || 50,
-      skill_match: scores.skill_match || 50,
-      experience: scores.experience || 50,
-      reputation: scores.reputation || 50,
-      freshness: scores.freshness || 50,
-      social_proof: scores.social_proof || 50,
+      overall_score: Math.round(scores.overall_score || 50),
+      skill_match: Math.round(scores.skill_match || 50),
+      experience: Math.round(scores.experience || 50),
+      reputation: Math.round(scores.reputation || 50),
+      freshness: Math.round(scores.freshness || 50),
+      social_proof: Math.round(scores.social_proof || 50),
       risk_flags: scores.risk_flags || []
     }
   } catch (error) {
@@ -380,7 +420,7 @@ async function calculateEnhancedScoring(candidate, enhancedQuery, openaiApiKey) 
       reputation: 50,
       freshness: 50,
       social_proof: 50,
-      risk_flags: []
+      risk_flags: ['scoring_error']
     }
   }
 }
