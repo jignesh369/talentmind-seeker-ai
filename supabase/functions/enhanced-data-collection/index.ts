@@ -21,6 +21,40 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
+// Helper function to create timeout promise
+function createTimeout(ms: number, errorMessage: string) {
+  return new Promise((_, reject) => 
+    setTimeout(() => reject(new Error(errorMessage)), ms)
+  )
+}
+
+// Helper function to invoke function with retry logic
+async function invokeWithRetry(supabase: any, functionName: string, body: any, maxRetries = 2) {
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const result = await Promise.race([
+        supabase.functions.invoke(functionName, { body }),
+        createTimeout(60000, `Timeout: ${functionName} took too long`)
+      ])
+      
+      if (result.error) {
+        throw new Error(result.error.message || `${functionName} failed`)
+      }
+      
+      return result
+    } catch (error) {
+      console.log(`${functionName} attempt ${attempt + 1} failed:`, error.message)
+      
+      if (attempt === maxRetries - 1) {
+        throw error
+      }
+      
+      // Wait before retry
+      await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)))
+    }
+  }
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -58,46 +92,64 @@ serve(async (req) => {
     }
 
     // Step 1: Enhanced semantic query analysis
-    const enhancedQuery = await enhanceQueryWithSemanticAI(query, openaiApiKey)
-    console.log('Phase 2.5 Enhanced query with advanced semantics:', enhancedQuery)
+    let enhancedQuery
+    try {
+      enhancedQuery = await enhanceQueryWithSemanticAI(query, openaiApiKey)
+      console.log('Phase 2.5 Enhanced query with advanced semantics:', enhancedQuery)
+    } catch (error) {
+      console.error('Query enhancement failed:', error)
+      // Fallback to basic query structure
+      enhancedQuery = {
+        searchTerms: [query],
+        skills: [],
+        experienceLevel: 'any',
+        locations: location ? [location] : []
+      }
+    }
 
     // Step 2: Generate embeddings for semantic search
-    const queryEmbedding = await generateQueryEmbedding(query, openaiApiKey)
+    let queryEmbedding = null
+    try {
+      queryEmbedding = await generateQueryEmbedding(query, openaiApiKey)
+    } catch (error) {
+      console.error('Query embedding generation failed:', error)
+    }
 
     // Step 3: Enhanced parallel data collection with improved strategies
     const collectionPromises = sources.map(async (source) => {
       try {
         console.log(`Phase 2.5: Enhanced collection from ${source}...`)
         
-        let functionName = getFunctionNameForSource(source)
+        const functionName = getFunctionNameForSource(source)
         let rawData, collectError
         
-        // Use enhanced GitHub function
+        // Use enhanced functions with retry logic
         if (source === 'github') {
-          ({ data: rawData, error: collectError } = await Promise.race([
-            supabase.functions.invoke('collect-github-data', {
-              body: { query: enhancedQuery.searchTerms.join(' '), location, enhancedQuery }
-            }),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 90000))
-          ]))
+          const result = await invokeWithRetry(supabase, 'collect-github-data', {
+            query: enhancedQuery.searchTerms.join(' '), 
+            location, 
+            enhancedQuery
+          })
+          rawData = result.data
+          collectError = result.error
         }
-        // Use enhanced Stack Overflow function  
         else if (source === 'stackoverflow') {
-          ({ data: rawData, error: collectError } = await Promise.race([
-            supabase.functions.invoke('collect-stackoverflow-data', {
-              body: { query: enhancedQuery.searchTerms.join(' '), location, enhancedQuery }
-            }),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 75000))
-          ]))
+          const result = await invokeWithRetry(supabase, 'collect-stackoverflow-data', {
+            query: enhancedQuery.searchTerms.join(' '), 
+            location, 
+            enhancedQuery
+          })
+          rawData = result.data
+          collectError = result.error
         }
-        // Standard collection for other sources
         else {
-          ({ data: rawData, error: collectError } = await Promise.race([
-            supabase.functions.invoke(functionName, {
-              body: { query: enhancedQuery.searchTerms.join(' '), location, enhancedQuery }
-            }),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 60000))
-          ]))
+          const result = await invokeWithRetry(supabase, functionName, {
+            query: enhancedQuery.searchTerms.join(' '), 
+            location, 
+            enhancedQuery
+          })
+          rawData = result.data
+          collectError = result.error
         }
 
         if (collectError) throw collectError
@@ -112,11 +164,14 @@ serve(async (req) => {
           console.log(`${source} enhancement stats:`, rawData.enhancement_stats)
         }
 
-        // Step 4: Enhanced AI validation with improved efficiency
+        // Step 4: Enhanced AI validation with improved efficiency - REDUCED LOAD
         const validatedCandidates = []
         
         if (rawCandidates.length > 0) {
-          for (const candidate of rawCandidates.slice(0, 35)) { // Increased limit for better results
+          // Reduced from 35 to 20 to lower processing load
+          const candidatesToProcess = rawCandidates.slice(0, 20)
+          
+          for (const candidate of candidatesToProcess) {
             try {
               // Enhanced validation with platform-specific adjustments
               const validationResult = await performEnhancedValidation(candidate, enhancedQuery, source, openaiApiKey)
@@ -127,26 +182,30 @@ serve(async (req) => {
               }
 
               // Enhanced tier calculation with platform weighting
-              let enrichedCandidate = candidate
+              let enrichedCandidate = { ...candidate } // FIX: Create new object instead of reassigning const
               const tier = calculateEnhancedCandidateTier(validationResult, source)
               
-              // Selective Perplexity enrichment for high-value candidates
-              if (perplexityApiKey && (tier === 'gold' || (tier === 'silver' && Math.random() > 0.5))) {
+              // Selective Perplexity enrichment for high-value candidates only
+              if (perplexityApiKey && tier === 'gold') { // Only gold tier to reduce load
                 try {
-                  enrichedCandidate = await enrichWithPerplexity(candidate, perplexityApiKey)
+                  enrichedCandidate = await enrichWithPerplexity(enrichedCandidate, perplexityApiKey)
                 } catch (error) {
                   console.log(`Perplexity enrichment failed for ${candidate.name}:`, error.message)
                 }
               }
               
               // Enhanced scoring with platform and discovery method bonuses
-              const scoredCandidate = await calculateEnhancedTieredScoring(enrichedCandidate, enhancedQuery, tier, source, openaiApiKey)
+              let scoredCandidate = await calculateEnhancedTieredScoring(enrichedCandidate, enhancedQuery, tier, source, openaiApiKey)
               
-              // Enhanced semantic similarity
+              // Enhanced semantic similarity - only if embedding was successful
               if (queryEmbedding) {
-                const candidateEmbedding = await generateCandidateEmbedding(scoredCandidate, openaiApiKey)
-                if (candidateEmbedding) {
-                  scoredCandidate.semantic_similarity = calculateCosineSimilarity(queryEmbedding, candidateEmbedding)
+                try {
+                  const candidateEmbedding = await generateCandidateEmbedding(scoredCandidate, openaiApiKey)
+                  if (candidateEmbedding) {
+                    scoredCandidate.semantic_similarity = calculateCosineSimilarity(queryEmbedding, candidateEmbedding)
+                  }
+                } catch (error) {
+                  console.log(`Semantic similarity calculation failed for ${candidate.name}:`, error.message)
                 }
               }
               
@@ -164,9 +223,14 @@ serve(async (req) => {
                 // Platform-specific bonuses
                 scoredCandidate = applyPlatformSpecificBonuses(scoredCandidate, source, rawData)
                 
-                // Enhanced market intelligence
-                const marketScore = await calculateMarketIntelligenceWithCache(scoredCandidate, enhancedQuery, openaiApiKey)
-                scoredCandidate.market_relevance = marketScore
+                // Enhanced market intelligence with error handling
+                try {
+                  const marketScore = await calculateMarketIntelligenceWithCache(scoredCandidate, enhancedQuery, openaiApiKey)
+                  scoredCandidate.market_relevance = marketScore
+                } catch (error) {
+                  console.log(`Market intelligence calculation failed for ${candidate.name}:`, error.message)
+                  scoredCandidate.market_relevance = 60 // Default value
+                }
                 
                 validatedCandidates.push(scoredCandidate)
                 console.log(`Phase 2.5: Validated ${tier} candidate ${candidate.name} from ${source} (Score: ${scoredCandidate.overall_score})`)
@@ -175,6 +239,7 @@ serve(async (req) => {
               }
             } catch (error) {
               console.error(`Phase 2.5: Error processing candidate ${candidate.name}:`, error)
+              continue
             }
           }
         }
@@ -184,7 +249,11 @@ serve(async (req) => {
 
         // Enhanced storage with cross-platform correlation
         if (validatedCandidates.length > 0) {
-          await storeWithEnhancedDeduplication(validatedCandidates, supabase, queryEmbedding, source)
+          try {
+            await storeWithEnhancedDeduplication(validatedCandidates, supabase, queryEmbedding, source)
+          } catch (error) {
+            console.error(`Storage failed for ${source}:`, error)
+          }
         }
 
       } catch (error) {
@@ -193,29 +262,29 @@ serve(async (req) => {
       }
     })
 
-    // Step 4: Add LinkedIn cross-platform discovery as separate process
+    // Step 4: Add LinkedIn cross-platform discovery as separate process with timeout
     const crossPlatformPromise = (async () => {
       try {
         console.log('Phase 2.5: Starting LinkedIn cross-platform discovery...')
         
-        const { data: crossPlatformData, error: crossPlatformError } = await Promise.race([
+        const result = await Promise.race([
           supabase.functions.invoke('collect-linkedin-cross-platform', {
             body: { query: enhancedQuery.searchTerms.join(' '), location, enhancedQuery, crossPlatformData: true }
           }),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 120000))
+          createTimeout(90000, 'LinkedIn cross-platform discovery timeout')
         ])
 
-        if (crossPlatformError) throw crossPlatformError
+        if (result.error) throw result.error
 
-        const crossPlatformCandidates = crossPlatformData?.candidates || []
+        const crossPlatformCandidates = result.data?.candidates || []
         results['linkedin-cross-platform'].total = crossPlatformCandidates.length
         results['linkedin-cross-platform'].candidates = crossPlatformCandidates
         results['linkedin-cross-platform'].validated = crossPlatformCandidates.length
 
         console.log(`Phase 2.5: Cross-platform LinkedIn discovery found ${crossPlatformCandidates.length} candidates`)
 
-        if (crossPlatformData?.discovery_stats) {
-          console.log('Cross-platform discovery stats:', crossPlatformData.discovery_stats)
+        if (result.data?.discovery_stats) {
+          console.log('Cross-platform discovery stats:', result.data.discovery_stats)
         }
 
       } catch (error) {
@@ -224,7 +293,7 @@ serve(async (req) => {
       }
     })()
 
-    // Wait for all collections to complete
+    // Wait for all collections to complete with better error handling
     await Promise.allSettled([...collectionPromises, crossPlatformPromise])
 
     const totalCandidates = Object.values(results).reduce((sum, result) => sum + result.total, 0)
@@ -268,7 +337,7 @@ serve(async (req) => {
   } catch (error) {
     console.error('Phase 2.5: Error in enhanced multi-source data collection:', error)
     return new Response(
-      JSON.stringify({ error: 'Failed to perform Phase 2.5 enhanced data collection' }),
+      JSON.stringify({ error: 'Failed to perform Phase 2.5 enhanced data collection', details: error.message }),
       { 
         status: 500, 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
