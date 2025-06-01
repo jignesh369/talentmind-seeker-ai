@@ -13,7 +13,7 @@ export class TimeoutManager {
   private initializeSourcePerformance() {
     const sources = ['github', 'stackoverflow', 'linkedin', 'google', 'devto', 'kaggle'];
     sources.forEach(source => {
-      this.sourcePerformance.set(source, { success: 0, total: 0, avgTime: 10000 }); // Default 10s
+      this.sourcePerformance.set(source, { success: 0, total: 0, avgTime: 12000 }); // Default 12s
     });
   }
 
@@ -22,8 +22,9 @@ export class TimeoutManager {
       const perfA = this.sourcePerformance.get(a) || { success: 0, total: 1, avgTime: 15000 };
       const perfB = this.sourcePerformance.get(b) || { success: 0, total: 1, avgTime: 15000 };
       
-      const scoreA = (perfA.success / Math.max(perfA.total, 1)) * 100 - (perfA.avgTime / 1000);
-      const scoreB = (perfB.success / Math.max(perfB.total, 1)) * 100 - (perfB.avgTime / 1000);
+      // Weighted scoring: success rate (60%) + speed bonus (40%)
+      const scoreA = (perfA.success / Math.max(perfA.total, 1)) * 60 + (20000 - perfA.avgTime) / 20000 * 40;
+      const scoreB = (perfB.success / Math.max(perfB.total, 1)) * 60 + (20000 - perfB.avgTime) / 20000 * 40;
       
       return scoreB - scoreA; // Higher score first
     });
@@ -31,14 +32,16 @@ export class TimeoutManager {
 
   getSourceTimeout(source: string): number {
     const remaining = this.getRemainingBudget();
-    const baseTimeout = Math.min(25000, remaining * 0.4); // 40% of remaining time, max 25s
+    const baseTimeout = Math.min(20000, remaining * 0.3); // 30% of remaining time, max 20s
     
     const perf = this.sourcePerformance.get(source);
     if (perf && perf.avgTime > 0) {
-      return Math.min(baseTimeout, perf.avgTime * 1.5); // 1.5x average time
+      // Use 2x average time with reasonable bounds
+      const adaptiveTimeout = Math.max(8000, Math.min(25000, perf.avgTime * 2));
+      return Math.min(baseTimeout, adaptiveTimeout);
     }
     
-    return baseTimeout;
+    return Math.max(8000, baseTimeout); // Minimum 8s timeout
   }
 
   getRemainingBudget(fromTime?: number): number {
@@ -56,7 +59,7 @@ export class TimeoutManager {
     if (current.avgTime === 0) {
       current.avgTime = timeMs;
     } else {
-      current.avgTime = (current.avgTime * 0.7) + (timeMs * 0.3);
+      current.avgTime = (current.avgTime * 0.8) + (timeMs * 0.2);
     }
     
     this.sourcePerformance.set(source, current);
@@ -64,7 +67,8 @@ export class TimeoutManager {
 
   shouldUseProgressiveEnhancement(elapsedTime: number): boolean {
     const remainingTime = this.timeBudget - elapsedTime;
-    return remainingTime < (this.timeBudget * 0.4); // Less than 40% time remaining
+    // Only trigger progressive enhancement when less than 20% time remaining
+    return remainingTime < (this.timeBudget * 0.2);
   }
 
   createTimeoutPromise<T>(timeoutMs: number, errorMessage: string): Promise<T> {
@@ -75,7 +79,7 @@ export class TimeoutManager {
 
   isNearTimeout(): boolean {
     const remaining = this.getRemainingBudget();
-    return remaining < 10000; // Less than 10 seconds remaining
+    return remaining < 15000; // Less than 15 seconds remaining
   }
 
   getPerformanceReport(): any {

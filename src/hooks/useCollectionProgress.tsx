@@ -11,7 +11,7 @@ export const useCollectionProgress = () => {
   const [progress, setProgress] = useState<ProgressState>({
     message: '',
     phase: 0,
-    totalPhases: 4
+    totalPhases: 5
   });
 
   const updateProgress = useCallback((message: string, phase?: number) => {
@@ -24,11 +24,12 @@ export const useCollectionProgress = () => {
 
   const startProgress = useCallback(() => {
     const phases = [
-      '⚡ Initializing optimized collection...',
-      '🎯 Processing query (fast mode)...',
-      '🌐 Parallel source collection (60s budget)...',
-      '🔄 Fast deduplication...',
-      '✨ Finalizing results...',
+      '⚡ Initializing AI-enhanced collection...',
+      '🎯 Processing query with smart optimization...',
+      '🌐 Parallel source collection (80s budget)...',
+      '🤖 Applying AI processing and validation...',
+      '🔄 Smart deduplication and scoring...',
+      '✨ Finalizing enhanced results...',
     ];
     
     let phaseCount = 0;
@@ -39,7 +40,7 @@ export const useCollectionProgress = () => {
         phaseCount++;
         updateProgress(phases[phaseCount], phaseCount);
       }
-    }, 8000);
+    }, 10000); // Slower progression for longer timeout
     
     return () => clearInterval(interval);
   }, [updateProgress]);
@@ -48,7 +49,7 @@ export const useCollectionProgress = () => {
     setProgress({
       message: '',
       phase: 0,
-      totalPhases: 4
+      totalPhases: 5
     });
   }, []);
 

@@ -60,27 +60,47 @@ export interface DataCollectionResponse {
 
 export class DataCollectionService {
   static async collectCandidates(options: DataCollectionOptions): Promise<DataCollectionResponse> {
-    const { query, location, sources = ['github', 'stackoverflow', 'linkedin', 'google'], timeBudget = 60 } = options;
+    const { query, location, sources = ['github', 'stackoverflow', 'linkedin', 'google'], timeBudget = 80 } = options;
 
-    console.log('🚀 Starting optimized collection with:', { query, location, sources });
+    console.log('🚀 DataCollectionService: Starting collection', { 
+      query, 
+      location: location || 'Not specified', 
+      sources: sources.slice(0, 4),
+      timeBudget 
+    });
     
     const response = await supabase.functions.invoke('enhanced-data-collection', {
       body: { 
         query, 
-        location, 
-        sources: sources.slice(0, 4), // Limit to 4 sources max
+        location: location || undefined, // Ensure clean location parameter
+        sources: sources.slice(0, 4), // Enforce max 4 sources
         time_budget: timeBudget
       }
     });
 
     if (response.error) {
-      console.error('Collection error:', response.error);
-      throw new Error(response.error.message || 'Data collection failed');
+      console.error('❌ DataCollectionService: Collection error:', response.error);
+      // Provide more context in error messages
+      let errorMessage = response.error.message || 'Data collection failed';
+      
+      if (errorMessage.includes('timeout')) {
+        errorMessage = 'Collection timed out on the server. Try using fewer sources or a simpler query.';
+      } else if (errorMessage.includes('rate limit')) {
+        errorMessage = 'Service is temporarily rate limited. Please try again in a few minutes.';
+      }
+      
+      throw new Error(errorMessage);
     }
 
     if (!response.data) {
-      throw new Error('No data returned from collection');
+      console.error('❌ DataCollectionService: No data returned');
+      throw new Error('No data returned from collection service');
     }
+
+    console.log('✅ DataCollectionService: Collection completed', {
+      candidates: response.data.total_candidates,
+      processing_time: response.data.performance_metrics?.total_time_ms
+    });
 
     return response.data;
   }
