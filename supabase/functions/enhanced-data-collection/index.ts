@@ -1,8 +1,12 @@
+
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { TimeoutManager } from './timeout-manager.ts'
 import { ProgressiveCollector } from './progressive-collector.ts'
 import { getGlobalMemoryManager } from './memory-manager.ts'
+import { AIProcessor } from './ai-processor.ts'
+import { ProfileSummarizer } from './profile-summarizer.ts'
+import { ScoringStandardizer } from './scoring-standardizer.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -36,7 +40,7 @@ serve(async (req) => {
       )
     }
 
-    console.log('🚀 Starting enhanced data collection with Phase 2 optimizations')
+    console.log('🚀 Starting enhanced data collection with Phase 3 AI processing')
     console.log(`Query: "${query}", Location: "${location}", Sources: [${sources.join(', ')}], Budget: ${time_budget}s`)
 
     const optimizedQuery = query.split(' ').slice(0, 4).join(' ')
@@ -44,7 +48,22 @@ serve(async (req) => {
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+    const openaiApiKey = Deno.env.get('OPENAI_API_KEY')
+    const perplexityApiKey = Deno.env.get('PERPLEXITY_API_KEY')
     const supabase = createClient(supabaseUrl, supabaseKey)
+
+    // Initialize AI processing components
+    const aiProcessor = openaiApiKey ? new AIProcessor(openaiApiKey, perplexityApiKey || '', {
+      enableScoring: true,
+      enableValidation: true,
+      enableSummarization: true,
+      enablePerplexityEnrichment: !!perplexityApiKey,
+      scoringModel: 'gpt-4o-mini',
+      summaryModel: 'gpt-4o-mini'
+    }) : null;
+
+    const profileSummarizer = openaiApiKey ? new ProfileSummarizer(openaiApiKey) : null;
+    const scoringStandardizer = openaiApiKey ? new ScoringStandardizer(openaiApiKey) : null;
 
     // Initialize performance optimization components
     const timeoutManager = new TimeoutManager(time_budget)
@@ -54,8 +73,8 @@ serve(async (req) => {
     const optimalSources = timeoutManager.getOptimalSourceOrder(sources.slice(0, 4))
     console.log('🎯 Optimal source order:', optimalSources)
 
-    // Enhanced parallel processing with smart timeouts and progressive enhancement
-    console.log('🌐 Starting smart parallel source collection...')
+    // Enhanced parallel processing with AI integration
+    console.log('🌐 Starting AI-enhanced parallel source collection...')
     
     const sourcePromises = optimalSources.map(async (source): Promise<SourceResult> => {
       const sourceStartTime = Date.now()
@@ -125,7 +144,27 @@ serve(async (req) => {
         timeoutManager.updateSourcePerformance(source, success, processingTime)
 
         if (result?.data) {
-          const candidates = (result.data.candidates || []).slice(0, 8)
+          let candidates = (result.data.candidates || []).slice(0, 8)
+          
+          // Apply AI processing to candidates
+          if (aiProcessor && candidates.length > 0) {
+            console.log(`🤖 Applying AI processing to ${candidates.length} candidates from ${source}`)
+            const processedCandidates = []
+            
+            for (const candidate of candidates) {
+              try {
+                const enhancedQuery = { skills: [], keywords: query.split(' '), location }
+                const processed = await aiProcessor.processCandidate(candidate, enhancedQuery, source)
+                processedCandidates.push(processed.candidate)
+              } catch (error) {
+                console.log(`⚠️ AI processing failed for candidate: ${error.message}`)
+                processedCandidates.push(candidate) // Keep original if AI processing fails
+              }
+            }
+            
+            candidates = processedCandidates
+          }
+
           console.log(`✅ ${source}: ${candidates.length} candidates in ${processingTime}ms`)
           
           const sourceResult: SourceResult = {
@@ -188,14 +227,14 @@ serve(async (req) => {
       }
     })
 
-    // Progressive enhancement: Check for early results
+    // Progressive enhancement with AI monitoring
     let sourceResults: SourceResult[] = []
     let progressiveCheckCount = 0
     const maxProgressiveChecks = 3
 
     const progressiveEnhancement = async () => {
       while (progressiveCheckCount < maxProgressiveChecks) {
-        await new Promise(resolve => setTimeout(resolve, time_budget * 200)) // Check every 20% of time budget
+        await new Promise(resolve => setTimeout(resolve, time_budget * 200))
         progressiveCheckCount++
         
         const elapsedTime = Date.now() - startTime
@@ -205,7 +244,7 @@ serve(async (req) => {
         
         if (timeoutManager.shouldUseProgressiveEnhancement(elapsedTime) && 
             progressiveCollector.hasMinimumResults()) {
-          console.log('⚡ Progressive enhancement: Early results available')
+          console.log('⚡ Progressive enhancement: Early results available with AI processing')
           break
         }
         
@@ -239,17 +278,42 @@ serve(async (req) => {
       }
     })
 
-    console.log(`✅ Parallel processing completed: ${sourceResults.length} sources processed`)
+    console.log(`✅ AI-enhanced parallel processing completed: ${sourceResults.length} sources processed`)
 
-    // Get progressive results with enhanced deduplication
+    // Get progressive results with enhanced deduplication and AI processing
     const progressiveResult = progressiveCollector.getProgressiveResult(optimalSources)
     
     console.log(`📊 Progressive collection: ${progressiveResult.candidates.length} unique candidates`)
+    console.log(`🤖 AI processing: ${aiProcessor ? 'Enabled' : 'Disabled'}`)
     console.log(`📈 Completion rate: ${Math.round(progressiveResult.completionRate * 100)}%`)
+
+    // Apply final AI enhancements to top candidates
+    let finalCandidates = progressiveResult.candidates
+    if (profileSummarizer && finalCandidates.length > 0) {
+      console.log('📝 Generating AI summaries for top candidates...')
+      try {
+        const topCandidates = finalCandidates.slice(0, 10) // Limit to top 10 for summaries
+        for (let i = 0; i < topCandidates.length; i++) {
+          if (!topCandidates[i].ai_summary) {
+            try {
+              const summary = await profileSummarizer.generateSummary(topCandidates[i], 'cross-platform')
+              topCandidates[i].ai_summary = summary
+              topCandidates[i].summary_generated = true
+            } catch (error) {
+              console.log(`⚠️ Summary generation failed for candidate ${i}: ${error.message}`)
+            }
+          }
+        }
+        finalCandidates = [...topCandidates, ...finalCandidates.slice(10)]
+      } catch (error) {
+        console.error('Bulk summary generation error:', error)
+      }
+    }
 
     // Build comprehensive results object
     const results = {}
     const errors = []
+    let aiEnhancements = 0
     
     sourceResults.forEach(result => {
       results[result.source] = {
@@ -263,6 +327,11 @@ serve(async (req) => {
       if (result.error) {
         errors.push({ source: result.source, error: result.error })
       }
+      
+      // Count AI enhancements
+      if (result.candidates) {
+        aiEnhancements += result.candidates.filter(c => c.ai_scored || c.summary_generated || c.perplexity_enriched).length
+      }
     })
 
     const totalTime = Date.now() - startTime
@@ -270,16 +339,17 @@ serve(async (req) => {
     const successRate = Math.round((successfulSources / sourceResults.length) * 100)
     const timeEfficiency = totalTime < 30000 ? 'Excellent' : totalTime < 45000 ? 'Good' : 'Acceptable'
 
-    console.log(`🎉 Enhanced collection completed in ${totalTime}ms: ${progressiveResult.candidates.length} unique candidates`)
+    console.log(`🎉 AI-enhanced collection completed in ${totalTime}ms: ${finalCandidates.length} unique candidates`)
+    console.log(`🤖 AI enhancements applied: ${aiEnhancements}`)
     console.log(`📊 Success rate: ${successRate}% (${successfulSources}/${sourceResults.length} sources)`)
 
     const response = {
       results,
-      total_candidates: progressiveResult.candidates.length,
-      total_validated: progressiveResult.candidates.length,
+      total_candidates: finalCandidates.length,
+      total_validated: finalCandidates.length,
       query: optimizedQuery,
       location,
-      enhancement_phase: 'Phase 2: Performance Optimized',
+      enhancement_phase: 'Phase 3: AI-Enhanced Processing',
       quality_metrics: {
         validation_rate: '100%',
         processing_time: `${Math.round(totalTime / 1000)}s`,
@@ -288,6 +358,7 @@ serve(async (req) => {
         smart_limiting: true,
         early_returns: progressiveResult.isPartial,
         progressive_enhancement: true,
+        ai_processing: !!aiProcessor,
         completion_rate: `${Math.round(progressiveResult.completionRate * 100)}%`
       },
       performance_metrics: {
@@ -295,12 +366,12 @@ serve(async (req) => {
         average_time_per_source: Math.round(totalTime / optimalSources.length),
         timeout_rate: sourceResults.filter(r => r.error?.includes('timeout')).length / sourceResults.length * 100,
         success_rate: successRate,
-        candidates_per_successful_source: successfulSources > 0 ? Math.round(progressiveResult.candidates.length / successfulSources) : 0,
+        candidates_per_successful_source: successfulSources > 0 ? Math.round(finalCandidates.length / successfulSources) : 0,
         memory_stats: memoryManager.getResourceStats()
       },
       enhancement_stats: {
-        total_processed: progressiveResult.candidates.length,
-        unique_candidates: progressiveResult.candidates.length,
+        total_processed: finalCandidates.length,
+        unique_candidates: finalCandidates.length,
         processing_time_ms: totalTime,
         time_budget_used: Math.round((totalTime / (time_budget * 1000)) * 100),
         sources_successful: successfulSources,
@@ -309,7 +380,12 @@ serve(async (req) => {
         recommended_next_sources: progressiveResult.nextRecommendedSources,
         completion_rate: progressiveResult.completionRate,
         smart_timeouts: true,
-        load_balancing: true
+        load_balancing: true,
+        ai_enhancements: aiEnhancements,
+        apollo_enriched: 0, // Placeholder for future Apollo integration
+        perplexity_enriched: finalCandidates.filter(c => c.perplexity_enriched).length,
+        ai_summaries_generated: finalCandidates.filter(c => c.summary_generated).length,
+        ai_scored_candidates: finalCandidates.filter(c => c.ai_scored).length
       },
       errors: errors.length > 0 ? errors : undefined,
       timestamp: new Date().toISOString()
@@ -324,12 +400,12 @@ serve(async (req) => {
     
     return new Response(
       JSON.stringify({
-        error: 'Enhanced data collection failed',
+        error: 'AI-enhanced data collection failed',
         message: error.message,
         results: {},
         total_candidates: 0,
         total_validated: 0,
-        enhancement_phase: 'Phase 2: Performance Optimized (Error)',
+        enhancement_phase: 'Phase 3: AI-Enhanced Processing (Error)',
         timestamp: new Date().toISOString()
       }),
       { 
@@ -342,18 +418,3 @@ serve(async (req) => {
     await memoryManager.forceCleanup(2000)
   }
 })
-
-function calculateDataQuality(candidate: any): number {
-  const fields = [
-    candidate.name && candidate.name !== 'Unknown',
-    candidate.title,
-    candidate.location,
-    candidate.summary && candidate.summary.length > 20,
-    candidate.skills && candidate.skills.length > 0,
-    candidate.experience_years !== undefined,
-    candidate.email || candidate.github_username || candidate.linkedin_url
-  ]
-  
-  const completedFields = fields.filter(Boolean).length
-  return Math.round((completedFields / fields.length) * 100)
-}
