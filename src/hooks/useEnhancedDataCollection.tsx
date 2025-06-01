@@ -1,3 +1,4 @@
+
 import { useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from './useAuth';
@@ -24,14 +25,18 @@ export interface EnhancedDataCollectionResult {
     perplexity_enriched: boolean;
     semantic_search: boolean;
     tier_system: boolean;
+    apollo_enriched: boolean;
     github_readme_crawling: boolean;
     stackoverflow_expertise_focus: boolean;
     linkedin_cross_platform: boolean;
+    enhanced_google_search: boolean;
   };
   enhancement_stats: {
     platform_specific_bonuses_applied: number;
     cross_platform_correlations: number;
     readme_emails_found: number;
+    apollo_enriched_candidates: number;
+    enhanced_google_discoveries: number;
     expertise_level_candidates: number;
   };
   timestamp: string;
@@ -60,10 +65,10 @@ export const useEnhancedDataCollection = () => {
 
     setIsCollecting(true);
     setCollectionResult(null);
-    setProgress('Initializing Phase 2.5 enhanced multi-source collection...');
+    setProgress('Initializing Phase 2.5 enhanced multi-source collection with Apollo.io integration...');
 
     try {
-      setProgress('Building enhanced semantic understanding with language-specific strategies...');
+      setProgress('Building enhanced semantic understanding with Apollo.io email discovery and targeted Google search...');
       
       const { data, error } = await supabase.functions.invoke('enhanced-data-collection', {
         body: { query, location, sources }
@@ -83,17 +88,21 @@ export const useEnhancedDataCollection = () => {
       
       // Enhanced success message with new features
       const readmeEmails = data.enhancement_stats?.readme_emails_found || 0;
+      const apolloEmails = data.enhancement_stats?.apollo_enriched_candidates || 0;
       const expertiseCandidates = data.enhancement_stats?.expertise_level_candidates || 0;
       const crossPlatformMatches = data.enhancement_stats?.cross_platform_correlations || 0;
+      const googleDiscoveries = data.enhancement_stats?.enhanced_google_discoveries || 0;
       
       const featureHighlights = [];
-      if (readmeEmails > 0) featureHighlights.push(`${readmeEmails} emails from GitHub READMEs`);
-      if (expertiseCandidates > 0) featureHighlights.push(`${expertiseCandidates} expertise-validated candidates`);
-      if (crossPlatformMatches > 0) featureHighlights.push(`${crossPlatformMatches} cross-platform discoveries`);
+      if (readmeEmails > 0) featureHighlights.push(`${readmeEmails} GitHub README emails`);
+      if (apolloEmails > 0) featureHighlights.push(`${apolloEmails} Apollo.io enriched`);
+      if (googleDiscoveries > 0) featureHighlights.push(`${googleDiscoveries} Google discoveries`);
+      if (expertiseCandidates > 0) featureHighlights.push(`${expertiseCandidates} expertise-validated`);
+      if (crossPlatformMatches > 0) featureHighlights.push(`${crossPlatformMatches} cross-platform matches`);
       
       toast({
-        title: "Phase 2.5 Enhanced Collection Completed",
-        description: `🎯 Found ${data.total_validated} quality candidates (${validationRate}% success rate)${data.quality_metrics?.github_readme_crawling ? ' with README email discovery' : ''}${data.quality_metrics?.stackoverflow_expertise_focus ? ' + expertise targeting' : ''}${data.quality_metrics?.linkedin_cross_platform ? ' + LinkedIn cross-platform matching' : ''}${featureHighlights.length > 0 ? `. Features: ${featureHighlights.join(', ')}` : ''}${failedSources > 0 ? ` (${failedSources} sources failed)` : ''}`,
+        title: "🚀 Phase 2.5 Enhanced Collection Completed",
+        description: `🎯 Found ${data.total_validated} quality candidates (${validationRate}% success rate)${data.quality_metrics?.apollo_enriched ? ' with Apollo.io email discovery' : ''}${data.quality_metrics?.enhanced_google_search ? ' + targeted Google search' : ''}${data.quality_metrics?.github_readme_crawling ? ' + README email extraction' : ''}${featureHighlights.length > 0 ? `. Features: ${featureHighlights.join(', ')}` : ''}${failedSources > 0 ? ` (${failedSources} sources failed)` : ''}`,
         variant: "default",
       });
 
@@ -105,9 +114,9 @@ export const useEnhancedDataCollection = () => {
       
       let errorMessage = "Failed to collect candidates with Phase 2.5 enhancements";
       if (error.message?.includes('timeout')) {
-        errorMessage = "Request timed out. The enhanced validation with README crawling and cross-platform discovery takes time. Please try again.";
+        errorMessage = "Request timed out. The enhanced validation with Apollo.io enrichment and targeted search takes time. Please try again.";
       } else if (error.message?.includes('API')) {
-        errorMessage = "AI service temporarily unavailable. Please try again later.";
+        errorMessage = "AI or Apollo service temporarily unavailable. Please try again later.";
       }
       
       toast({

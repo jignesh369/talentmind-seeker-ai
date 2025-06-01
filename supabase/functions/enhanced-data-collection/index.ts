@@ -13,7 +13,8 @@ import {
 } from './scoring-system.ts'
 import { enrichWithPerplexity } from './perplexity-enrichment.ts'
 import { calculateMarketIntelligenceWithCache } from './market-intelligence.ts'
-import { storeWithEnhancedDeduplication } from './storage-manager.ts'
+import { storeWithEnhancedDeduplication, enrichWithApollo } from './storage-manager.ts'
+import { performEnhancedGoogleSearch } from './google-search-enhancement.ts'
 import { getFunctionNameForSource } from './utils.ts'
 
 const corsHeaders = {
@@ -77,6 +78,9 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     const openaiApiKey = Deno.env.get('OPENAI_API_KEY')!
     const perplexityApiKey = Deno.env.get('PERPLEXITY_API_KEY')!
+    const apolloApiKey = Deno.env.get('APOLLO_API_KEY') // New Apollo integration
+    const googleApiKey = Deno.env.get('GOOGLE_API_KEY')!
+    const searchEngineId = Deno.env.get('GOOGLE_SEARCH_ENGINE_ID')!
     const supabase = createClient(supabaseUrl, supabaseKey)
 
     console.log(`Starting Phase 2.5 enhanced multi-source data collection for query: ${query}`)
@@ -115,8 +119,63 @@ serve(async (req) => {
       console.error('Query embedding generation failed:', error)
     }
 
-    // Step 3: Enhanced parallel data collection with improved strategies
-    const collectionPromises = sources.map(async (source) => {
+    // Step 3: Enhanced Google search integration
+    if (sources.includes('google')) {
+      try {
+        console.log('Phase 2.5: Starting enhanced Google search with targeted queries...')
+        const googleCandidates = await performEnhancedGoogleSearch(query, location, googleApiKey, searchEngineId, openaiApiKey)
+        
+        results.google.total = googleCandidates.length
+        console.log(`Phase 2.5: Enhanced Google search found ${googleCandidates.length} candidates`)
+        
+        // Process Google candidates with enhanced validation
+        const validatedGoogleCandidates = []
+        for (const candidate of googleCandidates.slice(0, 15)) {
+          try {
+            // Apollo enrichment for Google candidates
+            let enrichedCandidate = candidate
+            if (apolloApiKey) {
+              enrichedCandidate = await enrichWithApollo(candidate, apolloApiKey)
+            }
+            
+            // Enhanced validation
+            const validationResult = await performEnhancedValidation(enrichedCandidate, enhancedQuery, 'google', openaiApiKey)
+            if (validationResult.isValid) {
+              const tier = calculateEnhancedCandidateTier(validationResult, 'google')
+              const scoredCandidate = await calculateEnhancedTieredScoring(enrichedCandidate, enhancedQuery, tier, 'google', openaiApiKey)
+              
+              const minScore = getEnhancedMinScoreForTier(tier, 'google')
+              const minConfidence = getEnhancedMinConfidenceForTier(tier, 'google')
+              
+              if (scoredCandidate.overall_score >= minScore && scoredCandidate.validation_confidence >= minConfidence) {
+                scoredCandidate.candidate_tier = tier
+                scoredCandidate.apollo_enriched = !!enrichedCandidate.apollo_enriched
+                validatedGoogleCandidates.push(scoredCandidate)
+                console.log(`Phase 2.5: Validated ${tier} candidate ${candidate.name} from Google search (Score: ${scoredCandidate.overall_score})`)
+              }
+            }
+          } catch (error) {
+            console.error(`Error processing Google candidate ${candidate.name}:`, error)
+            continue
+          }
+        }
+        
+        results.google.candidates = validatedGoogleCandidates
+        results.google.validated = validatedGoogleCandidates.length
+        
+        // Store Google candidates
+        if (validatedGoogleCandidates.length > 0) {
+          await storeWithEnhancedDeduplication(validatedGoogleCandidates, supabase, queryEmbedding, 'google')
+        }
+        
+      } catch (error) {
+        console.error('Enhanced Google search error:', error)
+        results.google.error = error.message
+      }
+    }
+
+    // Step 4: Enhanced parallel data collection with improved strategies
+    const collectionPromises = sources.filter(s => s !== 'google').map(async (source) => {
       try {
         console.log(`Phase 2.5: Enhanced collection from ${source}...`)
         
@@ -164,7 +223,7 @@ serve(async (req) => {
           console.log(`${source} enhancement stats:`, rawData.enhancement_stats)
         }
 
-        // Step 4: Enhanced AI validation with improved efficiency - REDUCED LOAD
+        // Step 5: Enhanced AI validation with Apollo enrichment - REDUCED LOAD
         const validatedCandidates = []
         
         if (rawCandidates.length > 0) {
@@ -173,16 +232,21 @@ serve(async (req) => {
           
           for (const candidate of candidatesToProcess) {
             try {
+              // Apollo enrichment for missing emails
+              let enrichedCandidate = candidate
+              if (apolloApiKey && !candidate.email) {
+                enrichedCandidate = await enrichWithApollo(candidate, apolloApiKey)
+              }
+              
               // Enhanced validation with platform-specific adjustments
-              const validationResult = await performEnhancedValidation(candidate, enhancedQuery, source, openaiApiKey)
+              const validationResult = await performEnhancedValidation(enrichedCandidate, enhancedQuery, source, openaiApiKey)
               
               if (!validationResult.isValid) {
-                console.log(`Phase 2.5: Candidate ${candidate.name} failed enhanced validation: ${validationResult.reason}`)
+                console.log(`Phase 2.5: Candidate ${enrichedCandidate.name} failed enhanced validation: ${validationResult.reason}`)
                 continue
               }
 
               // Enhanced tier calculation with platform weighting
-              let enrichedCandidate = { ...candidate } // FIX: Create new object instead of reassigning const
               const tier = calculateEnhancedCandidateTier(validationResult, source)
               
               // Selective Perplexity enrichment for high-value candidates only
@@ -190,7 +254,7 @@ serve(async (req) => {
                 try {
                   enrichedCandidate = await enrichWithPerplexity(enrichedCandidate, perplexityApiKey)
                 } catch (error) {
-                  console.log(`Perplexity enrichment failed for ${candidate.name}:`, error.message)
+                  console.log(`Perplexity enrichment failed for ${enrichedCandidate.name}:`, error.message)
                 }
               }
               
@@ -205,7 +269,7 @@ serve(async (req) => {
                     scoredCandidate.semantic_similarity = calculateCosineSimilarity(queryEmbedding, candidateEmbedding)
                   }
                 } catch (error) {
-                  console.log(`Semantic similarity calculation failed for ${candidate.name}:`, error.message)
+                  console.log(`Semantic similarity calculation failed for ${enrichedCandidate.name}:`, error.message)
                 }
               }
               
@@ -219,6 +283,7 @@ serve(async (req) => {
                 scoredCandidate.completeness_score = completenessScore
                 scoredCandidate.candidate_tier = tier
                 scoredCandidate.collection_phase = '2.5'
+                scoredCandidate.apollo_enriched = !!enrichedCandidate.apollo_enriched
                 
                 // Platform-specific bonuses
                 scoredCandidate = applyPlatformSpecificBonuses(scoredCandidate, source, rawData)
@@ -228,14 +293,14 @@ serve(async (req) => {
                   const marketScore = await calculateMarketIntelligenceWithCache(scoredCandidate, enhancedQuery, openaiApiKey)
                   scoredCandidate.market_relevance = marketScore
                 } catch (error) {
-                  console.log(`Market intelligence calculation failed for ${candidate.name}:`, error.message)
+                  console.log(`Market intelligence calculation failed for ${enrichedCandidate.name}:`, error.message)
                   scoredCandidate.market_relevance = 60 // Default value
                 }
                 
                 validatedCandidates.push(scoredCandidate)
-                console.log(`Phase 2.5: Validated ${tier} candidate ${candidate.name} from ${source} (Score: ${scoredCandidate.overall_score})`)
+                console.log(`Phase 2.5: Validated ${tier} candidate ${enrichedCandidate.name} from ${source} (Score: ${scoredCandidate.overall_score}) ${enrichedCandidate.apollo_enriched ? '[Apollo Enhanced]' : ''}`)
               } else {
-                console.log(`Phase 2.5: Candidate ${candidate.name} below enhanced ${tier} threshold (Score: ${scoredCandidate.overall_score}, Confidence: ${scoredCandidate.validation_confidence})`)
+                console.log(`Phase 2.5: Candidate ${enrichedCandidate.name} below enhanced ${tier} threshold (Score: ${scoredCandidate.overall_score}, Confidence: ${scoredCandidate.validation_confidence})`)
               }
             } catch (error) {
               console.error(`Phase 2.5: Error processing candidate ${candidate.name}:`, error)
@@ -262,7 +327,7 @@ serve(async (req) => {
       }
     })
 
-    // Step 4: Add LinkedIn cross-platform discovery as separate process with timeout
+    // Step 6: Add LinkedIn cross-platform discovery as separate process with timeout
     const crossPlatformPromise = (async () => {
       try {
         console.log('Phase 2.5: Starting LinkedIn cross-platform discovery...')
@@ -301,6 +366,11 @@ serve(async (req) => {
 
     console.log(`Phase 2.5 enhanced collection completed. Total: ${totalCandidates}, Quality validated: ${totalValidated}`)
 
+    // Enhanced statistics
+    const apolloEnrichedCount = Object.values(results)
+      .flatMap(r => r.candidates)
+      .filter(c => c.apollo_enriched).length
+
     return new Response(
       JSON.stringify({ 
         results,
@@ -315,14 +385,18 @@ serve(async (req) => {
           perplexity_enriched: !!perplexityApiKey,
           semantic_search: !!queryEmbedding,
           tier_system: true,
+          apollo_enriched: !!apolloApiKey,
           github_readme_crawling: results.github.candidates.filter(c => c.readme_email_found).length > 0,
           stackoverflow_expertise_focus: results.stackoverflow.candidates.filter(c => c.expertise_score > 70).length > 0,
-          linkedin_cross_platform: results['linkedin-cross-platform'].validated > 0
+          linkedin_cross_platform: results['linkedin-cross-platform'].validated > 0,
+          enhanced_google_search: results.google.validated > 0
         },
         enhancement_stats: {
           platform_specific_bonuses_applied: totalValidated,
           cross_platform_correlations: results['linkedin-cross-platform'].validated,
           readme_emails_found: results.github.candidates.filter(c => c.readme_email_found).length,
+          apollo_enriched_candidates: apolloEnrichedCount,
+          enhanced_google_discoveries: results.google.validated,
           expertise_level_candidates: Object.values(results)
             .flatMap(r => r.candidates)
             .filter(c => c.expertise_score > 70 || c.language_expertise > 70).length
