@@ -1,4 +1,3 @@
-
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { TimeoutManager } from './timeout-manager.ts'
@@ -31,7 +30,7 @@ serve(async (req) => {
   const startTime = Date.now();
 
   try {
-    const { query, location, sources = ['github', 'linkedin', 'stackoverflow', 'google'], time_budget = 60 } = await req.json()
+    const { query, location, sources = ['github', 'linkedin', 'stackoverflow', 'google'], time_budget = 80 } = await req.json()
 
     if (!query) {
       return new Response(
@@ -58,18 +57,23 @@ serve(async (req) => {
     const perplexityApiKey = Deno.env.get('PERPLEXITY_API_KEY')
     const supabase = createClient(supabaseUrl, supabaseKey)
 
-    // Initialize AI processing components
+    // Validate API keys early
+    if (!openaiApiKey || openaiApiKey.trim() === '') {
+      console.log('⚠️ OpenAI API key not available, AI processing will be disabled');
+    }
+
+    // Initialize AI processing components with graceful degradation
     const aiProcessor = openaiApiKey ? new AIProcessor(openaiApiKey, perplexityApiKey || '', {
       enableScoring: true,
       enableValidation: true,
       enableSummarization: true,
       enablePerplexityEnrichment: !!perplexityApiKey,
       scoringModel: 'gpt-4o-mini',
-      summaryModel: 'gpt-4o-mini'
+      summaryModel: 'gpt-4o-mini',
+      gracefulDegradation: true
     }) : null;
 
     const profileSummarizer = openaiApiKey ? new ProfileSummarizer(openaiApiKey) : null;
-    const scoringStandardizer = openaiApiKey ? new ScoringStandardizer(openaiApiKey) : null;
 
     // Initialize performance optimization components
     const timeoutManager = new TimeoutManager(time_budget)
@@ -152,7 +156,7 @@ serve(async (req) => {
         if (result?.data) {
           let candidates = (result.data.candidates || []).slice(0, 8)
           
-          // Apply AI processing to candidates
+          // Apply AI processing to candidates with error handling
           if (aiProcessor && candidates.length > 0) {
             console.log(`🤖 Applying AI processing to ${candidates.length} candidates from ${source}`)
             const processedCandidates = []
@@ -161,6 +165,12 @@ serve(async (req) => {
               try {
                 const enhancedQuery = { skills: [], keywords: query.split(' '), location }
                 const processed = await aiProcessor.processCandidate(candidate, enhancedQuery, source)
+                
+                // Log any AI processing errors
+                if (processed.aiProcessingStatus.errors.length > 0) {
+                  console.log(`⚠️ AI processing warnings for ${candidate.name}:`, processed.aiProcessingStatus.errors);
+                }
+                
                 processedCandidates.push(processed.candidate)
               } catch (error) {
                 console.log(`⚠️ AI processing failed for candidate: ${error.message}`)
@@ -293,12 +303,12 @@ serve(async (req) => {
     console.log(`🤖 AI processing: ${aiProcessor ? 'Enabled' : 'Disabled'}`)
     console.log(`📈 Completion rate: ${Math.round(progressiveResult.completionRate * 100)}%`)
 
-    // Apply final AI enhancements to top candidates
+    // Apply final AI enhancements to top candidates with proper error handling
     let finalCandidates = progressiveResult.candidates
     if (profileSummarizer && finalCandidates.length > 0) {
       console.log('📝 Generating AI summaries for top candidates...')
       try {
-        const topCandidates = finalCandidates.slice(0, 10) // Limit to top 10 for summaries
+        const topCandidates = finalCandidates.slice(0, 5) // Limit to top 5 for performance
         for (let i = 0; i < topCandidates.length; i++) {
           if (!topCandidates[i].ai_summary) {
             try {
@@ -307,12 +317,17 @@ serve(async (req) => {
               topCandidates[i].summary_generated = true
             } catch (error) {
               console.log(`⚠️ Summary generation failed for candidate ${i}: ${error.message}`)
+              // Use fallback summary
+              topCandidates[i].ai_summary = `${topCandidates[i].name || 'Developer'} is a professional developer with expertise in various technologies.`
+              topCandidates[i].summary_generated = false
             }
           }
         }
-        finalCandidates = [...topCandidates, ...finalCandidates.slice(10)]
+        finalCandidates = [...topCandidates, ...finalCandidates.slice(5)]
+        console.log('✅ AI summary generation completed with graceful fallbacks')
       } catch (error) {
         console.error('Bulk summary generation error:', error)
+        // Continue without summaries
       }
     }
 
@@ -349,14 +364,14 @@ serve(async (req) => {
     console.log(`🤖 AI enhancements applied: ${aiEnhancements}`)
     console.log(`📊 Success rate: ${successRate}% (${successfulSources}/${sourceResults.length} sources)`)
 
-    // Return results even if some sources failed
+    // Return results with proper error handling
     const response = {
       results,
       total_candidates: finalCandidates.length,
       total_validated: finalCandidates.length,
       query: optimizedQuery,
       location,
-      enhancement_phase: 'Phase 3: AI-Enhanced Processing',
+      enhancement_phase: 'Phase 3: AI-Enhanced Processing with Resilience',
       quality_metrics: {
         validation_rate: '100%',
         processing_time: `${Math.round(totalTime / 1000)}s`,
@@ -366,7 +381,8 @@ serve(async (req) => {
         early_returns: progressiveResult.isPartial,
         progressive_enhancement: true,
         ai_processing: !!aiProcessor,
-        completion_rate: `${Math.round(progressiveResult.completionRate * 100)}%`
+        completion_rate: `${Math.round(progressiveResult.completionRate * 100)}%`,
+        graceful_degradation: true
       },
       performance_metrics: {
         total_time_ms: totalTime,
@@ -392,7 +408,8 @@ serve(async (req) => {
         apollo_enriched: 0,
         perplexity_enriched: finalCandidates.filter(c => c.perplexity_enriched).length,
         ai_summaries_generated: finalCandidates.filter(c => c.summary_generated).length,
-        ai_scored_candidates: finalCandidates.filter(c => c.ai_scored).length
+        ai_scored_candidates: finalCandidates.filter(c => c.ai_scored).length,
+        graceful_degradation_used: !aiProcessor || errors.length > 0
       },
       errors: errors.length > 0 ? errors : undefined,
       timestamp: new Date().toISOString()
@@ -413,6 +430,7 @@ serve(async (req) => {
       total_candidates: 0,
       total_validated: 0,
       enhancement_phase: 'Phase 3: AI-Enhanced Processing (Error)',
+      graceful_degradation: true,
       timestamp: new Date().toISOString()
     }
     
@@ -422,6 +440,10 @@ serve(async (req) => {
     })
   } finally {
     // Clean up resources
-    await memoryManager.forceCleanup(2000)
+    try {
+      await memoryManager.forceCleanup(2000)
+    } catch (cleanupError) {
+      console.error('Cleanup error:', cleanupError)
+    }
   }
 })
