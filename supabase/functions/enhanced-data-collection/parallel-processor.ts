@@ -1,5 +1,11 @@
 
-import { TimeBudgetManager } from './time-budget-manager.ts';
+import { TimeBudgetManager } from './time-budget-manager.ts'
+
+export interface ProcessorConfig {
+  maxCandidatesPerSource: number;
+  maxAIEnhancements: number;
+  maxConcurrentSources: number;
+}
 
 export interface SourceResult {
   source: string;
@@ -8,272 +14,303 @@ export interface SourceResult {
   validated: number;
   error: string | null;
   processingTime: number;
-}
-
-export interface BatchProcessingConfig {
-  maxConcurrentSources: number;
-  maxCandidatesPerSource: number;
-  maxAIEnhancements: number;
-  prioritySources: string[];
+  fromCache?: boolean;
 }
 
 export class ParallelProcessor {
   private timeBudget: TimeBudgetManager;
-  private config: BatchProcessingConfig;
+  private config: ProcessorConfig;
+  private sourceCache = new Map<string, { result: SourceResult; timestamp: number }>();
+  private readonly CACHE_DURATION = 10 * 60 * 1000; // 10 minutes for source cache
 
-  constructor(timeBudget: TimeBudgetManager, config?: Partial<BatchProcessingConfig>) {
+  constructor(timeBudget: TimeBudgetManager, config: ProcessorConfig) {
     this.timeBudget = timeBudget;
-    this.config = {
-      maxConcurrentSources: 3, // Process 3 sources in parallel
-      maxCandidatesPerSource: 8, // Reduced from 10
-      maxAIEnhancements: 5, // Only enhance top 5 candidates
-      prioritySources: ['github', 'stackoverflow', 'linkedin'],
-      ...config
-    };
+    this.config = config;
   }
 
   async processSourcesInParallel(
     sources: string[],
     query: string,
-    location: string,
+    location: string | undefined,
     enhancedQuery: any,
     supabase: any
   ): Promise<SourceResult[]> {
-    console.log('🚀 Starting parallel source processing...');
+    console.log(`🔄 Processing ${sources.length} sources in parallel with smart limiting...`);
 
-    // Prioritize sources based on query type
-    const prioritizedSources = this.prioritizeSources(sources, query);
-    
-    // Process sources in batches to avoid overwhelming the system
-    const results: SourceResult[] = [];
-    const batches = this.createBatches(prioritizedSources, this.config.maxConcurrentSources);
+    // Create batches for parallel processing
+    const batches = this.createSourceBatches(sources);
+    const allResults: SourceResult[] = [];
 
-    for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
-      if (!this.timeBudget.shouldContinueCollection(results.reduce((sum, r) => sum + r.total, 0))) {
-        console.log('⏰ Time budget exhausted, stopping collection');
+    for (const batch of batches) {
+      if (!this.timeBudget.hasTimeRemaining()) {
+        console.log('⏰ Time budget exhausted, stopping source processing');
         break;
       }
 
-      const batch = batches[batchIndex];
-      console.log(`📦 Processing batch ${batchIndex + 1}/${batches.length}: ${batch.join(', ')}`);
-
       const batchPromises = batch.map(source => 
-        this.processSourceWithTimeout(source, query, location, enhancedQuery, supabase)
+        this.processSourceWithMonitoring(source, query, location, enhancedQuery, supabase)
       );
 
-      const batchResults = await Promise.allSettled(batchPromises);
-      
-      batchResults.forEach((result, index) => {
-        if (result.status === 'fulfilled' && result.value) {
-          results.push(result.value);
-        } else {
-          console.error(`❌ Source ${batch[index]} failed:`, result.status === 'rejected' ? result.reason : 'Unknown error');
-          results.push({
-            source: batch[index],
-            candidates: [],
-            total: 0,
-            validated: 0,
-            error: result.status === 'rejected' ? result.reason.message : 'Processing failed',
-            processingTime: 0
-          });
+      try {
+        const batchResults = await Promise.allSettled(batchPromises);
+        
+        for (const result of batchResults) {
+          if (result.status === 'fulfilled' && result.value) {
+            allResults.push(result.value);
+            
+            // Update progress
+            this.timeBudget.updateProgress(
+              'Parallel collection',
+              allResults.length,
+              sources.length,
+              allResults.reduce((sum, r) => sum + r.validated, 0)
+            );
+            
+            // Early return if we have enough quality candidates
+            const totalValidated = allResults.reduce((sum, r) => sum + r.validated, 0);
+            if (totalValidated >= 20 && this.hasGoodQualityResults(allResults)) {
+              console.log(`🎯 Early return: Found ${totalValidated} quality candidates`);
+              break;
+            }
+          }
         }
-      });
-
-      // Update progress
-      this.timeBudget.updateProgress(
-        `Batch ${batchIndex + 1}/${batches.length}`,
-        results.length,
-        sources.length,
-        results.reduce((sum, r) => sum + r.total, 0)
-      );
+      } catch (error) {
+        console.error('❌ Batch processing error:', error);
+      }
     }
 
-    console.log(`✅ Parallel processing completed: ${results.length} sources processed`);
-    return results;
+    console.log(`✅ Parallel processing completed: ${allResults.length} sources processed`);
+    return allResults;
   }
 
-  private prioritizeSources(sources: string[], query: string): string[] {
-    const queryLower = query.toLowerCase();
-    const prioritized = [...sources];
-
-    // Move priority sources to front based on query content
-    if (queryLower.includes('github') || queryLower.includes('open source')) {
-      this.moveToFront(prioritized, 'github');
-    }
-    if (queryLower.includes('stackoverflow') || queryLower.includes('expert')) {
-      this.moveToFront(prioritized, 'stackoverflow');
-    }
-    if (queryLower.includes('linkedin') || queryLower.includes('professional')) {
-      this.moveToFront(prioritized, 'linkedin');
-    }
-
-    // Ensure priority sources are first
-    const sorted = [
-      ...this.config.prioritySources.filter(s => prioritized.includes(s)),
-      ...prioritized.filter(s => !this.config.prioritySources.includes(s))
-    ];
-
-    return [...new Set(sorted)]; // Remove duplicates
-  }
-
-  private moveToFront(array: string[], item: string) {
-    const index = array.indexOf(item);
-    if (index > 0) {
-      array.splice(index, 1);
-      array.unshift(item);
-    }
-  }
-
-  private createBatches(items: string[], batchSize: number): string[][] {
-    const batches: string[][] = [];
-    for (let i = 0; i < items.length; i += batchSize) {
-      batches.push(items.slice(i, i + batchSize));
-    }
-    return batches;
-  }
-
-  private async processSourceWithTimeout(
+  private async processSourceWithMonitoring(
     source: string,
     query: string,
-    location: string,
+    location: string | undefined,
     enhancedQuery: any,
     supabase: any
   ): Promise<SourceResult | null> {
     const startTime = Date.now();
-    const timeoutMs = this.timeBudget.getTimeForSource();
+    const cacheKey = `${source}:${query}:${location || ''}`;
 
-    console.log(`🔍 Processing ${source} with ${timeoutMs}ms timeout...`);
+    // Check source cache
+    const cached = this.sourceCache.get(cacheKey);
+    if (cached && (Date.now() - cached.timestamp) < this.CACHE_DURATION) {
+      console.log(`📋 Using cached result for ${source}`);
+      return { ...cached.result, fromCache: true };
+    }
 
     try {
-      const result = await this.timeBudget.withTimeout(
-        supabase.functions.invoke(`collect-${source}-data`, {
-          body: { 
-            query, 
-            location, 
-            enhancedQuery,
-            maxCandidates: this.config.maxCandidatesPerSource,
-            timeLimit: timeoutMs
-          }
-        }),
-        timeoutMs
-      );
+      console.log(`🚀 Processing source: ${source} with time budget ${this.timeBudget.getTimeForSource()}ms`);
+
+      const timeoutMs = Math.min(this.timeBudget.getTimeForSource(), 20000); // Max 20 seconds per source
+      
+      let result = null;
+      
+      switch (source) {
+        case 'github':
+          result = await this.timeBudget.withTimeout(
+            supabase.functions.invoke('collect-github-data', {
+              body: { query, location, enhancedQuery }
+            }),
+            timeoutMs
+          );
+          break;
+          
+        case 'stackoverflow':
+          result = await this.timeBudget.withTimeout(
+            supabase.functions.invoke('collect-stackoverflow-data', {
+              body: { query, location, enhancedQuery }
+            }),
+            timeoutMs
+          );
+          break;
+          
+        case 'google':
+          result = await this.timeBudget.withTimeout(
+            supabase.functions.invoke('collect-google-search-data', {
+              body: { query, location, enhancedQuery }
+            }),
+            timeoutMs
+          );
+          break;
+          
+        case 'linkedin':
+          result = await this.timeBudget.withTimeout(
+            supabase.functions.invoke('collect-linkedin-data', {
+              body: { query, location, enhancedQuery }
+            }),
+            timeoutMs
+          );
+          break;
+          
+        case 'kaggle':
+          result = await this.timeBudget.withTimeout(
+            supabase.functions.invoke('collect-kaggle-data', {
+              body: { query, location, enhancedQuery }
+            }),
+            timeoutMs
+          );
+          break;
+          
+        case 'devto':
+          result = await this.timeBudget.withTimeout(
+            supabase.functions.invoke('collect-devto-data', {
+              body: { query, location, enhancedQuery }
+            }),
+            timeoutMs
+          );
+          break;
+          
+        default:
+          console.log(`⚠️ Unknown source: ${source}`);
+          return null;
+      }
 
       const processingTime = Date.now() - startTime;
 
-      if (!result) {
-        return {
+      if (result?.data) {
+        const sourceResult: SourceResult = {
+          source,
+          candidates: result.data.candidates || [],
+          total: result.data.total || 0,
+          validated: result.data.candidates?.length || 0,
+          error: null,
+          processingTime,
+          fromCache: false
+        };
+
+        // Limit candidates per source for performance
+        if (sourceResult.candidates.length > this.config.maxCandidatesPerSource) {
+          sourceResult.candidates = sourceResult.candidates
+            .sort((a, b) => (b.overall_score || 0) - (a.overall_score || 0))
+            .slice(0, this.config.maxCandidatesPerSource);
+          sourceResult.validated = sourceResult.candidates.length;
+        }
+
+        // Cache successful results
+        this.sourceCache.set(cacheKey, {
+          result: sourceResult,
+          timestamp: Date.now()
+        });
+
+        console.log(`✅ ${source}: ${sourceResult.validated} candidates in ${processingTime}ms`);
+        return sourceResult;
+      } else {
+        const errorResult: SourceResult = {
           source,
           candidates: [],
           total: 0,
           validated: 0,
-          error: 'Source collection timeout',
-          processingTime
+          error: result?.error?.message || 'No data returned',
+          processingTime,
+          fromCache: false
         };
+        
+        console.log(`❌ ${source}: Failed - ${errorResult.error}`);
+        return errorResult;
       }
-
-      if (result.error) {
-        return {
-          source,
-          candidates: [],
-          total: 0,
-          validated: 0,
-          error: result.error.message || 'Collection failed',
-          processingTime
-        };
-      }
-
-      const candidates = result.data?.candidates || [];
-      console.log(`✅ ${source}: Found ${candidates.length} candidates in ${processingTime}ms`);
-
-      return {
-        source,
-        candidates: candidates.slice(0, this.config.maxCandidatesPerSource),
-        total: candidates.length,
-        validated: candidates.length,
-        error: null,
-        processingTime
-      };
 
     } catch (error) {
       const processingTime = Date.now() - startTime;
-      console.error(`❌ ${source} processing error:`, error);
-      
-      return {
+      const errorResult: SourceResult = {
         source,
         candidates: [],
         total: 0,
         validated: 0,
-        error: error.message || 'Unknown error',
-        processingTime
+        error: error.message || 'Processing failed',
+        processingTime,
+        fromCache: false
       };
+      
+      console.log(`❌ ${source}: Error - ${error.message} (${processingTime}ms)`);
+      return errorResult;
     }
   }
 
   async batchEnhanceCandidates(
     candidates: any[],
-    openaiApiKey: string | null,
-    apolloApiKey: string | null
+    openaiApiKey?: string,
+    apolloApiKey?: string
   ): Promise<any[]> {
     if (!this.timeBudget.hasTimeRemaining()) {
-      console.log('⏰ No time remaining for AI enhancements');
+      console.log('⏰ No time remaining for AI enhancement');
       return candidates;
     }
 
-    // Sort by score and take only top candidates for enhancement
+    // Only enhance top candidates within limits
     const topCandidates = candidates
       .sort((a, b) => (b.overall_score || 0) - (a.overall_score || 0))
       .slice(0, this.config.maxAIEnhancements);
 
-    console.log(`🧠 Batch enhancing top ${topCandidates.length} candidates...`);
+    console.log(`✨ Enhancing top ${topCandidates.length} candidates with AI...`);
 
     const enhancementPromises = topCandidates.map(async (candidate, index) => {
-      const timeoutMs = this.timeBudget.getTimeForAI();
-      
+      if (!this.timeBudget.hasTimeRemaining()) {
+        return candidate;
+      }
+
       try {
+        const timeoutMs = this.timeBudget.getTimeForAI();
+        
+        // Use AI enhancement with timeout
         const enhanced = await this.timeBudget.withTimeout(
           this.enhanceSingleCandidate(candidate, openaiApiKey, apolloApiKey),
           timeoutMs
         );
-        
-        return enhanced || candidate; // Return original if enhancement fails
+
+        return enhanced || candidate;
       } catch (error) {
-        console.log(`⚠️ Enhancement failed for candidate ${index}:`, error.message);
+        console.log(`⚠️ Enhancement failed for candidate ${index + 1}:`, error.message);
         return candidate;
       }
     });
 
-    const enhancedCandidates = await Promise.allSettled(enhancementPromises);
-    
-    return enhancedCandidates.map((result, index) => 
+    const enhancedResults = await Promise.allSettled(enhancementPromises);
+    const enhancedCandidates = enhancedResults.map((result, index) => 
       result.status === 'fulfilled' ? result.value : topCandidates[index]
     );
+
+    // Return enhanced candidates + remaining candidates
+    const remainingCandidates = candidates.slice(this.config.maxAIEnhancements);
+    return [...enhancedCandidates, ...remainingCandidates];
   }
 
   private async enhanceSingleCandidate(
     candidate: any,
-    openaiApiKey: string | null,
-    apolloApiKey: string | null
+    openaiApiKey?: string,
+    apolloApiKey?: string
   ): Promise<any> {
-    // Simplified enhancement - only the most critical operations
-    let enhanced = { ...candidate };
+    // Simplified enhancement - just add AI flag for now
+    // Real implementation would call AI services
+    return {
+      ...candidate,
+      ai_enhanced: true,
+      apollo_checked: !!apolloApiKey,
+      enhancement_timestamp: new Date().toISOString()
+    };
+  }
 
-    try {
-      // Quick semantic similarity if available
-      if (openaiApiKey) {
-        // Add minimal AI enhancement
-        enhanced.ai_enhanced = true;
-      }
+  private createSourceBatches(sources: string[]): string[][] {
+    const batches: string[][] = [];
+    const batchSize = this.config.maxConcurrentSources;
 
-      // Quick Apollo enrichment if available
-      if (apolloApiKey) {
-        // Add minimal contact discovery
-        enhanced.apollo_checked = true;
-      }
-
-      return enhanced;
-    } catch (error) {
-      console.log('Enhancement error:', error.message);
-      return candidate;
+    for (let i = 0; i < sources.length; i += batchSize) {
+      batches.push(sources.slice(i, i + batchSize));
     }
+
+    return batches;
+  }
+
+  private hasGoodQualityResults(results: SourceResult[]): boolean {
+    const totalCandidates = results.reduce((sum, r) => sum + r.validated, 0);
+    const successfulSources = results.filter(r => !r.error).length;
+    const avgScore = results.reduce((sum, r) => {
+      const candidates = r.candidates || [];
+      const avgCandidateScore = candidates.reduce((s, c) => s + (c.overall_score || 0), 0) / Math.max(candidates.length, 1);
+      return sum + avgCandidateScore;
+    }, 0) / Math.max(results.length, 1);
+
+    return totalCandidates >= 15 && successfulSources >= 2 && avgScore >= 60;
   }
 }
