@@ -46,6 +46,13 @@ export interface DataCollectionResponse {
     ai_summaries_generated: number;
     ai_scored_candidates: number;
     graceful_degradation_used: boolean;
+    deduplication_metrics?: {
+      original_count: number;
+      deduplicated_count: number;
+      duplicates_removed: number;
+      merge_decisions: number;
+      deduplication_rate: number;
+    };
   };
   errors?: Array<{ source: string; error: string }>;
   timestamp: string;
@@ -142,7 +149,14 @@ export class DataCollectionService {
           perplexity_enriched: Number(data.enhancement_stats?.perplexity_enriched) || 0,
           ai_summaries_generated: Number(data.enhancement_stats?.ai_summaries_generated) || 0,
           ai_scored_candidates: Number(data.enhancement_stats?.ai_scored_candidates) || 0,
-          graceful_degradation_used: Boolean(data.enhancement_stats?.graceful_degradation_used)
+          graceful_degradation_used: Boolean(data.enhancement_stats?.graceful_degradation_used),
+          deduplication_metrics: data.enhancement_stats?.deduplication_metrics ? {
+            original_count: Number(data.enhancement_stats.deduplication_metrics.original_count) || 0,
+            deduplicated_count: Number(data.enhancement_stats.deduplication_metrics.deduplicated_count) || 0,
+            duplicates_removed: Number(data.enhancement_stats.deduplication_metrics.duplicates_removed) || 0,
+            merge_decisions: Number(data.enhancement_stats.deduplication_metrics.merge_decisions) || 0,
+            deduplication_rate: Number(data.enhancement_stats.deduplication_metrics.deduplication_rate) || 0
+          } : undefined
         },
         errors: Array.isArray(data.errors) ? data.errors : undefined,
         timestamp: data.timestamp || new Date().toISOString()
