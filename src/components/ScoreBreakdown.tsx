@@ -69,19 +69,7 @@ export const ScoreBreakdown: React.FC<ScoreBreakdownProps> = ({ candidate }) => 
     return total + (component.value * component.weight / 100);
   }, 0);
 
-  // Refined risk penalty calculation
-  const riskPenalty = candidate.riskFlags.reduce((penalty, risk) => {
-    switch (risk) {
-      case 'Inactive for >2 years': return penalty + 15;
-      case 'Incomplete skill information': return penalty + 10;
-      case 'Minimal profile description': return penalty + 8;
-      case 'Limited experience': return penalty + 12;
-      case 'Location not specified': return penalty + 5;
-      case 'Low overall score': return penalty + 20;
-      default: return penalty + 5;
-    }
-  }, 0);
-
+  const riskPenalty = candidate.riskFlags.length * 10;
   const finalScore = Math.max(0, totalWeightedScore - riskPenalty);
 
   return (
@@ -123,14 +111,16 @@ export const ScoreBreakdown: React.FC<ScoreBreakdownProps> = ({ candidate }) => 
       {/* Risk Flags */}
       {candidate.riskFlags.length > 0 && (
         <div className="border-t border-slate-200 pt-3">
-          <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
               <div className="p-2 rounded-lg bg-red-100 text-red-800">
                 <AlertTriangle className="w-4 h-4" />
               </div>
               <div>
-                <div className="text-sm font-medium text-slate-900">Quality Concerns</div>
-                <div className="text-xs text-slate-600">Areas for improvement</div>
+                <div className="text-sm font-medium text-slate-900">Risk Penalties</div>
+                <div className="text-xs text-slate-600">
+                  {candidate.riskFlags.join(', ')}
+                </div>
               </div>
             </div>
             <div className="text-right">
@@ -138,13 +128,6 @@ export const ScoreBreakdown: React.FC<ScoreBreakdownProps> = ({ candidate }) => 
                 -{riskPenalty} pts
               </div>
             </div>
-          </div>
-          <div className="space-y-1">
-            {candidate.riskFlags.map((risk, index) => (
-              <div key={index} className="text-xs text-red-600 bg-red-50 px-2 py-1 rounded">
-                • {risk}
-              </div>
-            ))}
           </div>
         </div>
       )}

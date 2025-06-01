@@ -1,12 +1,9 @@
 
 import React, { useState } from 'react';
-import { MapPin, Calendar, ExternalLink, Github, Globe, AlertTriangle, Info, Star } from 'lucide-react';
+import { MapPin, Calendar, ExternalLink, Github, Globe, AlertTriangle, Info, Star, Mail, Copy } from 'lucide-react';
 import { ScoreBreakdown } from './ScoreBreakdown';
-import { EnhancedContactButtons } from './EnhancedContactButtons';
-import { EmailConfidenceBadge } from './EmailConfidenceBadge';
-import { DataQualityIndicator } from './DataQualityIndicator';
 import { Candidate } from '../hooks/useCandidates';
-import { calculateRefinedRiskFlags } from '../utils/riskAssessment';
+import { useToast } from '../hooks/use-toast';
 
 interface CandidateCardProps {
   candidate: Candidate;
@@ -14,9 +11,10 @@ interface CandidateCardProps {
 
 export const CandidateCard: React.FC<CandidateCardProps> = ({ candidate }) => {
   const [showBreakdown, setShowBreakdown] = useState(false);
+  const { toast } = useToast();
 
-  // Use refined risk assessment
-  const riskFlags = calculateRefinedRiskFlags(candidate);
+  // Handle potential undefined/null values with fallbacks
+  const riskFlags = candidate.risk_flags || [];
   const skills = candidate.skills || [];
   const overallScore = candidate.overall_score || 0;
   const skillMatch = candidate.skill_match || 0;
@@ -51,6 +49,29 @@ export const CandidateCard: React.FC<CandidateCardProps> = ({ candidate }) => {
     }
   };
 
+  const handleContactClick = () => {
+    if (candidate.email) {
+      // Open email client
+      window.location.href = `mailto:${candidate.email}`;
+    } else {
+      toast({
+        title: "No email available",
+        description: "This candidate doesn't have a public email address.",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const handleCopyEmail = () => {
+    if (candidate.email) {
+      navigator.clipboard.writeText(candidate.email);
+      toast({
+        title: "Email copied",
+        description: "Email address copied to clipboard"
+      });
+    }
+  };
+
   return (
     <div className="bg-white rounded-xl shadow-lg border border-slate-200 p-6 hover:shadow-xl transition-all duration-300">
       <div className="flex items-start justify-between mb-4">
@@ -77,18 +98,13 @@ export const CandidateCard: React.FC<CandidateCardProps> = ({ candidate }) => {
                 <Calendar className="w-4 h-4" />
                 <span>{candidate.last_active ? new Date(candidate.last_active).toLocaleDateString() : 'Recently'}</span>
               </div>
+              {candidate.email && (
+                <div className="flex items-center space-x-1 text-blue-600">
+                  <Mail className="w-4 h-4" />
+                  <span className="text-sm">Contact available</span>
+                </div>
+              )}
             </div>
-            
-            {/* Email confidence badge */}
-            {candidate.email && (
-              <div className="mt-2">
-                <EmailConfidenceBadge 
-                  email={candidate.email} 
-                  candidate={candidate} 
-                  source="profile" 
-                />
-              </div>
-            )}
           </div>
         </div>
 
@@ -132,11 +148,6 @@ export const CandidateCard: React.FC<CandidateCardProps> = ({ candidate }) => {
         </div>
       </div>
 
-      {/* Data Quality Indicator */}
-      <div className="mb-4">
-        <DataQualityIndicator candidate={candidate} />
-      </div>
-
       {/* Score Breakdown */}
       <div className="mb-4">
         <div className="flex items-center justify-between mb-2">
@@ -162,7 +173,7 @@ export const CandidateCard: React.FC<CandidateCardProps> = ({ candidate }) => {
         )}
       </div>
 
-      {/* Sources and Enhanced Actions */}
+      {/* Sources and Actions */}
       <div className="flex items-center justify-between pt-4 border-t border-slate-200">
         <div className="flex items-center space-x-3">
           <span className="text-sm text-slate-600 font-medium">Found on:</span>
@@ -185,7 +196,28 @@ export const CandidateCard: React.FC<CandidateCardProps> = ({ candidate }) => {
           )}
         </div>
 
-        <EnhancedContactButtons candidate={candidate} />
+        <div className="flex items-center space-x-2">
+          {candidate.email && (
+            <button 
+              onClick={handleCopyEmail}
+              className="px-3 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors flex items-center space-x-1"
+            >
+              <Copy className="w-4 h-4" />
+              <span>Copy Email</span>
+            </button>
+          )}
+          <button 
+            onClick={handleContactClick}
+            className={`px-4 py-2 rounded-lg transition-colors ${
+              candidate.email 
+                ? 'bg-blue-600 text-white hover:bg-blue-700' 
+                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+            }`}
+            disabled={!candidate.email}
+          >
+            Contact
+          </button>
+        </div>
       </div>
     </div>
   );

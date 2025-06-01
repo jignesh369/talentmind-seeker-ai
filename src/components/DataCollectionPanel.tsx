@@ -1,14 +1,14 @@
 
 import React, { useState } from 'react';
 import { Search, Database, Github, Globe, Users, AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
-import { useEnhancedDataCollection } from '../hooks/useEnhancedDataCollection';
+import { useDataCollection } from '../hooks/useDataCollection';
 import { useCandidates } from '../hooks/useCandidates';
 
 export const DataCollectionPanel = () => {
   const [query, setQuery] = useState('');
   const [location, setLocation] = useState('');
-  const [selectedSources, setSelectedSources] = useState(['github', 'stackoverflow']); // Optimized defaults
-  const { collectData, isCollecting, collectionResult, progress } = useEnhancedDataCollection();
+  const [selectedSources, setSelectedSources] = useState(['github', 'stackoverflow', 'google']);
+  const { collectData, isCollecting, collectionResult } = useDataCollection();
   const { refetch } = useCandidates();
 
   const handleCollectData = async (e: React.FormEvent) => {
@@ -23,9 +23,9 @@ export const DataCollectionPanel = () => {
   };
 
   const sources = [
-    { id: 'github', name: 'GitHub', icon: Github, description: 'Developers with public repositories (recommended)' },
-    { id: 'stackoverflow', name: 'Stack Overflow', icon: Users, description: 'Active community contributors (fast)' },
-    { id: 'google', name: 'Google Search', icon: Globe, description: 'General web presence (slower but comprehensive)' }
+    { id: 'github', name: 'GitHub', icon: Github, description: 'Developers with public repositories' },
+    { id: 'stackoverflow', name: 'Stack Overflow', icon: Users, description: 'Active community contributors' },
+    { id: 'google', name: 'Google Search', icon: Globe, description: 'General web presence and portfolios' }
   ];
 
   return (
@@ -35,8 +35,8 @@ export const DataCollectionPanel = () => {
           <Database className="w-5 h-5 text-white" />
         </div>
         <div>
-          <h3 className="font-semibold text-slate-900">Enhanced Data Collection</h3>
-          <p className="text-sm text-slate-600">Optimized for speed and reliability</p>
+          <h3 className="font-semibold text-slate-900">Data Collection</h3>
+          <p className="text-sm text-slate-600">Collect candidate data from multiple sources</p>
         </div>
       </div>
 
@@ -71,7 +71,7 @@ export const DataCollectionPanel = () => {
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-3">Data Sources (optimized)</label>
+          <label className="block text-sm font-medium text-slate-700 mb-3">Data Sources</label>
           <div className="space-y-2">
             {sources.map((source) => {
               const Icon = source.icon;
@@ -98,11 +98,6 @@ export const DataCollectionPanel = () => {
               );
             })}
           </div>
-          <div className="mt-2 p-2 bg-blue-50 rounded-lg">
-            <p className="text-xs text-blue-800">
-              💡 Tip: GitHub + Stack Overflow combination provides the best speed/quality balance
-            </p>
-          </div>
         </div>
 
         <button
@@ -115,31 +110,14 @@ export const DataCollectionPanel = () => {
           ) : (
             <Search className="w-4 h-4" />
           )}
-          <span>{isCollecting ? 'Collecting...' : 'Start Enhanced Collection'}</span>
+          <span>{isCollecting ? 'Collecting...' : 'Collect Data'}</span>
         </button>
-
-        {/* Progress indicator */}
-        {progress && (
-          <div className="mt-4 p-3 bg-blue-50 rounded-lg">
-            <div className="text-sm text-blue-800">{progress}</div>
-          </div>
-        )}
       </form>
 
       {/* Results Summary */}
       {collectionResult && (
         <div className="mt-6 pt-6 border-t border-slate-200">
           <h4 className="font-medium text-slate-900 mb-3">Collection Results</h4>
-          
-          {/* Performance optimizations indicator */}
-          {collectionResult.performance_optimizations?.reduced_candidate_processing && (
-            <div className="mb-3 p-2 bg-green-50 rounded-lg">
-              <div className="text-xs text-green-800">
-                ⚡ Optimized collection completed with enhanced speed and reliability
-              </div>
-            </div>
-          )}
-          
           <div className="space-y-2">
             {Object.entries(collectionResult.results).map(([source, result]) => (
               <div key={source} className="flex items-center justify-between p-2 bg-slate-50 rounded-lg">
@@ -152,37 +130,16 @@ export const DataCollectionPanel = () => {
                   <span className="text-sm font-medium capitalize">{source}</span>
                 </div>
                 <div className="text-sm text-slate-600">
-                  {result.error ? 'Failed' : `${result.validated} quality candidates`}
+                  {result.error ? 'Failed' : `${result.total} candidates`}
                 </div>
               </div>
             ))}
           </div>
-          
           <div className="mt-3 p-3 bg-green-50 rounded-lg">
             <div className="text-sm font-medium text-green-800">
-              Total: {collectionResult.total_validated} quality candidates 
-              ({collectionResult.quality_metrics.validation_rate}% success rate)
+              Total: {collectionResult.total_candidates} candidates collected
             </div>
-            {collectionResult.enhancement_stats.apollo_enriched_candidates > 0 && (
-              <div className="text-xs text-green-700 mt-1">
-                {collectionResult.enhancement_stats.apollo_enriched_candidates} candidates enriched with contact information
-              </div>
-            )}
           </div>
-          
-          {/* Error summary */}
-          {collectionResult.errors && collectionResult.errors.length > 0 && (
-            <div className="mt-3 p-3 bg-yellow-50 rounded-lg">
-              <div className="text-sm font-medium text-yellow-800">
-                Some sources encountered issues:
-              </div>
-              <ul className="text-xs text-yellow-700 mt-1 list-disc list-inside">
-                {collectionResult.errors.map((error, index) => (
-                  <li key={index}>{error.source}: {error.error}</li>
-                ))}
-              </ul>
-            </div>
-          )}
         </div>
       )}
     </div>

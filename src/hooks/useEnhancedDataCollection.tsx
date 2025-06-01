@@ -39,12 +39,6 @@ export interface EnhancedDataCollectionResult {
     enhanced_google_discoveries: number;
     expertise_level_candidates: number;
   };
-  performance_optimizations?: {
-    reduced_candidate_processing: boolean;
-    faster_timeouts: boolean;
-    simplified_validation: boolean;
-    apollo_timeout_protection: boolean;
-  };
   errors?: Array<{ source: string; error: string }>;
   timestamp: string;
 }
@@ -59,7 +53,7 @@ export const useEnhancedDataCollection = () => {
   const collectData = async (
     query: string, 
     location?: string, 
-    sources: string[] = ['github', 'stackoverflow', 'google'] // Reduced default sources for better performance
+    sources: string[] = ['github', 'stackoverflow', 'google', 'linkedin', 'kaggle', 'devto']
   ) => {
     if (!user) {
       toast({
@@ -72,21 +66,21 @@ export const useEnhancedDataCollection = () => {
 
     setIsCollecting(true);
     setCollectionResult(null);
-    setProgress('🚀 Starting optimized Phase 2.5 enhanced collection...');
+    setProgress('🚀 Initializing Phase 2.5 enhanced multi-source collection...');
 
     try {
-      setProgress('⚡ Using faster, more reliable collection process...');
+      setProgress('🔍 Building enhanced semantic understanding with Apollo.io email discovery...');
       
-      console.log('Starting optimized enhanced data collection with:', { query, location, sources });
+      console.log('Starting enhanced data collection with:', { query, location, sources });
       
       const { data, error } = await supabase.functions.invoke('enhanced-data-collection', {
         body: { query, location, sources }
       });
 
-      console.log('Optimized enhanced data collection response:', { data, error });
+      console.log('Enhanced data collection response:', { data, error });
 
       if (error) {
-        console.error('Optimized enhanced data collection error:', error);
+        console.error('Phase 2.5 enhanced data collection error:', error);
         throw new Error(error.message || 'Enhanced multi-source collection failed');
       }
 
@@ -101,21 +95,21 @@ export const useEnhancedDataCollection = () => {
       const failedSources = sources.length - successfulSources;
       const validationRate = data.quality_metrics?.validation_rate || '0';
       
-      // Check for performance optimizations
-      const isOptimized = data.performance_optimizations?.reduced_candidate_processing;
-      const optimizationNote = isOptimized ? ' (optimized for speed & reliability)' : '';
-      
-      // Enhanced success message with optimization info
+      // Enhanced success message with new features and error reporting
       const readmeEmails = data.enhancement_stats?.readme_emails_found || 0;
       const apolloEmails = data.enhancement_stats?.apollo_enriched_candidates || 0;
       const expertiseCandidates = data.enhancement_stats?.expertise_level_candidates || 0;
+      const crossPlatformMatches = data.enhancement_stats?.cross_platform_correlations || 0;
+      const googleDiscoveries = data.enhancement_stats?.enhanced_google_discoveries || 0;
       
       const featureHighlights = [];
       if (readmeEmails > 0) featureHighlights.push(`${readmeEmails} GitHub README emails`);
       if (apolloEmails > 0) featureHighlights.push(`${apolloEmails} Apollo.io enriched`);
+      if (googleDiscoveries > 0) featureHighlights.push(`${googleDiscoveries} Google discoveries`);
       if (expertiseCandidates > 0) featureHighlights.push(`${expertiseCandidates} expertise-validated`);
+      if (crossPlatformMatches > 0) featureHighlights.push(`${crossPlatformMatches} cross-platform matches`);
       
-      // Check for errors
+      // Check for errors and include them in the message
       const errorSources = data.errors || [];
       const errorMessage = errorSources.length > 0 
         ? ` (${errorSources.length} sources had issues: ${errorSources.map(e => e.source).join(', ')})`
@@ -124,29 +118,29 @@ export const useEnhancedDataCollection = () => {
         : '';
       
       toast({
-        title: `🚀 Enhanced Collection Completed${optimizationNote}`,
-        description: `🎯 Found ${data.total_validated} quality candidates (${validationRate}% success rate)${data.quality_metrics?.apollo_enriched ? ' with Apollo.io enrichment' : ''}${featureHighlights.length > 0 ? `. Features: ${featureHighlights.join(', ')}` : ''}${errorMessage}`,
+        title: "🚀 Phase 2.5 Enhanced Collection Completed",
+        description: `🎯 Found ${data.total_validated} quality candidates (${validationRate}% success rate)${data.quality_metrics?.apollo_enriched ? ' with Apollo.io email discovery' : ''}${data.quality_metrics?.enhanced_google_search ? ' + targeted Google search' : ''}${data.quality_metrics?.github_readme_crawling ? ' + README email extraction' : ''}${featureHighlights.length > 0 ? `. Features: ${featureHighlights.join(', ')}` : ''}${errorMessage}`,
         variant: data.total_validated > 0 ? "default" : "destructive",
       });
 
       return data;
 
     } catch (error: any) {
-      console.error('Optimized enhanced data collection error:', error);
+      console.error('Phase 2.5 enhanced data collection error:', error);
       setProgress('');
       
-      let errorMessage = "Enhanced collection failed";
+      let errorMessage = "Failed to collect candidates with Phase 2.5 enhancements";
       let debugInfo = "";
       
       if (error.message?.includes('Failed to fetch')) {
-        errorMessage = "Network error: Unable to connect to collection service. Please try again.";
-        debugInfo = "The optimized collection service may be temporarily unavailable.";
-      } else if (error.message?.includes('timeout') || error.message?.includes('Timeout')) {
-        errorMessage = "Collection timed out. The system has been optimized for faster processing.";
-        debugInfo = "Try reducing the number of sources or use a more specific query.";
+        errorMessage = "Network error: Unable to connect to the data collection service. Please check your connection and try again.";
+        debugInfo = "This might indicate an edge function deployment issue or network connectivity problem.";
+      } else if (error.message?.includes('timeout')) {
+        errorMessage = "Request timed out. The enhanced validation with Apollo.io enrichment takes time. Please try again.";
+        debugInfo = "Consider reducing the number of sources or try again with a more specific query.";
       } else if (error.message?.includes('API')) {
-        errorMessage = "External service temporarily unavailable. Please try again later.";
-        debugInfo = "Some third-party services may be experiencing issues.";
+        errorMessage = "AI or Apollo service temporarily unavailable. Please try again later.";
+        debugInfo = "Some external services may be experiencing issues.";
       } else if (error.message?.includes('configuration')) {
         errorMessage = "Server configuration error. Please contact support.";
         debugInfo = "This indicates missing API keys or environment setup issues.";
@@ -160,11 +154,12 @@ export const useEnhancedDataCollection = () => {
       });
       
       toast({
-        title: "Collection Failed",
+        title: "Phase 2.5 Collection Failed",
         description: errorMessage + (debugInfo ? ` ${debugInfo}` : ''),
         variant: "destructive",
       });
       
+      // Return partial result for debugging if available
       return null;
     } finally {
       setIsCollecting(false);

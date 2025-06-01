@@ -1,13 +1,11 @@
 
 import React, { useState, useEffect } from 'react';
-import { Search, MessageCircle, Filter, Users, TrendingUp, Zap, LogOut, Database, BarChart3 } from 'lucide-react';
+import { Search, MessageCircle, Filter, Users, TrendingUp, Zap, LogOut, Database } from 'lucide-react';
 import { ChatInterface } from '../components/ChatInterface';
 import { CandidateCard } from '../components/CandidateCard';
 import { FilterPanel } from '../components/FilterPanel';
 import { StatsOverview } from '../components/StatsOverview';
 import { DataCollectionDrawer } from '../components/DataCollectionDrawer';
-import { DataEnrichmentPanel } from '../components/DataEnrichmentPanel';
-import { AdvancedInsightsDashboard } from '../components/AdvancedInsightsDashboard';
 import { useCandidates } from '../hooks/useCandidates';
 import { useAuth } from '../hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
@@ -19,7 +17,6 @@ const Index = () => {
   const { toast } = useToast();
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [isDataCollectionOpen, setIsDataCollectionOpen] = useState(false);
-  const [isInsightsOpen, setIsInsightsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -97,13 +94,6 @@ const Index = () => {
             </div>
             <div className="flex items-center space-x-4">
               <button
-                onClick={() => setIsInsightsOpen(!isInsightsOpen)}
-                className="flex items-center space-x-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
-              >
-                <BarChart3 className="w-4 h-4" />
-                <span>Insights</span>
-              </button>
-              <button
                 onClick={() => setIsDataCollectionOpen(true)}
                 className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
               >
@@ -132,34 +122,8 @@ const Index = () => {
       </header>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Advanced Insights Dashboard */}
-        {isInsightsOpen && (
-          <div className="mb-8">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-2xl font-bold text-slate-900">Advanced Insights</h2>
-              <button
-                onClick={() => setIsInsightsOpen(false)}
-                className="text-slate-500 hover:text-slate-700"
-              >
-                ✕
-              </button>
-            </div>
-            <AdvancedInsightsDashboard candidates={displayCandidates} />
-          </div>
-        )}
-
         {/* Stats Overview */}
         <StatsOverview totalCandidates={displayCandidates.length} />
-
-        {/* Data Enrichment Panel */}
-        {candidates.length > 0 && (
-          <div className="mt-8">
-            <DataEnrichmentPanel 
-              candidates={candidates} 
-              onEnrichmentComplete={refetch}
-            />
-          </div>
-        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mt-8">
           {/* Left Sidebar - Chat Only */}
