@@ -1,22 +1,17 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { 
-  searchGoogle, 
-  extractTitleFromSnippet, 
-  extractLocationFromSnippet, 
-  extractEmailFromSnippet, 
-  extractSkillsFromSnippet 
-} from './api-client.ts'
-import { calculateGoogleScore } from './scoring-engine.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-function generateUUID() {
-  return crypto.randomUUID();
+interface GoogleSearchResult {
+  title: string;
+  link: string;
+  snippet: string;
+  displayLink?: string;
 }
 
 serve(async (req) => {
@@ -26,255 +21,119 @@ serve(async (req) => {
 
   try {
     const { query, location } = await req.json()
+    
+    const apiKey = Deno.env.get('GOOGLE_API_KEY')
+    const searchEngineId = Deno.env.get('GOOGLE_SEARCH_ENGINE_ID')
+    
+    console.log('🔍 Google Search API Configuration Check:')
+    console.log('API Key configured:', apiKey ? 'Yes' : 'No')
+    console.log('Search Engine ID configured:', searchEngineId ? 'Yes' : 'No')
 
-    if (!query) {
+    if (!apiKey || !searchEngineId) {
       return new Response(
-        JSON.stringify({ error: 'Query is required' }),
-        { 
-          status: 400, 
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
-        }
+        JSON.stringify({ 
+          error: 'Google API configuration missing',
+          candidates: [],
+          total: 0,
+          validated: 0
+        }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
 
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!
-    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-    const supabase = createClient(supabaseUrl, supabaseKey)
-
-    console.log(`Query: "${query}", Location: "${location || 'Not specified'}"`)
-
-    // Simplified query for better results
     const simplifiedQuery = query.split(' ').slice(0, 3).join(' ')
     console.log(`🔍 Simplified query: "${simplifiedQuery}"`)
+    console.log(`Query: "${query}", Location: "${location || 'Not specified'}"`)
 
-    const startTime = Date.now()
+    const searchQueries = [
+      `"${simplifiedQuery}" developer resume portfolio`,
+      `"${simplifiedQuery}" software engineer -jobs`
+    ]
 
-    try {
-      const searchResults = await searchGoogle(simplifiedQuery, location)
-      console.log(`📊 Google Search returned ${searchResults.length} results`)
-
-      const candidates = []
-      const seenUrls = new Set()
-
-      for (const result of searchResults.slice(0, 8)) { // Limit to 8 results
-        if (seenUrls.has(result.link)) continue
-        seenUrls.add(result.link)
-
-        try {
-          // Extract candidate information from search result
-          const extractedTitle = extractTitleFromSnippet(result.snippet) || 
-                                extractTitleFromSnippet(result.title) || 
-                                'Professional'
-          
-          const extractedLocation = extractLocationFromSnippet(result.snippet) || location || ''
-          const extractedEmail = extractEmailFromSnippet(result.snippet)
-          const skills = extractSkillsFromSnippet(result.snippet + ' ' + result.title)
-
-          // Generate candidate name from title or URL
-          let candidateName = 'Professional'
-          if (result.title && !result.title.toLowerCase().includes('job') && !result.title.toLowerCase().includes('hire')) {
-            // Extract name from title, removing common words
-            candidateName = result.title
-              .replace(/\s*-.*$/, '') // Remove everything after dash
-              .replace(/\s*\|.*$/, '') // Remove everything after pipe
-              .split(' ')
-              .slice(0, 3)
-              .join(' ')
-              .trim()
-          }
-
-          if (candidateName.length < 2) {
-            candidateName = extractedTitle
-          }
-
-          // Calculate scores
-          const scores = calculateGoogleScore({
-            title: extractedTitle,
-            skills,
-            snippet: result.snippet,
-            url: result.link
-          })
-
-          const candidateId = generateUUID()
-
-          const candidate = {
-            id: candidateId,
-            name: candidateName,
-            title: extractedTitle,
-            location: extractedLocation,
-            email: extractedEmail,
-            summary: result.snippet,
-            skills: skills,
-            experience_years: Math.max(1, Math.floor(scores.experience / 10)),
-            last_active: new Date().toISOString(),
-            overall_score: scores.overall,
-            skill_match: scores.skillMatch,
-            experience: scores.experience,
-            reputation: scores.reputation,
-            freshness: scores.freshness,
-            social_proof: scores.socialProof,
-            risk_flags: [],
-            platform: 'google'
-          }
-
-          candidates.push(candidate)
-
-          // Save candidate to database with proper error handling
-          try {
-            console.log(`💾 Saving Google candidate: ${candidate.name}`)
-            
-            // Check for existing candidate by URL in sources
-            const { data: existingSource, error: sourceSelectError } = await supabase
-              .from('candidate_sources')
-              .select('candidate_id')
-              .eq('url', result.link)
-              .maybeSingle()
-
-            if (sourceSelectError) {
-              console.error(`❌ Error checking existing source for ${result.link}:`, sourceSelectError.message)
-              continue
-            }
-
-            if (existingSource) {
-              // Update existing candidate
-              const { error: updateError } = await supabase
-                .from('candidates')
-                .update({
-                  name: candidate.name,
-                  title: candidate.title,
-                  location: candidate.location,
-                  email: candidate.email,
-                  summary: candidate.summary,
-                  skills: candidate.skills,
-                  experience_years: candidate.experience_years,
-                  last_active: candidate.last_active,
-                  overall_score: candidate.overall_score,
-                  skill_match: candidate.skill_match,
-                  experience: candidate.experience,
-                  reputation: candidate.reputation,
-                  freshness: candidate.freshness,
-                  social_proof: candidate.social_proof,
-                  updated_at: new Date().toISOString()
-                })
-                .eq('id', existingSource.candidate_id)
-
-              if (updateError) {
-                console.error(`❌ Error updating Google candidate:`, updateError.message)
-                continue
-              }
-
-              console.log(`✅ Updated existing Google candidate: ${candidate.name}`)
-              candidate.id = existingSource.candidate_id
-            } else {
-              // Insert new candidate
-              const { error: insertError } = await supabase
-                .from('candidates')
-                .insert({
-                  id: candidateId,
-                  name: candidate.name,
-                  title: candidate.title,
-                  location: candidate.location,
-                  email: candidate.email,
-                  summary: candidate.summary,
-                  skills: candidate.skills,
-                  experience_years: candidate.experience_years,
-                  last_active: candidate.last_active,
-                  overall_score: candidate.overall_score,
-                  skill_match: candidate.skill_match,
-                  experience: candidate.experience,
-                  reputation: candidate.reputation,
-                  freshness: candidate.freshness,
-                  social_proof: candidate.social_proof
-                })
-
-              if (insertError) {
-                console.error(`❌ Error inserting Google candidate:`, insertError.message)
-                continue
-              }
-
-              console.log(`✅ Inserted Google candidate: ${candidate.name}`)
-            }
-
-            // Add candidate source record
-            if (!existingSource) {
-              try {
-                const { error: sourceError } = await supabase
-                  .from('candidate_sources')
-                  .insert({
-                    candidate_id: candidate.id,
-                    platform: 'google',
-                    platform_id: result.link,
-                    url: result.link,
-                    data: {
-                      search_result: result,
-                      extracted_data: {
-                        title: extractedTitle,
-                        location: extractedLocation,
-                        email: extractedEmail,
-                        skills: skills
-                      },
-                      scores: scores
-                    }
-                  })
-
-                if (sourceError) {
-                  console.error(`⚠️ Failed to save Google source:`, sourceError.message)
-                } else {
-                  console.log(`📝 Saved Google source record`)
-                }
-              } catch (sourceErr) {
-                console.error(`⚠️ Exception saving Google source:`, sourceErr)
-              }
-            }
-
-          } catch (error) {
-            console.error(`❌ Database operation failed for Google result:`, error.message)
-            continue
-          }
-
-        } catch (error) {
-          console.error(`❌ Error processing Google search result:`, error.message)
+    console.log('🔍 Starting Google search with simplified queries...')
+    
+    const allResults: GoogleSearchResult[] = []
+    
+    for (const searchQuery of searchQueries) {
+      try {
+        console.log(`🔍 Searching: ${searchQuery}...`)
+        
+        const url = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${searchEngineId}&q=${encodeURIComponent(searchQuery)}&num=10`
+        
+        console.log('📡 Making request to Google API...')
+        const response = await fetch(url)
+        
+        console.log(`📡 Google API Response: ${response.status} ${response.statusText}`)
+        
+        if (!response.ok) {
+          console.error(`Google API error: ${response.status}`)
           continue
         }
-      }
 
-      const processingTime = Date.now() - startTime
-      console.log(`✅ Google Search collection completed: ${candidates.length} candidates in ${processingTime}ms`)
+        const data = await response.json()
+        
+        console.log('📊 API response structure:', {
+          hasItems: !!data.items,
+          itemCount: data.items?.length || 0,
+          hasError: !!data.error,
+          quotaRemaining: data.searchInformation?.totalResults || 'unknown'
+        })
 
-      return new Response(
-        JSON.stringify({ 
-          candidates: candidates,
-          total: candidates.length,
-          source: 'google',
-          processing_time_ms: processingTime
-        }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
-
-    } catch (error) {
-      console.error('❌ Google Search collection error:', error)
-      return new Response(
-        JSON.stringify({ 
-          candidates: [], 
-          total: 0, 
-          source: 'google',
-          error: 'Google Search API error: ' + error.message
-        }),
-        { 
-          status: 500, 
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        if (data.items && Array.isArray(data.items)) {
+          console.log(`📊 Found ${data.items.length} results for query`)
+          allResults.push(...data.items)
         }
-      )
+      } catch (error) {
+        console.error(`Error in search query "${searchQuery}":`, error)
+        continue
+      }
     }
 
-  } catch (error) {
-    console.error('❌ Error in Google Search data collection:', error)
+    console.log(`✅ Google search completed: ${allResults.length} unique results`)
+    console.log(`📊 Google Search returned ${allResults.length} results`)
+
+    // Process results safely
+    const candidates = []
+    
+    for (const result of allResults) {
+      try {
+        if (!result || typeof result !== 'object') {
+          continue
+        }
+
+        const candidate = await processGoogleResult(result, simplifiedQuery)
+        if (candidate) {
+          candidates.push(candidate)
+        }
+      } catch (error) {
+        console.error(`❌ Error processing Google search result:`, error.message)
+        continue
+      }
+    }
+
+    console.log(`✅ Google Search collection completed: ${candidates.length} candidates in ${Date.now()}ms`)
+
     return new Response(
-      JSON.stringify({ 
-        candidates: [], 
-        total: 0, 
-        source: 'google',
-        error: 'Failed to collect Google Search data' 
+      JSON.stringify({
+        candidates,
+        total: allResults.length,
+        validated: candidates.length,
+        error: null,
+        processing_time_ms: Date.now()
+      }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    )
+
+  } catch (error) {
+    console.error('❌ Google Search collection error:', error)
+    
+    return new Response(
+      JSON.stringify({
+        error: 'Google Search collection failed',
+        message: error.message,
+        candidates: [],
+        total: 0,
+        validated: 0
       }),
       { 
         status: 500, 
@@ -283,3 +142,131 @@ serve(async (req) => {
     )
   }
 })
+
+async function processGoogleResult(result: GoogleSearchResult, query: string) {
+  try {
+    // Safe property access
+    const title = result.title || ''
+    const snippet = result.snippet || ''
+    const link = result.link || ''
+    const displayLink = result.displayLink || ''
+
+    // Extract potential developer information
+    const name = extractNameFromTitle(title)
+    const skills = extractSkillsFromText(`${title} ${snippet}`)
+    const location = extractLocationFromText(`${title} ${snippet}`)
+
+    if (!name || name.length < 2) {
+      return null
+    }
+
+    const candidate = {
+      name,
+      title: extractTitleFromText(title),
+      summary: snippet.substring(0, 200),
+      skills: skills || [],
+      location: location || '',
+      source_url: link,
+      domain: displayLink,
+      google_search: true,
+      search_relevance: calculateRelevance(title, snippet, query),
+      overall_score: 45,
+      skill_match: 40,
+      experience: 35,
+      reputation: 30,
+      freshness: 50,
+      social_proof: 25
+    }
+
+    return candidate
+  } catch (error) {
+    console.error('Error processing individual result:', error)
+    return null
+  }
+}
+
+function extractNameFromTitle(title: string): string {
+  // Remove common developer keywords and extract potential names
+  const cleanTitle = title
+    .replace(/\b(Developer|Engineer|Programmer|Full Stack|Frontend|Backend|Software|Web|React|JavaScript|Portfolio|Resume|CV)\b/gi, '')
+    .replace(/[-|–—]/g, ' ')
+    .trim()
+
+  const words = cleanTitle.split(/\s+/).filter(word => word.length > 1)
+  
+  // Look for name patterns (2-3 consecutive capitalized words)
+  for (let i = 0; i < words.length - 1; i++) {
+    const potential = words.slice(i, i + 2).join(' ')
+    if (potential.length > 3 && potential.length < 30) {
+      return potential
+    }
+  }
+
+  return words.slice(0, 2).join(' ') || 'Unknown Developer'
+}
+
+function extractTitleFromText(text: string): string {
+  const titles = [
+    'Full Stack Developer', 'Frontend Developer', 'Backend Developer',
+    'Software Engineer', 'Web Developer', 'React Developer',
+    'JavaScript Developer', 'Senior Developer', 'Lead Developer'
+  ]
+
+  for (const title of titles) {
+    if (text.toLowerCase().includes(title.toLowerCase())) {
+      return title
+    }
+  }
+
+  return 'Software Developer'
+}
+
+function extractSkillsFromText(text: string): string[] {
+  const skillKeywords = [
+    'React', 'JavaScript', 'TypeScript', 'Node.js', 'Python', 'Java',
+    'Angular', 'Vue', 'Docker', 'AWS', 'MongoDB', 'PostgreSQL',
+    'Express', 'Next.js', 'GraphQL', 'Redux', 'Git', 'HTML', 'CSS'
+  ]
+
+  const foundSkills: string[] = []
+  const lowerText = text.toLowerCase()
+
+  for (const skill of skillKeywords) {
+    if (lowerText.includes(skill.toLowerCase())) {
+      foundSkills.push(skill)
+    }
+  }
+
+  return foundSkills.slice(0, 8) // Limit to 8 skills
+}
+
+function extractLocationFromText(text: string): string {
+  const locationKeywords = [
+    'New York', 'San Francisco', 'London', 'Berlin', 'Toronto',
+    'Remote', 'NYC', 'SF', 'LA', 'Boston', 'Seattle', 'Austin'
+  ]
+
+  const lowerText = text.toLowerCase()
+
+  for (const location of locationKeywords) {
+    if (lowerText.includes(location.toLowerCase())) {
+      return location
+    }
+  }
+
+  return ''
+}
+
+function calculateRelevance(title: string, snippet: string, query: string): number {
+  const combinedText = `${title} ${snippet}`.toLowerCase()
+  const queryTerms = query.toLowerCase().split(' ')
+  
+  let relevance = 0
+  for (const term of queryTerms) {
+    if (combinedText.includes(term)) {
+      relevance += 20
+    }
+  }
+
+  return Math.min(relevance, 100)
+}

@@ -37,20 +37,31 @@ export const useEnhancedDataCollection = () => {
     const stopProgress = startProgress();
 
     try {
-      // Set up timeout race
+      // Increase timeout to 75 seconds to match backend improvements
       const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error('Collection timeout')), 65000);
+        setTimeout(() => reject(new Error('Collection timeout - please try with fewer sources or a simpler query')), 75000);
       });
       
       const collectionPromise = DataCollectionService.collectCandidates({
         query,
         location,
         sources,
-        timeBudget: 60
+        timeBudget: 70 // Increased time budget
       });
       
       const data = await Promise.race([collectionPromise, timeoutPromise]);
       
+      // Check if we got valid data
+      if (!data) {
+        throw new Error("No data returned - all sources may have failed");
+      }
+
+      // Accept partial results if we have some candidates
+      if (data.total_candidates === 0 && data.errors && data.errors.length > 0) {
+        const errorMessages = data.errors.map(e => `${e.source}: ${e.error}`).join(', ');
+        throw new Error(`All sources failed: ${errorMessages}`);
+      }
+
       updateResult(data);
       
       const notification = NotificationService.generateSuccessNotification(data);
@@ -61,7 +72,21 @@ export const useEnhancedDataCollection = () => {
     } catch (error: any) {
       console.error('Enhanced data collection error:', error);
       
-      const notification = NotificationService.generateErrorNotification(error);
+      let errorMessage = error.message || "Data collection failed";
+      
+      // Provide more specific error messages
+      if (error.message?.includes('timeout')) {
+        errorMessage = "Collection timed out. Try using fewer sources or a simpler search query.";
+      } else if (error.message?.includes('Authentication')) {
+        errorMessage = "Authentication failed. Please sign in again.";
+      } else if (error.message?.includes('No data returned')) {
+        errorMessage = "No candidates found. Try adjusting your search criteria.";
+      }
+      
+      const notification = NotificationService.generateErrorNotification({
+        ...error,
+        message: errorMessage
+      });
       toast(notification);
       
       return null;

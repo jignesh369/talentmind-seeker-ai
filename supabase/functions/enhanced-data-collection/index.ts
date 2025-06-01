@@ -35,7 +35,13 @@ serve(async (req) => {
 
     if (!query) {
       return new Response(
-        JSON.stringify({ error: 'Query is required' }),
+        JSON.stringify({ 
+          error: 'Query is required',
+          results: {},
+          total_candidates: 0,
+          total_validated: 0,
+          timestamp: new Date().toISOString()
+        }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
@@ -343,6 +349,7 @@ serve(async (req) => {
     console.log(`🤖 AI enhancements applied: ${aiEnhancements}`)
     console.log(`📊 Success rate: ${successRate}% (${successfulSources}/${sourceResults.length} sources)`)
 
+    // Return results even if some sources failed
     const response = {
       results,
       total_candidates: finalCandidates.length,
@@ -382,7 +389,7 @@ serve(async (req) => {
         smart_timeouts: true,
         load_balancing: true,
         ai_enhancements: aiEnhancements,
-        apollo_enriched: 0, // Placeholder for future Apollo integration
+        apollo_enriched: 0,
         perplexity_enriched: finalCandidates.filter(c => c.perplexity_enriched).length,
         ai_summaries_generated: finalCandidates.filter(c => c.summary_generated).length,
         ai_scored_candidates: finalCandidates.filter(c => c.ai_scored).length
@@ -398,21 +405,21 @@ serve(async (req) => {
   } catch (error) {
     console.error('❌ Enhanced data collection error:', error)
     
-    return new Response(
-      JSON.stringify({
-        error: 'AI-enhanced data collection failed',
-        message: error.message,
-        results: {},
-        total_candidates: 0,
-        total_validated: 0,
-        enhancement_phase: 'Phase 3: AI-Enhanced Processing (Error)',
-        timestamp: new Date().toISOString()
-      }),
-      { 
-        status: 500, 
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
-      }
-    )
+    // Return a proper error response instead of throwing
+    const errorResponse = {
+      error: 'AI-enhanced data collection failed',
+      message: error.message,
+      results: {},
+      total_candidates: 0,
+      total_validated: 0,
+      enhancement_phase: 'Phase 3: AI-Enhanced Processing (Error)',
+      timestamp: new Date().toISOString()
+    }
+    
+    return new Response(JSON.stringify(errorResponse), { 
+      status: 500, 
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+    })
   } finally {
     // Clean up resources
     await memoryManager.forceCleanup(2000)
