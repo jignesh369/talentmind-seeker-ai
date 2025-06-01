@@ -149,6 +149,7 @@ serve(async (req) => {
               avatar_url: userDetails.avatar_url,
               email: emailFromReadme || userDetails.email, // Prioritize README email
               github_username: userDetails.login,
+              github_url: userDetails.html_url,
               summary: createEnhancedSummaryFromGitHub(userDetails, repositories, extractedSkills),
               skills: extractedSkills,
               experience_years: estimatedExperience,
@@ -170,7 +171,7 @@ serve(async (req) => {
             try {
               await supabase
                 .from('candidate_sources')
-                .insert({
+                .upsert({
                   candidate_id: userDetails.login,
                   platform: 'github',
                   platform_id: userDetails.login,
@@ -181,9 +182,10 @@ serve(async (req) => {
                     readme_email: emailFromReadme,
                     language_stats: calculateLanguageStats(repositories)
                   }
+                }, { 
+                  onConflict: 'platform,platform_id',
+                  ignoreDuplicates: false 
                 })
-                .onConflict('platform,platform_id')
-                .ignore()
             } catch (error) {
               console.error(`Error saving source data for ${userDetails.login}:`, error)
             }

@@ -29,32 +29,57 @@ const Index = () => {
   });
 
   const handleSearch = async (query: string) => {
-    if (!user) return;
+    if (!user) {
+      toast({
+        title: "Authentication required",
+        description: "Please sign in to search candidates",
+        variant: "destructive",
+      });
+      return;
+    }
     
     setSearchQuery(query);
     setIsSearching(true);
 
     try {
+      console.log('Starting search with query:', query);
+      
       const { data, error } = await supabase.functions.invoke('enhanced-search-candidates', {
         body: { query, user_id: user.id }
       });
 
-      if (error) throw error;
+      if (error) {
+        console.error('Search function error:', error);
+        throw new Error(error.message || 'Search function failed');
+      }
+
+      if (!data) {
+        throw new Error('No data returned from search');
+      }
 
       setSearchResults(data.candidates || []);
       
       toast({
         title: "Search completed",
-        description: `Found ${data.total_results} high-quality candidates matching your criteria.`,
+        description: `Found ${data.total_results || 0} candidates matching your search criteria.`,
       });
 
     } catch (error: any) {
       console.error('Search error:', error);
+      
+      let errorMessage = "Failed to search candidates";
+      if (error.message?.includes('Edge Function')) {
+        errorMessage = "Search service is currently unavailable. Please try again later.";
+      }
+      
       toast({
         title: "Search failed",
-        description: error.message || "Failed to search candidates",
+        description: errorMessage,
         variant: "destructive",
       });
+      
+      // Clear search results on error
+      setSearchResults([]);
     } finally {
       setIsSearching(false);
     }
