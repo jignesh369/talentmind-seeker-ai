@@ -18,7 +18,14 @@ const Index = () => {
   const { candidates, loading, refetch } = useCandidates();
   const { user, signOut } = useAuth();
   const { toast } = useToast();
-  const { searchQuery, searchResults, isSearching, handleSearch, clearSearch } = useSearch();
+  const { 
+    searchQuery, 
+    searchResults, 
+    isSearching, 
+    searchMetadata, 
+    handleSearch, 
+    clearSearch 
+  } = useSearch();
   const { filters, setFilters, applyFilters } = useFilters();
   const { isFilterOpen, setIsFilterOpen, isDataCollectionOpen, setIsDataCollectionOpen } = useUIState();
 
@@ -58,6 +65,7 @@ const Index = () => {
               searchQuery={searchQuery}
               isSearching={isSearching}
               candidateCount={filteredCandidates.length}
+              searchMetadata={searchMetadata}
             />
 
             {/* Filter Panel */}

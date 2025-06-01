@@ -8,6 +8,7 @@ export const useSearch = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [searchMetadata, setSearchMetadata] = useState<any>(null);
   const { user } = useAuth();
   const { toast } = useToast();
 
@@ -23,34 +24,19 @@ export const useSearch = () => {
     
     setSearchQuery(query);
     setIsSearching(true);
+    setSearchMetadata(null);
 
     try {
-      console.log('Starting search with query:', query);
+      console.log('Starting enhanced search with query:', query);
       
-      // Try enhanced search first, fall back to basic search if it fails
-      let searchResponse;
-      
-      try {
-        searchResponse = await supabase.functions.invoke('enhanced-search-candidates', {
-          body: { query, user_id: user.id }
-        });
-        
-        if (searchResponse.error) {
-          console.warn('Enhanced search failed, trying basic search:', searchResponse.error);
-          throw new Error('Enhanced search failed');
-        }
-      } catch (enhancedError) {
-        console.log('Enhanced search failed, falling back to basic search');
-        
-        // Fallback to basic search
-        searchResponse = await supabase.functions.invoke('search-candidates', {
-          body: { query, user_id: user.id }
-        });
-      }
+      // Use the improved search-candidates function
+      const searchResponse = await supabase.functions.invoke('search-candidates', {
+        body: { query, user_id: user.id }
+      });
 
       if (searchResponse.error) {
-        console.error('Both search methods failed:', searchResponse.error);
-        throw new Error(searchResponse.error.message || 'All search methods failed');
+        console.error('Search failed:', searchResponse.error);
+        throw new Error(searchResponse.error.message || 'Search failed');
       }
 
       if (!searchResponse.data) {
@@ -58,29 +44,52 @@ export const useSearch = () => {
       }
 
       const searchData = searchResponse.data;
-      setSearchResults(searchData.candidates || []);
+      const candidates = searchData.candidates || [];
       
-      const resultCount = searchData.total_results || searchData.candidates?.length || 0;
+      setSearchResults(candidates);
+      setSearchMetadata({
+        search_strategies: searchData.search_strategies,
+        fallback_used: searchData.fallback_used,
+        parsed_criteria: searchData.parsed_criteria,
+        total_results: searchData.total_results
+      });
+      
+      // Provide detailed feedback to user
+      const resultCount = candidates.length;
+      let toastDescription = `Found ${resultCount} candidates`;
+      
+      if (searchData.fallback_used) {
+        toastDescription += " (showing top candidates due to broad search criteria)";
+      } else if (searchData.search_strategies) {
+        const strategyCounts = Object.values(searchData.search_strategies)
+          .map((s: any) => s.count)
+          .filter(count => count > 0);
+        
+        if (strategyCounts.length > 1) {
+          toastDescription += ` using ${strategyCounts.length} search strategies`;
+        }
+      }
       
       toast({
         title: "Search completed",
-        description: `Found ${resultCount} candidates matching your search criteria.`,
+        description: toastDescription,
       });
 
-      console.log('Search completed successfully:', {
+      console.log('Enhanced search completed successfully:', {
         query,
         resultCount,
-        searchType: searchData.fallback_used ? 'basic' : 'enhanced'
+        strategies: searchData.search_strategies,
+        fallbackUsed: searchData.fallback_used
       });
 
     } catch (error: any) {
       console.error('Search error:', error);
       
       let errorMessage = "Failed to search candidates";
-      if (error.message?.includes('Edge Function')) {
-        errorMessage = "Search service is currently unavailable. Please try again later.";
-      } else if (error.message?.includes('timeout')) {
+      if (error.message?.includes('timeout')) {
         errorMessage = "Search request timed out. Please try a simpler query.";
+      } else if (error.message?.includes('network')) {
+        errorMessage = "Network error. Please check your connection and try again.";
       } else if (error.message) {
         errorMessage = error.message;
       }
@@ -93,6 +102,7 @@ export const useSearch = () => {
       
       // Clear search results on error
       setSearchResults([]);
+      setSearchMetadata(null);
     } finally {
       setIsSearching(false);
     }
@@ -101,12 +111,14 @@ export const useSearch = () => {
   const clearSearch = () => {
     setSearchQuery('');
     setSearchResults([]);
+    setSearchMetadata(null);
   };
 
   return {
     searchQuery,
     searchResults,
     isSearching,
+    searchMetadata,
     handleSearch,
     clearSearch
   };
