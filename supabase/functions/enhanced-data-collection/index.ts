@@ -15,56 +15,71 @@ import { enrichWithPerplexity } from './perplexity-enrichment.ts'
 import { calculateMarketIntelligenceWithCache } from './market-intelligence.ts'
 import { storeWithEnhancedDeduplication, enrichWithApollo } from './storage-manager.ts'
 import { performEnhancedGoogleSearch } from './google-search-enhancement.ts'
-import { getFunctionNameForSource } from './utils.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-// Helper function to create timeout promise
-function createTimeout(ms: number, errorMessage: string) {
+// Enhanced timeout with better error messages
+function createTimeout(ms: number, source: string) {
   return new Promise((_, reject) => 
-    setTimeout(() => reject(new Error(errorMessage)), ms)
+    setTimeout(() => reject(new Error(`Timeout: ${source} exceeded ${ms}ms limit`)), ms)
   )
 }
 
-// Helper function to invoke function with retry logic
+// Improved function invocation with detailed error handling
 async function invokeWithRetry(supabase: any, functionName: string, body: any, maxRetries = 2) {
+  console.log(`Starting ${functionName} with ${maxRetries} retry attempts`)
+  
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
+      console.log(`${functionName} attempt ${attempt + 1}/${maxRetries}`)
+      
       const result = await Promise.race([
         supabase.functions.invoke(functionName, { body }),
-        createTimeout(60000, `Timeout: ${functionName} took too long`)
+        createTimeout(120000, functionName) // Increased timeout to 2 minutes
       ])
       
       if (result.error) {
-        throw new Error(result.error.message || `${functionName} failed`)
+        console.error(`${functionName} returned error:`, result.error)
+        throw new Error(`${functionName} failed: ${result.error.message || 'Unknown error'}`)
       }
       
+      console.log(`${functionName} completed successfully`)
       return result
     } catch (error) {
-      console.log(`${functionName} attempt ${attempt + 1} failed:`, error.message)
+      console.error(`${functionName} attempt ${attempt + 1} failed:`, error.message)
       
       if (attempt === maxRetries - 1) {
-        throw error
+        console.error(`${functionName} failed all ${maxRetries} attempts`)
+        throw new Error(`${functionName} failed after ${maxRetries} attempts: ${error.message}`)
       }
       
-      // Wait before retry
-      await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)))
+      // Progressive delay between retries
+      const delay = 2000 * (attempt + 1)
+      console.log(`Waiting ${delay}ms before retry...`)
+      await new Promise(resolve => setTimeout(resolve, delay))
     }
   }
 }
 
 serve(async (req) => {
+  // Enhanced CORS handling
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
 
+  console.log('=== PHASE 2.5 ENHANCED DATA COLLECTION STARTED ===')
+  console.log('Request method:', req.method)
+  console.log('Request headers:', Object.fromEntries(req.headers.entries()))
+
   try {
     const { query, location, sources = ['github', 'stackoverflow', 'google', 'linkedin', 'kaggle', 'devto'] } = await req.json()
+    console.log('Request body parsed:', { query, location, sources })
 
     if (!query) {
+      console.error('Missing required query parameter')
       return new Response(
         JSON.stringify({ error: 'Query is required' }),
         { 
@@ -74,17 +89,41 @@ serve(async (req) => {
       )
     }
 
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!
-    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-    const openaiApiKey = Deno.env.get('OPENAI_API_KEY')!
-    const perplexityApiKey = Deno.env.get('PERPLEXITY_API_KEY')!
-    const apolloApiKey = Deno.env.get('APOLLO_API_KEY') // New Apollo integration
-    const googleApiKey = Deno.env.get('GOOGLE_API_KEY')!
-    const searchEngineId = Deno.env.get('GOOGLE_SEARCH_ENGINE_ID')!
+    // Environment validation with detailed logging
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')
+    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+    const openaiApiKey = Deno.env.get('OPENAI_API_KEY')
+    const perplexityApiKey = Deno.env.get('PERPLEXITY_API_KEY')
+    const apolloApiKey = Deno.env.get('APOLLO_API_KEY')
+    const googleApiKey = Deno.env.get('GOOGLE_API_KEY')
+    const searchEngineId = Deno.env.get('GOOGLE_SEARCH_ENGINE_ID')
+
+    console.log('Environment check:')
+    console.log('- SUPABASE_URL:', !!supabaseUrl)
+    console.log('- SUPABASE_SERVICE_ROLE_KEY:', !!supabaseKey)
+    console.log('- OPENAI_API_KEY:', !!openaiApiKey)
+    console.log('- PERPLEXITY_API_KEY:', !!perplexityApiKey)
+    console.log('- APOLLO_API_KEY:', !!apolloApiKey)
+    console.log('- GOOGLE_API_KEY:', !!googleApiKey)
+    console.log('- GOOGLE_SEARCH_ENGINE_ID:', !!searchEngineId)
+
+    if (!supabaseUrl || !supabaseKey) {
+      console.error('Missing critical Supabase environment variables')
+      return new Response(
+        JSON.stringify({ error: 'Server configuration error: Missing Supabase credentials' }),
+        { 
+          status: 500, 
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        }
+      )
+    }
+
     const supabase = createClient(supabaseUrl, supabaseKey)
+    console.log('Supabase client initialized')
 
-    console.log(`Starting Phase 2.5 enhanced multi-source data collection for query: ${query}`)
+    console.log(`Starting Phase 2.5 enhanced multi-source data collection for query: "${query}"`)
 
+    // Initialize results structure with error tracking
     const results = {
       github: { candidates: [], total: 0, validated: 0, error: null },
       stackoverflow: { candidates: [], total: 0, validated: 0, error: null },
@@ -95,14 +134,24 @@ serve(async (req) => {
       devto: { candidates: [], total: 0, validated: 0, error: null }
     }
 
-    // Step 1: Enhanced semantic query analysis
+    // Step 1: Enhanced semantic query analysis with fallback
     let enhancedQuery
     try {
-      enhancedQuery = await enhanceQueryWithSemanticAI(query, openaiApiKey)
-      console.log('Phase 2.5 Enhanced query with advanced semantics:', enhancedQuery)
+      console.log('Starting query enhancement...')
+      if (openaiApiKey) {
+        enhancedQuery = await enhanceQueryWithSemanticAI(query, openaiApiKey)
+        console.log('Query enhanced successfully:', enhancedQuery)
+      } else {
+        console.log('OpenAI API key not available, using fallback query structure')
+        enhancedQuery = {
+          searchTerms: [query],
+          skills: [],
+          experienceLevel: 'any',
+          locations: location ? [location] : []
+        }
+      }
     } catch (error) {
-      console.error('Query enhancement failed:', error)
-      // Fallback to basic query structure
+      console.error('Query enhancement failed, using fallback:', error.message)
       enhancedQuery = {
         searchTerms: [query],
         skills: [],
@@ -111,199 +160,218 @@ serve(async (req) => {
       }
     }
 
-    // Step 2: Generate embeddings for semantic search
+    // Step 2: Generate embeddings for semantic search with error handling
     let queryEmbedding = null
     try {
-      queryEmbedding = await generateQueryEmbedding(query, openaiApiKey)
+      if (openaiApiKey) {
+        console.log('Generating query embedding...')
+        queryEmbedding = await generateQueryEmbedding(query, openaiApiKey)
+        console.log('Query embedding generated successfully')
+      } else {
+        console.log('OpenAI API key not available, skipping embeddings')
+      }
     } catch (error) {
-      console.error('Query embedding generation failed:', error)
+      console.error('Query embedding generation failed:', error.message)
     }
 
-    // Step 3: Enhanced Google search integration
+    // Step 3: Enhanced Google search integration with comprehensive error handling
     if (sources.includes('google')) {
       try {
-        console.log('Phase 2.5: Starting enhanced Google search with targeted queries...')
-        const googleCandidates = await performEnhancedGoogleSearch(query, location, googleApiKey, searchEngineId, openaiApiKey)
-        
-        results.google.total = googleCandidates.length
-        console.log(`Phase 2.5: Enhanced Google search found ${googleCandidates.length} candidates`)
-        
-        // Process Google candidates with enhanced validation
-        const validatedGoogleCandidates = []
-        for (const candidate of googleCandidates.slice(0, 15)) {
-          try {
-            // Apollo enrichment for Google candidates
-            let enrichedCandidate = candidate
-            if (apolloApiKey) {
-              enrichedCandidate = await enrichWithApollo(candidate, apolloApiKey)
-            }
-            
-            // Enhanced validation
-            const validationResult = await performEnhancedValidation(enrichedCandidate, enhancedQuery, 'google', openaiApiKey)
-            if (validationResult.isValid) {
-              const tier = calculateEnhancedCandidateTier(validationResult, 'google')
-              const scoredCandidate = await calculateEnhancedTieredScoring(enrichedCandidate, enhancedQuery, tier, 'google', openaiApiKey)
-              
-              const minScore = getEnhancedMinScoreForTier(tier, 'google')
-              const minConfidence = getEnhancedMinConfidenceForTier(tier, 'google')
-              
-              if (scoredCandidate.overall_score >= minScore && scoredCandidate.validation_confidence >= minConfidence) {
-                scoredCandidate.candidate_tier = tier
-                scoredCandidate.apollo_enriched = !!enrichedCandidate.apollo_enriched
-                validatedGoogleCandidates.push(scoredCandidate)
-                console.log(`Phase 2.5: Validated ${tier} candidate ${candidate.name} from Google search (Score: ${scoredCandidate.overall_score})`)
+        console.log('=== STARTING ENHANCED GOOGLE SEARCH ===')
+        if (!googleApiKey || !searchEngineId) {
+          console.log('Google Search API credentials not configured, skipping Google search')
+          results.google.error = 'Google Search API not configured'
+        } else {
+          const googleCandidates = await performEnhancedGoogleSearch(query, location, googleApiKey, searchEngineId, openaiApiKey)
+          
+          results.google.total = googleCandidates.length
+          console.log(`Enhanced Google search found ${googleCandidates.length} candidates`)
+          
+          // Process Google candidates with enhanced validation
+          const validatedGoogleCandidates = []
+          for (const candidate of googleCandidates.slice(0, 10)) { // Reduced for stability
+            try {
+              // Apollo enrichment for Google candidates
+              let enrichedCandidate = candidate
+              if (apolloApiKey) {
+                console.log(`Enriching Google candidate ${candidate.name} with Apollo.io`)
+                enrichedCandidate = await enrichWithApollo(candidate, apolloApiKey)
               }
+              
+              // Enhanced validation with fallback
+              if (openaiApiKey) {
+                const validationResult = await performEnhancedValidation(enrichedCandidate, enhancedQuery, 'google', openaiApiKey)
+                if (validationResult.isValid) {
+                  const tier = calculateEnhancedCandidateTier(validationResult, 'google')
+                  const scoredCandidate = await calculateEnhancedTieredScoring(enrichedCandidate, enhancedQuery, tier, 'google', openaiApiKey)
+                  
+                  const minScore = getEnhancedMinScoreForTier(tier, 'google')
+                  const minConfidence = getEnhancedMinConfidenceForTier(tier, 'google')
+                  
+                  if (scoredCandidate.overall_score >= minScore && scoredCandidate.validation_confidence >= minConfidence) {
+                    scoredCandidate.candidate_tier = tier
+                    scoredCandidate.apollo_enriched = !!enrichedCandidate.apollo_enriched
+                    validatedGoogleCandidates.push(scoredCandidate)
+                    console.log(`Validated ${tier} candidate ${candidate.name} from Google search (Score: ${scoredCandidate.overall_score})`)
+                  }
+                }
+              } else {
+                // Fallback: accept all Google candidates with basic scoring
+                enrichedCandidate.overall_score = 70
+                enrichedCandidate.candidate_tier = 'bronze'
+                enrichedCandidate.apollo_enriched = !!enrichedCandidate.apollo_enriched
+                validatedGoogleCandidates.push(enrichedCandidate)
+                console.log(`Added Google candidate ${candidate.name} (fallback mode)`)
+              }
+            } catch (error) {
+              console.error(`Error processing Google candidate ${candidate.name}:`, error.message)
+              continue
             }
-          } catch (error) {
-            console.error(`Error processing Google candidate ${candidate.name}:`, error)
-            continue
+          }
+          
+          results.google.candidates = validatedGoogleCandidates
+          results.google.validated = validatedGoogleCandidates.length
+          
+          // Store Google candidates with error handling
+          if (validatedGoogleCandidates.length > 0) {
+            try {
+              await storeWithEnhancedDeduplication(validatedGoogleCandidates, supabase, queryEmbedding, 'google')
+              console.log(`Stored ${validatedGoogleCandidates.length} Google candidates`)
+            } catch (error) {
+              console.error('Failed to store Google candidates:', error.message)
+            }
           }
         }
-        
-        results.google.candidates = validatedGoogleCandidates
-        results.google.validated = validatedGoogleCandidates.length
-        
-        // Store Google candidates
-        if (validatedGoogleCandidates.length > 0) {
-          await storeWithEnhancedDeduplication(validatedGoogleCandidates, supabase, queryEmbedding, 'google')
-        }
-        
       } catch (error) {
-        console.error('Enhanced Google search error:', error)
+        console.error('Enhanced Google search error:', error.message)
         results.google.error = error.message
       }
     }
 
-    // Step 4: Enhanced parallel data collection with improved strategies
+    // Step 4: Enhanced parallel data collection with better error isolation
     const collectionPromises = sources.filter(s => s !== 'google').map(async (source) => {
       try {
-        console.log(`Phase 2.5: Enhanced collection from ${source}...`)
+        console.log(`=== STARTING ${source.toUpperCase()} COLLECTION ===`)
         
-        const functionName = getFunctionNameForSource(source)
-        let rawData, collectError
+        const functionMap = {
+          'github': 'collect-github-data',
+          'stackoverflow': 'collect-stackoverflow-data',
+          'linkedin': 'collect-linkedin-data',
+          'kaggle': 'collect-kaggle-data',
+          'devto': 'collect-devto-data'
+        }
         
-        // Use enhanced functions with retry logic
-        if (source === 'github') {
-          const result = await invokeWithRetry(supabase, 'collect-github-data', {
-            query: enhancedQuery.searchTerms.join(' '), 
-            location, 
-            enhancedQuery
-          })
-          rawData = result.data
-          collectError = result.error
-        }
-        else if (source === 'stackoverflow') {
-          const result = await invokeWithRetry(supabase, 'collect-stackoverflow-data', {
-            query: enhancedQuery.searchTerms.join(' '), 
-            location, 
-            enhancedQuery
-          })
-          rawData = result.data
-          collectError = result.error
-        }
-        else {
-          const result = await invokeWithRetry(supabase, functionName, {
-            query: enhancedQuery.searchTerms.join(' '), 
-            location, 
-            enhancedQuery
-          })
-          rawData = result.data
-          collectError = result.error
+        const functionName = functionMap[source]
+        if (!functionName) {
+          throw new Error(`Unknown source: ${source}`)
         }
 
-        if (collectError) throw collectError
+        const result = await invokeWithRetry(supabase, functionName, {
+          query: enhancedQuery.searchTerms.join(' '), 
+          location, 
+          enhancedQuery
+        })
 
-        const rawCandidates = rawData?.candidates || []
+        const rawCandidates = result.data?.candidates || []
         results[source].total = rawCandidates.length
 
-        console.log(`Phase 2.5: Collected ${rawCandidates.length} enhanced candidates from ${source}`)
+        console.log(`Collected ${rawCandidates.length} candidates from ${source}`)
 
         // Enhanced statistics logging
-        if (rawData?.enhancement_stats) {
-          console.log(`${source} enhancement stats:`, rawData.enhancement_stats)
+        if (result.data?.enhancement_stats) {
+          console.log(`${source} enhancement stats:`, result.data.enhancement_stats)
         }
 
-        // Step 5: Enhanced AI validation with Apollo enrichment - REDUCED LOAD
+        // Step 5: Enhanced AI validation with Apollo enrichment - STABLE LOAD
         const validatedCandidates = []
         
         if (rawCandidates.length > 0) {
-          // Reduced from 35 to 20 to lower processing load
-          const candidatesToProcess = rawCandidates.slice(0, 20)
+          // Process limited candidates for stability
+          const candidatesToProcess = rawCandidates.slice(0, 15)
           
           for (const candidate of candidatesToProcess) {
             try {
               // Apollo enrichment for missing emails
               let enrichedCandidate = candidate
               if (apolloApiKey && !candidate.email) {
+                console.log(`Enriching ${candidate.name} with Apollo.io`)
                 enrichedCandidate = await enrichWithApollo(candidate, apolloApiKey)
               }
               
-              // Enhanced validation with platform-specific adjustments
-              const validationResult = await performEnhancedValidation(enrichedCandidate, enhancedQuery, source, openaiApiKey)
-              
-              if (!validationResult.isValid) {
-                console.log(`Phase 2.5: Candidate ${enrichedCandidate.name} failed enhanced validation: ${validationResult.reason}`)
-                continue
-              }
+              // Enhanced validation with fallback
+              if (openaiApiKey) {
+                const validationResult = await performEnhancedValidation(enrichedCandidate, enhancedQuery, source, openaiApiKey)
+                
+                if (!validationResult.isValid) {
+                  console.log(`Candidate ${enrichedCandidate.name} failed validation: ${validationResult.reason}`)
+                  continue
+                }
 
-              // Enhanced tier calculation with platform weighting
-              const tier = calculateEnhancedCandidateTier(validationResult, source)
-              
-              // Selective Perplexity enrichment for high-value candidates only
-              if (perplexityApiKey && tier === 'gold') { // Only gold tier to reduce load
-                try {
-                  enrichedCandidate = await enrichWithPerplexity(enrichedCandidate, perplexityApiKey)
-                } catch (error) {
-                  console.log(`Perplexity enrichment failed for ${enrichedCandidate.name}:`, error.message)
-                }
-              }
-              
-              // Enhanced scoring with platform and discovery method bonuses
-              let scoredCandidate = await calculateEnhancedTieredScoring(enrichedCandidate, enhancedQuery, tier, source, openaiApiKey)
-              
-              // Enhanced semantic similarity - only if embedding was successful
-              if (queryEmbedding) {
-                try {
-                  const candidateEmbedding = await generateCandidateEmbedding(scoredCandidate, openaiApiKey)
-                  if (candidateEmbedding) {
-                    scoredCandidate.semantic_similarity = calculateCosineSimilarity(queryEmbedding, candidateEmbedding)
+                const tier = calculateEnhancedCandidateTier(validationResult, source)
+                
+                // Selective Perplexity enrichment for high-value candidates only
+                if (perplexityApiKey && tier === 'gold') {
+                  try {
+                    enrichedCandidate = await enrichWithPerplexity(enrichedCandidate, perplexityApiKey)
+                  } catch (error) {
+                    console.log(`Perplexity enrichment failed for ${enrichedCandidate.name}:`, error.message)
                   }
-                } catch (error) {
-                  console.log(`Semantic similarity calculation failed for ${enrichedCandidate.name}:`, error.message)
-                }
-              }
-              
-              // Enhanced quality gates with platform-specific thresholds
-              const minScore = getEnhancedMinScoreForTier(tier, source)
-              const minConfidence = getEnhancedMinConfidenceForTier(tier, source)
-              
-              if (scoredCandidate.overall_score >= minScore && scoredCandidate.validation_confidence >= minConfidence) {
-                // Enhanced profile completeness
-                const completenessScore = calculateAdvancedCompleteness(scoredCandidate)
-                scoredCandidate.completeness_score = completenessScore
-                scoredCandidate.candidate_tier = tier
-                scoredCandidate.collection_phase = '2.5'
-                scoredCandidate.apollo_enriched = !!enrichedCandidate.apollo_enriched
-                
-                // Platform-specific bonuses
-                scoredCandidate = applyPlatformSpecificBonuses(scoredCandidate, source, rawData)
-                
-                // Enhanced market intelligence with error handling
-                try {
-                  const marketScore = await calculateMarketIntelligenceWithCache(scoredCandidate, enhancedQuery, openaiApiKey)
-                  scoredCandidate.market_relevance = marketScore
-                } catch (error) {
-                  console.log(`Market intelligence calculation failed for ${enrichedCandidate.name}:`, error.message)
-                  scoredCandidate.market_relevance = 60 // Default value
                 }
                 
-                validatedCandidates.push(scoredCandidate)
-                console.log(`Phase 2.5: Validated ${tier} candidate ${enrichedCandidate.name} from ${source} (Score: ${scoredCandidate.overall_score}) ${enrichedCandidate.apollo_enriched ? '[Apollo Enhanced]' : ''}`)
+                // Enhanced scoring
+                let scoredCandidate = await calculateEnhancedTieredScoring(enrichedCandidate, enhancedQuery, tier, source, openaiApiKey)
+                
+                // Enhanced semantic similarity
+                if (queryEmbedding) {
+                  try {
+                    const candidateEmbedding = await generateCandidateEmbedding(scoredCandidate, openaiApiKey)
+                    if (candidateEmbedding) {
+                      scoredCandidate.semantic_similarity = calculateCosineSimilarity(queryEmbedding, candidateEmbedding)
+                    }
+                  } catch (error) {
+                    console.log(`Semantic similarity calculation failed for ${enrichedCandidate.name}:`, error.message)
+                  }
+                }
+                
+                // Enhanced quality gates
+                const minScore = getEnhancedMinScoreForTier(tier, source)
+                const minConfidence = getEnhancedMinConfidenceForTier(tier, source)
+                
+                if (scoredCandidate.overall_score >= minScore && scoredCandidate.validation_confidence >= minConfidence) {
+                  scoredCandidate.completeness_score = calculateAdvancedCompleteness(scoredCandidate)
+                  scoredCandidate.candidate_tier = tier
+                  scoredCandidate.collection_phase = '2.5'
+                  scoredCandidate.apollo_enriched = !!enrichedCandidate.apollo_enriched
+                  
+                  // Platform-specific bonuses
+                  scoredCandidate = applyPlatformSpecificBonuses(scoredCandidate, source, result.data)
+                  
+                  // Enhanced market intelligence with error handling
+                  try {
+                    const marketScore = await calculateMarketIntelligenceWithCache(scoredCandidate, enhancedQuery, openaiApiKey)
+                    scoredCandidate.market_relevance = marketScore
+                  } catch (error) {
+                    console.log(`Market intelligence calculation failed for ${enrichedCandidate.name}:`, error.message)
+                    scoredCandidate.market_relevance = 60
+                  }
+                  
+                  validatedCandidates.push(scoredCandidate)
+                  console.log(`Validated ${tier} candidate ${enrichedCandidate.name} from ${source} (Score: ${scoredCandidate.overall_score}) ${enrichedCandidate.apollo_enriched ? '[Apollo Enhanced]' : ''}`)
+                } else {
+                  console.log(`Candidate ${enrichedCandidate.name} below ${tier} threshold (Score: ${scoredCandidate.overall_score}, Confidence: ${scoredCandidate.validation_confidence})`)
+                }
               } else {
-                console.log(`Phase 2.5: Candidate ${enrichedCandidate.name} below enhanced ${tier} threshold (Score: ${scoredCandidate.overall_score}, Confidence: ${scoredCandidate.validation_confidence})`)
+                // Fallback: accept candidates with basic scoring when OpenAI is not available
+                enrichedCandidate.overall_score = Math.max(candidate.overall_score || 60, 60)
+                enrichedCandidate.candidate_tier = 'bronze'
+                enrichedCandidate.collection_phase = '2.5'
+                enrichedCandidate.apollo_enriched = !!enrichedCandidate.apollo_enriched
+                enrichedCandidate.market_relevance = 60
+                validatedCandidates.push(enrichedCandidate)
+                console.log(`Added candidate ${enrichedCandidate.name} from ${source} (fallback mode)`)
               }
             } catch (error) {
-              console.error(`Phase 2.5: Error processing candidate ${candidate.name}:`, error)
+              console.error(`Error processing candidate ${candidate.name}:`, error.message)
               continue
             }
           }
@@ -312,31 +380,36 @@ serve(async (req) => {
         results[source].candidates = validatedCandidates
         results[source].validated = validatedCandidates.length
 
-        // Enhanced storage with cross-platform correlation
+        // Enhanced storage with error handling
         if (validatedCandidates.length > 0) {
           try {
             await storeWithEnhancedDeduplication(validatedCandidates, supabase, queryEmbedding, source)
+            console.log(`Stored ${validatedCandidates.length} candidates from ${source}`)
           } catch (error) {
-            console.error(`Storage failed for ${source}:`, error)
+            console.error(`Storage failed for ${source}:`, error.message)
           }
         }
 
       } catch (error) {
-        console.error(`Phase 2.5: ${source} collection error:`, error)
+        console.error(`${source} collection error:`, error.message)
         results[source].error = error.message
       }
     })
 
-    // Step 6: Add LinkedIn cross-platform discovery as separate process with timeout
+    // Step 6: LinkedIn cross-platform discovery with timeout and error handling
     const crossPlatformPromise = (async () => {
+      if (!sources.includes('linkedin-cross-platform')) {
+        return
+      }
+      
       try {
-        console.log('Phase 2.5: Starting LinkedIn cross-platform discovery...')
+        console.log('=== STARTING LINKEDIN CROSS-PLATFORM DISCOVERY ===')
         
         const result = await Promise.race([
           supabase.functions.invoke('collect-linkedin-cross-platform', {
             body: { query: enhancedQuery.searchTerms.join(' '), location, enhancedQuery, crossPlatformData: true }
           }),
-          createTimeout(90000, 'LinkedIn cross-platform discovery timeout')
+          createTimeout(90000, 'LinkedIn cross-platform discovery')
         ])
 
         if (result.error) throw result.error
@@ -346,30 +419,43 @@ serve(async (req) => {
         results['linkedin-cross-platform'].candidates = crossPlatformCandidates
         results['linkedin-cross-platform'].validated = crossPlatformCandidates.length
 
-        console.log(`Phase 2.5: Cross-platform LinkedIn discovery found ${crossPlatformCandidates.length} candidates`)
+        console.log(`Cross-platform LinkedIn discovery found ${crossPlatformCandidates.length} candidates`)
 
         if (result.data?.discovery_stats) {
           console.log('Cross-platform discovery stats:', result.data.discovery_stats)
         }
 
       } catch (error) {
-        console.error('Phase 2.5: LinkedIn cross-platform discovery error:', error)
+        console.error('LinkedIn cross-platform discovery error:', error.message)
         results['linkedin-cross-platform'].error = error.message
       }
     })()
 
     // Wait for all collections to complete with better error handling
-    await Promise.allSettled([...collectionPromises, crossPlatformPromise])
+    console.log('Waiting for all collection promises to complete...')
+    const allPromises = [...collectionPromises, crossPlatformPromise]
+    await Promise.allSettled(allPromises)
+    console.log('All collection promises completed')
 
     const totalCandidates = Object.values(results).reduce((sum, result) => sum + result.total, 0)
     const totalValidated = Object.values(results).reduce((sum, result) => sum + result.validated, 0)
 
     console.log(`Phase 2.5 enhanced collection completed. Total: ${totalCandidates}, Quality validated: ${totalValidated}`)
 
-    // Enhanced statistics
+    // Enhanced statistics with error tracking
     const apolloEnrichedCount = Object.values(results)
       .flatMap(r => r.candidates)
       .filter(c => c.apollo_enriched).length
+
+    const errors = Object.entries(results)
+      .filter(([_, result]) => result.error)
+      .map(([source, result]) => ({ source, error: result.error }))
+
+    if (errors.length > 0) {
+      console.log('Collection errors occurred:', errors)
+    }
+
+    console.log('=== PHASE 2.5 ENHANCED DATA COLLECTION COMPLETED ===')
 
     return new Response(
       JSON.stringify({ 
@@ -380,8 +466,8 @@ serve(async (req) => {
         location,
         enhancement_phase: '2.5',
         quality_metrics: {
-          validation_rate: totalCandidates > 0 ? (totalValidated / totalCandidates * 100).toFixed(1) : 0,
-          ai_enhanced: true,
+          validation_rate: totalCandidates > 0 ? (totalValidated / totalCandidates * 100).toFixed(1) : '0',
+          ai_enhanced: !!openaiApiKey,
           perplexity_enriched: !!perplexityApiKey,
           semantic_search: !!queryEmbedding,
           tier_system: true,
@@ -401,6 +487,7 @@ serve(async (req) => {
             .flatMap(r => r.candidates)
             .filter(c => c.expertise_score > 70 || c.language_expertise > 70).length
         },
+        errors: errors.length > 0 ? errors : undefined,
         timestamp: new Date().toISOString()
       }),
       { 
@@ -409,9 +496,16 @@ serve(async (req) => {
     )
 
   } catch (error) {
-    console.error('Phase 2.5: Error in enhanced multi-source data collection:', error)
+    console.error('=== CRITICAL ERROR IN ENHANCED DATA COLLECTION ===')
+    console.error('Error details:', error)
+    console.error('Stack trace:', error.stack)
+    
     return new Response(
-      JSON.stringify({ error: 'Failed to perform Phase 2.5 enhanced data collection', details: error.message }),
+      JSON.stringify({ 
+        error: 'Failed to perform Phase 2.5 enhanced data collection', 
+        details: error.message,
+        timestamp: new Date().toISOString()
+      }),
       { 
         status: 500, 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
