@@ -23,10 +23,10 @@ export const AdvancedInsightsDashboard: React.FC<AdvancedInsightsDashboardProps>
       acc[skill] = (acc[skill] || 0) + 1;
     });
     return acc;
-  }, {});
+  }, {} as Record<string, number>);
   
   const topSkills = Object.entries(skillCounts)
-    .sort(([,a], [,b]) => b - a)
+    .sort(([,a], [,b]) => (b as number) - (a as number))
     .slice(0, 6);
 
   // Location distribution
@@ -34,10 +34,10 @@ export const AdvancedInsightsDashboard: React.FC<AdvancedInsightsDashboardProps>
     const location = candidate.location || 'Unknown';
     acc[location] = (acc[location] || 0) + 1;
     return acc;
-  }, {});
+  }, {} as Record<string, number>);
   
   const topLocations = Object.entries(locationCounts)
-    .sort(([,a], [,b]) => b - a)
+    .sort(([,a], [,b]) => (b as number) - (a as number))
     .slice(0, 4);
 
   const insights = [
@@ -104,15 +104,15 @@ export const AdvancedInsightsDashboard: React.FC<AdvancedInsightsDashboardProps>
           <div className="space-y-3">
             {topSkills.map(([skill, count], index) => (
               <div key={skill} className="flex items-center justify-between">
-                <span className="text-sm font-medium text-slate-700">{skill}</span>
+                <span className="text-sm font-medium text-slate-700">{skill as string}</span>
                 <div className="flex items-center space-x-2">
                   <div className="w-24 h-2 bg-slate-200 rounded-full">
                     <div 
                       className="h-2 bg-blue-500 rounded-full"
-                      style={{ width: `${(count / totalCandidates) * 100}%` }}
+                      style={{ width: `${((count as number) / totalCandidates) * 100}%` }}
                     />
                   </div>
-                  <span className="text-sm text-slate-600">{count}</span>
+                  <span className="text-sm text-slate-600">{count as number}</span>
                 </div>
               </div>
             ))}
@@ -128,15 +128,15 @@ export const AdvancedInsightsDashboard: React.FC<AdvancedInsightsDashboardProps>
           <div className="space-y-3">
             {topLocations.map(([location, count], index) => (
               <div key={location} className="flex items-center justify-between">
-                <span className="text-sm font-medium text-slate-700">{location}</span>
+                <span className="text-sm font-medium text-slate-700">{location as string}</span>
                 <div className="flex items-center space-x-2">
                   <div className="w-24 h-2 bg-slate-200 rounded-full">
                     <div 
                       className="h-2 bg-green-500 rounded-full"
-                      style={{ width: `${(count / totalCandidates) * 100}%` }}
+                      style={{ width: `${((count as number) / totalCandidates) * 100}%` }}
                     />
                   </div>
-                  <span className="text-sm text-slate-600">{count}</span>
+                  <span className="text-sm text-slate-600">{count as number}</span>
                 </div>
               </div>
             ))}
