@@ -1,9 +1,10 @@
 
+import { ReactNode } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { AuthPage } from './AuthPage';
 
 interface ProtectedRouteProps {
-  children: React.ReactNode;
+  children: ReactNode;
 }
 
 export const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
