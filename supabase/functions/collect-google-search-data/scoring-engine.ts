@@ -1,94 +1,64 @@
 
-import { GoogleSearchResult } from './api-client.ts'
-
-export function calculateRelevanceScore(result: GoogleSearchResult, query: string): number {
-  let score = 0
-  
-  const queryTerms = query.toLowerCase().split(/\s+/)
-  const titleLower = result.title.toLowerCase()
-  const snippetLower = result.snippet.toLowerCase()
-  const combinedText = `${titleLower} ${snippetLower}`
-  
-  // Title relevance (40% weight)
-  let titleMatches = 0
-  for (const term of queryTerms) {
-    if (titleLower.includes(term)) {
-      titleMatches++
-    }
-  }
-  score += (titleMatches / queryTerms.length) * 40
-  
-  // Snippet relevance (30% weight)
-  let snippetMatches = 0
-  for (const term of queryTerms) {
-    if (snippetLower.includes(term)) {
-      snippetMatches++
-    }
-  }
-  score += (snippetMatches / queryTerms.length) * 30
-  
-  // Professional keywords (20% weight)
-  const professionalKeywords = [
-    'developer', 'engineer', 'programmer', 'software', 'technical', 'senior', 'lead',
-    'architect', 'full stack', 'frontend', 'backend', 'devops', 'data scientist'
-  ]
-  
-  let professionalMatches = 0
-  for (const keyword of professionalKeywords) {
-    if (combinedText.includes(keyword)) {
-      professionalMatches++
-    }
-  }
-  score += (professionalMatches / professionalKeywords.length) * 20
-  
-  // Platform bonus (10% weight)
-  if (result.link.includes('linkedin.com')) {
-    score += 10
-  } else if (result.link.includes('github.com')) {
-    score += 8
-  } else if (result.link.includes('stackoverflow.com')) {
-    score += 6
-  }
-  
-  return Math.min(Math.max(score, 0), 100)
-}
-
-export function calculateQualityScore(result: GoogleSearchResult): number {
+export function calculateGoogleScore(candidate: any, searchTerms: string[]): number {
   let score = 50 // Base score
   
-  // URL quality indicators
-  if (result.link.includes('linkedin.com/in/')) {
-    score += 25 // LinkedIn profiles are high quality
-  } else if (result.link.includes('github.com/') && !result.link.includes('/search')) {
-    score += 20 // GitHub profiles are good quality
-  } else if (result.link.includes('stackoverflow.com/users/')) {
-    score += 15 // Stack Overflow profiles are decent quality
+  // URL credibility scoring
+  if (candidate.url?.includes('linkedin.com')) score += 20
+  else if (candidate.url?.includes('github.com')) score += 15
+  else if (candidate.url?.includes('stackoverflow.com')) score += 10
+  
+  // Content relevance scoring
+  const content = `${candidate.title} ${candidate.summary}`.toLowerCase()
+  const matchingTerms = searchTerms.filter(term => 
+    content.includes(term.toLowerCase())
+  )
+  score += (matchingTerms.length / searchTerms.length) * 30
+  
+  // Profile completeness
+  if (candidate.name && candidate.name !== 'Unknown') score += 10
+  if (candidate.location) score += 5
+  if (candidate.skills?.length > 0) score += 10
+  if (candidate.summary?.length > 50) score += 5
+  
+  return Math.min(Math.max(score, 20), 100)
+}
+
+export function enhanceGoogleCandidate(candidate: any, query: string): any {
+  return {
+    ...candidate,
+    platform: 'google_search',
+    search_query: query,
+    confidence_score: calculateConfidenceScore(candidate),
+    data_completeness: calculateDataCompleteness(candidate)
   }
+}
+
+function calculateConfidenceScore(candidate: any): number {
+  let confidence = 0.5 // Base confidence
   
-  // Title quality
-  if (result.title.length > 10 && result.title.length < 100) {
-    score += 10 // Good title length
-  }
+  // Higher confidence for known platforms
+  if (candidate.url?.includes('linkedin.com')) confidence += 0.3
+  else if (candidate.url?.includes('github.com')) confidence += 0.25
+  else if (candidate.url?.includes('stackoverflow.com')) confidence += 0.2
   
-  // Snippet quality
-  if (result.snippet && result.snippet.length > 50) {
-    score += 10 // Descriptive snippet
-  }
+  // Profile data quality
+  if (candidate.name && candidate.name !== 'Unknown') confidence += 0.1
+  if (candidate.summary?.length > 100) confidence += 0.1
+  if (candidate.skills?.length > 2) confidence += 0.1
   
-  // Avoid job listings and company pages
-  const lowQualityIndicators = ['jobs', 'hiring', 'careers', 'apply now', 'job opening']
-  const textToCheck = `${result.title} ${result.snippet}`.toLowerCase()
+  return Math.min(confidence, 1.0)
+}
+
+function calculateDataCompleteness(candidate: any): number {
+  const fields = [
+    candidate.name && candidate.name !== 'Unknown',
+    candidate.title,
+    candidate.location,
+    candidate.summary && candidate.summary.length > 30,
+    candidate.skills && candidate.skills.length > 0,
+    candidate.url
+  ]
   
-  for (const indicator of lowQualityIndicators) {
-    if (textToCheck.includes(indicator)) {
-      score -= 15
-    }
-  }
-  
-  // Avoid search results and directory pages
-  if (result.link.includes('/search') || result.link.includes('/directory')) {
-    score -= 20
-  }
-  
-  return Math.min(Math.max(score, 0), 100)
+  const completedFields = fields.filter(Boolean).length
+  return Math.round((completedFields / fields.length) * 100)
 }

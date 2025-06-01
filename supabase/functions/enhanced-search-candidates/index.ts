@@ -30,10 +30,10 @@ serve(async (req) => {
     const openaiApiKey = Deno.env.get('OPENAI_API_KEY')
     const supabase = createClient(supabaseUrl, supabaseKey)
 
-    console.log(`Enhanced search for query: ${query}`)
+    console.log(`🔍 Enhanced search for query: "${query}"`)
 
-    // Parse query using AI if available
-    let searchParams = { skills: [], location: '', experience_min: 0 }
+    // Enhanced query parsing with better error handling
+    let searchParams = { skills: [], location: '', experience_min: 0, keywords: [] }
     if (openaiApiKey) {
       try {
         const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -47,11 +47,12 @@ serve(async (req) => {
             messages: [
               {
                 role: 'system',
-                content: 'Extract search parameters from the query. Return only valid JSON with: skills (array), location (string), experience_min (number).'
+                content: 'Extract search parameters from the query. Return only valid JSON with: skills (array), location (string), experience_min (number), keywords (array).'
               },
               { role: 'user', content: query }
             ],
-            temperature: 0.1
+            temperature: 0.1,
+            max_tokens: 200
           }),
         })
 
@@ -60,105 +61,137 @@ serve(async (req) => {
           const content = data.choices[0].message.content
           
           try {
-            searchParams = JSON.parse(content.replace(/```json\s*|\s*```/g, ''))
-            console.log('AI parsed search params:', searchParams)
-          } catch {
-            console.log('Failed to parse AI response, using fallback search')
+            const parsedParams = JSON.parse(content.replace(/```json\s*|\s*```/g, ''))
+            searchParams = {
+              skills: parsedParams.skills || [],
+              location: parsedParams.location || '',
+              experience_min: parsedParams.experience_min || 0,
+              keywords: parsedParams.keywords || []
+            }
+            console.log('✅ AI parsed search params:', searchParams)
+          } catch (parseError) {
+            console.log('⚠️ Failed to parse AI response, using fallback parsing')
+            searchParams = fallbackQueryParsing(query)
           }
         }
       } catch (error) {
-        console.error('AI query parsing error:', error)
+        console.error('❌ AI query parsing error:', error)
+        searchParams = fallbackQueryParsing(query)
       }
+    } else {
+      searchParams = fallbackQueryParsing(query)
     }
 
-    // Start with base query
-    let dbQuery = supabase
-      .from('candidates')
-      .select('*')
+    // Enhanced database search with multiple strategies
+    let candidates = []
+    let searchStrategy = 'basic'
 
-    let hasFilters = false
+    try {
+      // Strategy 1: Full-text search across multiple fields
+      console.log('🔍 Attempting full-text search...')
+      const searchTerms = [...searchParams.skills, ...searchParams.keywords, query]
+        .filter(term => term && term.length > 2)
+        .slice(0, 5)
 
-    // Add text search for candidate names and titles
-    const searchTerms = query.toLowerCase().split(' ').filter(term => term.length > 2)
-    if (searchTerms.length > 0) {
-      try {
-        // Search in name, title, and summary fields
-        const searchConditions = searchTerms.map(term => 
-          `name.ilike.%${term}%,title.ilike.%${term}%,summary.ilike.%${term}%`
-        ).join(',')
-        
-        dbQuery = dbQuery.or(searchConditions)
-        hasFilters = true
-        console.log(`Applied text search for terms: ${searchTerms.join(', ')}`)
-      } catch (error) {
-        console.log('Text search failed, using simple name search:', error)
-        // Fallback to simple name search
-        dbQuery = dbQuery.ilike('name', `%${searchTerms[0]}%`)
-        hasFilters = true
+      if (searchTerms.length > 0) {
+        let dbQuery = supabase
+          .from('candidates')
+          .select('*')
+
+        // Build comprehensive OR conditions for text search
+        const textConditions = []
+        searchTerms.forEach(term => {
+          const safeTerm = term.replace(/[%_]/g, '\\$&') // Escape SQL wildcards
+          textConditions.push(`name.ilike.%${safeTerm}%`)
+          textConditions.push(`title.ilike.%${safeTerm}%`)
+          textConditions.push(`summary.ilike.%${safeTerm}%`)
+        })
+
+        if (textConditions.length > 0) {
+          dbQuery = dbQuery.or(textConditions.join(','))
+          searchStrategy = 'full-text'
+        }
+
+        // Add location filter if specified
+        if (searchParams.location && searchParams.location.trim()) {
+          const safeLocation = searchParams.location.replace(/[%_]/g, '\\$&')
+          dbQuery = dbQuery.ilike('location', `%${safeLocation}%`)
+        }
+
+        // Add experience filter
+        if (searchParams.experience_min > 0) {
+          dbQuery = dbQuery.gte('experience_years', searchParams.experience_min)
+        }
+
+        // Add skills filter with proper array handling
+        if (searchParams.skills && searchParams.skills.length > 0) {
+          try {
+            dbQuery = dbQuery.overlaps('skills', searchParams.skills)
+          } catch (skillsError) {
+            console.log('⚠️ Skills filter failed, continuing without it:', skillsError)
+          }
+        }
+
+        const { data: searchResults, error: searchError } = await dbQuery
+          .order('overall_score', { ascending: false })
+          .limit(50)
+
+        if (!searchError && searchResults) {
+          candidates = searchResults
+          console.log(`✅ Full-text search found ${candidates.length} candidates`)
+        } else {
+          throw new Error(`Search query failed: ${searchError?.message}`)
+        }
       }
-    }
 
-    // Add location filter if specified
-    if (searchParams.location && searchParams.location.trim()) {
-      dbQuery = dbQuery.ilike('location', `%${searchParams.location}%`)
-      hasFilters = true
-      console.log(`Applied location filter: ${searchParams.location}`)
-    }
+      // Strategy 2: Fallback to simple name search if no results
+      if (candidates.length === 0) {
+        console.log('🔍 Attempting fallback name search...')
+        const firstTerm = query.split(' ')[0]
+        if (firstTerm && firstTerm.length > 2) {
+          const { data: fallbackResults, error: fallbackError } = await supabase
+            .from('candidates')
+            .select('*')
+            .ilike('name', `%${firstTerm}%`)
+            .order('overall_score', { ascending: false })
+            .limit(30)
 
-    // Add experience filter
-    if (searchParams.experience_min > 0) {
-      dbQuery = dbQuery.gte('experience_years', searchParams.experience_min)
-      hasFilters = true
-      console.log(`Applied experience filter: ${searchParams.experience_min}+ years`)
-    }
-
-    // Add skills filter with proper array syntax
-    if (searchParams.skills && searchParams.skills.length > 0) {
-      try {
-        // Use overlaps operator for array intersection
-        dbQuery = dbQuery.overlaps('skills', searchParams.skills)
-        hasFilters = true
-        console.log(`Applied skills filter: ${searchParams.skills.join(', ')}`)
-      } catch (error) {
-        console.log('Skills filter failed:', error)
+          if (!fallbackError && fallbackResults) {
+            candidates = fallbackResults
+            searchStrategy = 'name-fallback'
+            console.log(`✅ Fallback search found ${candidates.length} candidates`)
+          }
+        }
       }
-    }
 
-    // If no specific filters applied, get all candidates
-    if (!hasFilters) {
-      console.log('No specific filters applied, returning all candidates')
-    }
+      // Strategy 3: Last resort - get top candidates
+      if (candidates.length === 0) {
+        console.log('🔍 Attempting last resort - top candidates...')
+        const { data: topResults, error: topError } = await supabase
+          .from('candidates')
+          .select('*')
+          .order('overall_score', { ascending: false })
+          .limit(20)
 
-    // Order by overall score and limit results
-    dbQuery = dbQuery
-      .order('overall_score', { ascending: false })
-      .limit(50)
+        if (!topError && topResults) {
+          candidates = topResults
+          searchStrategy = 'top-candidates'
+          console.log(`✅ Top candidates search found ${candidates.length} candidates`)
+        }
+      }
 
-    const { data: candidates, error } = await dbQuery
-
-    if (error) {
-      console.error('Database search error:', error)
+    } catch (error) {
+      console.error('❌ All search strategies failed:', error)
       
-      // Fallback to simple query if complex search fails
-      console.log('Attempting fallback search...')
-      const { data: fallbackCandidates, error: fallbackError } = await supabase
-        .from('candidates')
-        .select('*')
-        .order('overall_score', { ascending: false })
-        .limit(50)
-      
-      if (fallbackError) {
-        console.error('Fallback search also failed:', fallbackError)
-        throw fallbackError
-      }
-      
-      console.log(`Fallback search returned ${fallbackCandidates?.length || 0} candidates`)
+      // Final fallback - empty result with proper structure
       return new Response(
         JSON.stringify({ 
-          candidates: fallbackCandidates || [],
-          total_results: fallbackCandidates?.length || 0,
+          candidates: [],
+          total_results: 0,
           search_params: searchParams,
           query,
+          search_strategy: 'failed',
+          error_message: 'All search strategies failed',
           fallback_used: true
         }),
         { 
@@ -167,14 +200,16 @@ serve(async (req) => {
       )
     }
 
-    console.log(`Found ${candidates?.length || 0} candidates`)
+    console.log(`📊 Found ${candidates?.length || 0} candidates using ${searchStrategy} strategy`)
 
-    // Enhanced ranking using AI if available (only for successful searches)
+    // Enhanced AI ranking if available and we have candidates
     let rankedCandidates = candidates || []
-    if (openaiApiKey && rankedCandidates.length > 0) {
+    let aiRankingUsed = false
+
+    if (openaiApiKey && rankedCandidates.length > 1) {
       try {
-        // Rank top candidates using AI
-        const topCandidates = rankedCandidates.slice(0, 20)
+        console.log('🤖 Applying AI ranking...')
+        const topCandidates = rankedCandidates.slice(0, 15) // Rank top 15 only
         
         const rankingResponse = await fetch('https://api.openai.com/v1/chat/completions', {
           method: 'POST',
@@ -187,39 +222,54 @@ serve(async (req) => {
             messages: [
               {
                 role: 'system',
-                content: 'You are a talent scout. Rank these candidates by relevance to the search query. Return only a JSON array of candidate IDs in order of relevance.'
+                content: 'Rank these candidates by relevance to the search query. Consider skills match, experience level, and job title relevance. Return only a JSON array of candidate IDs in order of relevance (most relevant first).'
               },
               {
                 role: 'user',
-                content: `Query: ${query}\n\nCandidates: ${JSON.stringify(topCandidates.map(c => ({ id: c.id, name: c.name, title: c.title, skills: c.skills, summary: c.summary })))}`
+                content: `Query: "${query}"\n\nCandidates: ${JSON.stringify(topCandidates.map(c => ({ 
+                  id: c.id, 
+                  name: c.name, 
+                  title: c.title, 
+                  skills: c.skills, 
+                  summary: c.summary?.substring(0, 200),
+                  experience_years: c.experience_years
+                })))}`
               }
             ],
             temperature: 0.1,
-            max_tokens: 500
+            max_tokens: 1000
           }),
         })
 
         if (rankingResponse.ok) {
           const rankingData = await rankingResponse.json()
-          const rankedIds = JSON.parse(rankingData.choices[0].message.content.replace(/```json\s*|\s*```/g, ''))
+          const content = rankingData.choices[0].message.content
           
-          // Reorder candidates based on AI ranking
-          const rankedTop = []
-          const remaining = [...topCandidates]
-          
-          rankedIds.forEach(id => {
-            const index = remaining.findIndex(c => c.id === id)
-            if (index !== -1) {
-              rankedTop.push(remaining.splice(index, 1)[0])
+          try {
+            const rankedIds = JSON.parse(content.replace(/```json\s*|\s*```/g, ''))
+            
+            if (Array.isArray(rankedIds)) {
+              const rankedTop = []
+              const remaining = [...topCandidates]
+              
+              rankedIds.forEach(id => {
+                const index = remaining.findIndex(c => c.id === id)
+                if (index !== -1) {
+                  rankedTop.push(remaining.splice(index, 1)[0])
+                }
+              })
+              
+              rankedCandidates = [...rankedTop, ...remaining, ...rankedCandidates.slice(15)]
+              aiRankingUsed = true
+              console.log('✅ AI ranking applied successfully')
             }
-          })
-          
-          rankedCandidates = [...rankedTop, ...remaining, ...rankedCandidates.slice(20)]
-          console.log('Applied AI ranking to results')
+          } catch (rankingParseError) {
+            console.log('⚠️ Failed to parse AI ranking, using original order')
+          }
         }
         
       } catch (error) {
-        console.error('AI ranking error:', error)
+        console.error('❌ AI ranking error:', error)
         // Continue with original order if AI ranking fails
       }
     }
@@ -230,7 +280,15 @@ serve(async (req) => {
         total_results: rankedCandidates.length,
         search_params: searchParams,
         query,
-        fallback_used: false
+        search_strategy: searchStrategy,
+        ai_ranking_used: aiRankingUsed,
+        fallback_used: searchStrategy !== 'full-text',
+        performance: {
+          candidates_found: rankedCandidates.length,
+          search_strategy_used: searchStrategy,
+          ai_parsing_used: !!openaiApiKey,
+          ai_ranking_used: aiRankingUsed
+        }
       }),
       { 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
@@ -238,9 +296,17 @@ serve(async (req) => {
     )
 
   } catch (error) {
-    console.error('Error in enhanced search:', error)
+    console.error('❌ Error in enhanced search:', error)
     return new Response(
-      JSON.stringify({ error: 'Failed to search candidates', details: error.message }),
+      JSON.stringify({ 
+        candidates: [],
+        total_results: 0,
+        query,
+        search_strategy: 'error',
+        error: 'Search failed completely',
+        error_details: error.message,
+        fallback_used: true
+      }),
       { 
         status: 500, 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
@@ -248,3 +314,35 @@ serve(async (req) => {
     )
   }
 })
+
+function fallbackQueryParsing(query: string): any {
+  const queryLower = query.toLowerCase()
+  const words = queryLower.split(/\s+/)
+  
+  const skillKeywords = [
+    'javascript', 'typescript', 'python', 'java', 'react', 'angular', 'vue',
+    'node.js', 'django', 'flask', 'spring', 'laravel', 'docker', 'kubernetes',
+    'aws', 'azure', 'gcp', 'sql', 'mongodb', 'postgresql', 'redis', 'git'
+  ]
+  
+  const locationKeywords = ['remote', 'london', 'new york', 'san francisco', 'berlin', 'toronto', 'sydney']
+  
+  const skills = []
+  let location = ''
+  let experience_min = 0
+  const keywords = []
+  
+  words.forEach(word => {
+    if (skillKeywords.includes(word)) {
+      skills.push(word)
+    } else if (locationKeywords.includes(word)) {
+      location = word
+    } else if (word.match(/\d+/) && queryLower.includes('year')) {
+      experience_min = parseInt(word) || 0
+    } else if (word.length > 2) {
+      keywords.push(word)
+    }
+  })
+  
+  return { skills, location, experience_min, keywords }
+}
