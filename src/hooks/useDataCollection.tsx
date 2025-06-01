@@ -6,7 +6,7 @@ import { useToast } from './use-toast';
 
 export type DataCollectionResult = EnhancedDataCollectionResult;
 
-// This hook now wraps useEnhancedDataCollection for backward compatibility
+// Simplified wrapper hook for backward compatibility
 export const useDataCollection = () => {
   const [isCollecting, setIsCollecting] = useState(false);
   const [collectionResult, setCollectionResult] = useState<DataCollectionResult | null>(null);
@@ -32,7 +32,6 @@ export const useDataCollection = () => {
     setCollectionResult(null);
 
     try {
-      // Use the enhanced data collection function
       const data = await enhancedCollectData(query, location, sources);
       
       if (!data) {

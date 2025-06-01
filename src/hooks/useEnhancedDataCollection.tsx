@@ -1,7 +1,10 @@
 import { useState } from 'react';
-import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from './useAuth';
 import { useToast } from './use-toast';
+import { useCollectionProgress } from './useCollectionProgress';
+import { useCollectionResults } from './useCollectionResults';
+import { DataCollectionService } from '@/services/dataCollectionService';
+import { NotificationService } from '@/services/notificationService';
 
 export interface EnhancedDataCollectionResult {
   results: {
@@ -48,10 +51,10 @@ export interface EnhancedDataCollectionResult {
 
 export const useEnhancedDataCollection = () => {
   const [isCollecting, setIsCollecting] = useState(false);
-  const [collectionResult, setCollectionResult] = useState<EnhancedDataCollectionResult | null>(null);
-  const [progress, setProgress] = useState<string>('');
   const { user } = useAuth();
   const { toast } = useToast();
+  const { progress, startProgress, resetProgress } = useCollectionProgress();
+  const { result, updateResult, clearResult } = useCollectionResults();
 
   const collectData = async (
     query: string, 
@@ -68,143 +71,50 @@ export const useEnhancedDataCollection = () => {
     }
 
     setIsCollecting(true);
-    setCollectionResult(null);
-    setProgress('⚡ Initializing optimized collection...');
+    clearResult();
     
-    const updateProgress = (message: string) => {
-      setProgress(message);
-    };
+    const stopProgress = startProgress();
 
     try {
-      // Optimized progress phases
-      let phaseCount = 0;
-      const phases = [
-        '🎯 Processing query (fast mode)...',
-        '🌐 Parallel source collection (60s budget)...',
-        '🔄 Fast deduplication...',
-        '✨ Finalizing results...',
-      ];
-      
-      const progressInterval = setInterval(() => {
-        if (phaseCount < phases.length - 1) {
-          phaseCount++;
-          updateProgress(phases[phaseCount]);
-        }
-      }, 8000); // Faster updates
-      
-      console.log('🚀 Starting optimized collection with:', { query, location, sources });
-      
-      // Reduced timeout to 65 seconds
+      // Set up timeout race
       const timeoutPromise = new Promise<never>((_, reject) => {
         setTimeout(() => reject(new Error('Collection timeout')), 65000);
       });
       
-      const collectionPromise = supabase.functions.invoke('enhanced-data-collection', {
-        body: { 
-          query, 
-          location, 
-          sources: sources.slice(0, 4), // Limit to 4 sources max
-          time_budget: 60 // 60 second budget
-        }
+      const collectionPromise = DataCollectionService.collectCandidates({
+        query,
+        location,
+        sources,
+        timeBudget: 60
       });
       
-      let response;
-      try {
-        response = await Promise.race([collectionPromise, timeoutPromise]);
-      } catch (error) {
-        clearInterval(progressInterval);
-        if (error instanceof Error && error.message === 'Collection timeout') {
-          throw new Error('Collection timeout: Search exceeded time limit');
-        }
-        throw error;
-      }
+      const data = await Promise.race([collectionPromise, timeoutPromise]);
       
-      clearInterval(progressInterval);
-
-      console.log('🎉 Collection response:', response);
-
-      if (response.error) {
-        console.error('Collection error:', response.error);
-        throw new Error(response.error.message || 'Data collection failed');
-      }
-
-      if (!response.data) {
-        throw new Error('No data returned from collection');
-      }
-
-      const data = response.data;
-      setCollectionResult(data);
-      setProgress('');
+      updateResult(data);
       
-      // Enhanced success metrics
-      const successfulSources = Object.values(data.results).filter((result: any) => !result.error).length;
-      const processingTime = data.performance_metrics?.total_time_ms || 0;
-      const timeEfficiency = data.quality_metrics?.time_efficiency || 'N/A';
-      const successRate = data.performance_metrics?.success_rate || 0;
-      
-      // Generate performance highlights
-      const performanceHighlights = [];
-      if (processingTime < 20000) performanceHighlights.push('⚡ Ultra-fast');
-      else if (processingTime < 40000) performanceHighlights.push('🚀 Fast');
-      if (data.quality_metrics?.parallel_processing) performanceHighlights.push('🔀 Parallel');
-      if (successRate >= 75) performanceHighlights.push('✅ High success');
-      
-      const timeMessage = `${Math.round(processingTime / 1000)}s`;
-      const sourcesMessage = `${successfulSources}/${Object.keys(data.results).length} sources`;
-      
-      const successMessage = `Found ${data.total_validated} candidates in ${timeMessage}`;
-      const performanceMessage = performanceHighlights.length > 0 ? ` • ${performanceHighlights.join(' ')}` : '';
-      const sourcesDisplayMessage = ` • ${sourcesMessage}`;
-      
-      toast({
-        title: "⚡ Optimized Collection Completed",
-        description: `${successMessage}${performanceMessage}${sourcesDisplayMessage}`,
-        variant: data.total_validated > 0 ? "default" : "destructive",
-      });
+      const notification = NotificationService.generateSuccessNotification(data);
+      toast(notification);
 
       return data;
 
     } catch (error: any) {
       console.error('Enhanced data collection error:', error);
-      setProgress('');
       
-      let errorMessage = "Failed to collect candidates";
-      let debugInfo = "";
-      
-      if (error.message?.includes('Collection timeout')) {
-        errorMessage = "Collection timeout";
-        debugInfo = "Try fewer sources or a more specific query";
-      } else if (error.message?.includes('timeout')) {
-        errorMessage = "Request timeout";
-        debugInfo = "Some sources took longer than expected";
-      } else if (error.message?.includes('Failed to fetch')) {
-        errorMessage = "Network issue";
-        debugInfo = "Check connection and try again";
-      }
-      
-      console.error('Collection error:', {
-        originalError: error,
-        message: errorMessage,
-        debugInfo
-      });
-      
-      toast({
-        title: "Collection Failed",
-        description: errorMessage + (debugInfo ? ` - ${debugInfo}` : ''),
-        variant: "destructive",
-      });
+      const notification = NotificationService.generateErrorNotification(error);
+      toast(notification);
       
       return null;
     } finally {
+      stopProgress();
       setIsCollecting(false);
-      setProgress('');
+      resetProgress();
     }
   };
 
   return {
     collectData,
     isCollecting,
-    collectionResult,
-    progress
+    collectionResult: result,
+    progress: progress.message
   };
 };
