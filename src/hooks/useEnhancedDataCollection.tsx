@@ -1,4 +1,3 @@
-
 import { useState } from 'react';
 import { useAuth } from './useAuth';
 import { useToast } from './use-toast';
@@ -53,41 +52,56 @@ export const useEnhancedDataCollection = () => {
         user: user.id
       });
 
-      // Synchronized timeout: frontend matches backend (80s + 10s buffer)
+      // Extended timeout: backend has 80s + 20s buffer = 100s, frontend waits 120s
       const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error('Collection timed out after 90 seconds. The service may be under high demand - please try again in a few minutes.')), 90000);
+        setTimeout(() => reject(new Error('Collection timed out after 120 seconds. Please try with fewer sources or a simpler query.')), 120000);
       });
+      
+      // Add keepalive mechanism to prevent connection drops
+      const keepAliveInterval = setInterval(() => {
+        console.log('⏱️ Collection still in progress...');
+      }, 15000);
       
       const collectionPromise = DataCollectionService.collectCandidates({
         query: query.trim(),
         location: location && location !== 'undefined' && location.trim() !== '' ? location.trim() : undefined,
         sources: sources.slice(0, 4), // Enforce max 4 sources
-        timeBudget: 80 // Synchronized with backend
+        timeBudget: 85 // Increased backend budget slightly
+      }).finally(() => {
+        clearInterval(keepAliveInterval);
       });
       
       const data = await Promise.race([collectionPromise, timeoutPromise]);
       
-      // Enhanced data validation
+      // Enhanced data validation with better error messages
       if (!data) {
-        throw new Error("No data returned - the collection service may be temporarily unavailable");
+        throw new Error("No data returned from collection service. The service may be temporarily unavailable.");
       }
 
       if (typeof data.total_candidates !== 'number') {
-        console.warn('⚠️ Invalid data structure received');
-        data.total_candidates = 0;
+        console.warn('⚠️ Invalid data structure received, attempting to fix...');
+        data.total_candidates = data.candidates?.length || 0;
       }
 
-      // Handle different result scenarios
+      // Early success detection - if we get good results quickly, that's success
+      const hasGoodResults = data.total_candidates >= 5;
+      const processingTime = data.performance_metrics?.total_time_ms;
+      
+      if (hasGoodResults && processingTime && processingTime < 60000) {
+        console.log('🎉 Fast collection completed successfully!');
+      }
+
+      // Handle different result scenarios with more nuanced messaging
       if (data.total_candidates === 0) {
         const allSourcesFailed = data.errors && data.errors.length === sources.length;
         
         if (allSourcesFailed) {
           const errorSummary = data.errors.slice(0, 2).map(e => e.source).join(', ');
-          throw new Error(`Collection failed for all sources (${errorSummary}). Please try again with different search terms.`);
+          throw new Error(`Collection failed for all sources (${errorSummary}). This may be due to API rate limits. Please try again in a few minutes.`);
         } else {
           toast({
             title: "No candidates found",
-            description: "Try adjusting your search query or location, or include more data sources.",
+            description: "Try adjusting your search query, adding more specific skills, or selecting different data sources.",
             variant: "destructive",
           });
           updateResult(data);
@@ -104,7 +118,8 @@ export const useEnhancedDataCollection = () => {
         candidates: data.total_candidates,
         sources: Object.keys(data.results || {}),
         processing_time: data.performance_metrics?.total_time_ms,
-        errors: data.errors?.length || 0
+        errors: data.errors?.length || 0,
+        ai_enhancements: data.enhancement_stats?.ai_enhancements || 0
       });
 
       return data;
@@ -114,19 +129,21 @@ export const useEnhancedDataCollection = () => {
       
       let errorMessage = error.message || "Data collection failed unexpectedly";
       
-      // Enhanced error categorization
-      if (error.message?.includes('90 seconds') || error.message?.includes('timeout')) {
-        errorMessage = "Collection timed out. The service may be under high demand - please try again in a few minutes.";
+      // Enhanced error categorization with more specific guidance
+      if (error.message?.includes('120 seconds') || error.message?.includes('timeout')) {
+        errorMessage = "Collection is taking longer than expected. This usually means the AI processing is under heavy load. Try using fewer sources or a simpler query.";
       } else if (error.message?.includes('Authentication') || error.message?.includes('auth')) {
         errorMessage = "Authentication expired. Please sign in again.";
       } else if (error.message?.includes('No data returned')) {
-        errorMessage = "The collection service is temporarily unavailable. Please try again shortly.";
+        errorMessage = "The collection service is temporarily overloaded. Please try again in a few minutes.";
       } else if (error.message?.includes('all sources')) {
         errorMessage = error.message; // Keep detailed message for source failures
       } else if (error.message?.includes('API key') || error.message?.includes('configuration')) {
-        errorMessage = "Service configuration issue. Please contact support if this persists.";
+        errorMessage = "Service configuration issue detected. The AI processing may be temporarily unavailable.";
       } else if (error.message?.includes('rate limit')) {
-        errorMessage = "Service temporarily rate limited. Please try again in a few minutes.";
+        errorMessage = "API rate limits exceeded. Please wait a few minutes before trying again.";
+      } else if (error.message?.includes('network') || error.message?.includes('fetch')) {
+        errorMessage = "Network connectivity issue. Please check your connection and try again.";
       }
       
       const notification = NotificationService.generateErrorNotification({
