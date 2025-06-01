@@ -54,20 +54,30 @@ serve(async (req) => {
     if (!githubToken) {
       console.error('GitHub token not configured')
       return new Response(
-        JSON.stringify({ error: 'GitHub API token not configured' }),
-        { 
-          status: 500, 
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
-        }
+        JSON.stringify({ 
+          candidates: [], 
+          total: 0, 
+          source: 'github',
+          error: 'GitHub API token not configured' 
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
 
-    // Build enhanced search queries using the new strategy module
+    console.log('🚀 Starting enhanced GitHub candidate collection...')
+
+    // Build enhanced search queries
     const searchQueries = buildEnhancedSearchQueries(enhancedQuery, location)
-    console.log('Enhanced GitHub search queries:', searchQueries)
+    console.log('📊 Enhanced GitHub search queries:', searchQueries.slice(0, 3))
 
     const candidates = []
     const seenUsers = new Set()
+    const enhancementStats = {
+      emails_from_readme: 0,
+      ai_enhanced_profiles: 0,
+      total_processed: 0,
+      validation_passed: 0
+    }
 
     // Get detected languages for expertise scoring
     const skills = enhancedQuery?.skills || []
@@ -76,31 +86,33 @@ serve(async (req) => {
       programmingLanguages.includes(skill.toLowerCase())
     )
 
-    // OPTIMIZED: Reduce search scope for better performance
-    for (const searchQuery of searchQueries.slice(0, 3)) { // Reduced from all queries to 3
+    // Enhanced search with better error handling
+    for (const searchQuery of searchQueries.slice(0, 3)) {
       try {
+        console.log(`🔍 Searching GitHub: ${searchQuery.slice(0, 80)}...`)
+        
         const { rateLimitHit, users } = await searchGitHubUsers(searchQuery, githubToken)
         
         if (rateLimitHit) {
-          console.log('Rate limit hit, breaking...')
+          console.log('⚠️ GitHub rate limit hit, breaking...')
           break
         }
 
-        console.log(`Found ${users.length} GitHub users for query: ${searchQuery}`)
+        console.log(`📋 Found ${users.length} GitHub users for query`)
+        enhancementStats.total_processed += users.length
 
-        // OPTIMIZED: Process fewer users per query
-        for (const user of users.slice(0, 15)) { // Reduced from 25 to 15
+        // Process users with enhanced validation
+        for (const user of users.slice(0, 15)) {
           if (seenUsers.has(user.login)) continue
           seenUsers.add(user.login)
 
-          // Break early if we have enough candidates
-          if (candidates.length >= 20) { // Limit total candidates for performance
-            console.log('Reached candidate limit, stopping collection')
+          if (candidates.length >= 20) {
+            console.log('✅ Reached candidate limit, stopping collection')
             break
           }
 
           try {
-            // Get detailed user info and repositories with timeout protection
+            // Get detailed user info with timeout protection
             const userDetailsPromise = getUserDetails(user.url, githubToken)
             const timeoutPromise = new Promise((_, reject) => 
               setTimeout(() => reject(new Error('GitHub API timeout')), 15000)
@@ -108,13 +120,13 @@ serve(async (req) => {
             
             const userDetails = await Promise.race([userDetailsPromise, timeoutPromise])
             if (!userDetails) {
-              console.log(`Failed to get user details for ${user.login}`)
+              console.log(`❌ Failed to get user details for ${user.login}`)
               continue
             }
 
             const repositories = await getUserRepositories(user.url, githubToken)
 
-            // Enhanced README crawling for email discovery with timeout
+            // Enhanced README crawling for email discovery
             let emailFromReadme = null
             try {
               const emailPromise = extractEmailFromReadmes(repositories, githubToken)
@@ -122,8 +134,13 @@ serve(async (req) => {
                 setTimeout(() => reject(new Error('README extraction timeout')), 10000)
               )
               emailFromReadme = await Promise.race([emailPromise, emailTimeoutPromise])
+              
+              if (emailFromReadme) {
+                enhancementStats.emails_from_readme++
+                console.log(`📧 Found README email for ${user.login}: ${emailFromReadme}`)
+              }
             } catch (error) {
-              console.log(`README email extraction failed for ${user.login}:`, error.message)
+              console.log(`⚠️ README email extraction failed for ${user.login}`)
             }
             
             // Enhanced skill extraction
@@ -131,9 +148,11 @@ serve(async (req) => {
             
             // Validate developer profile with stricter criteria
             if (!isValidDeveloperProfile(userDetails, repositories, extractedSkills)) {
-              console.log(`Skipping ${user.login} - not a valid developer profile`)
+              console.log(`❌ Skipping ${user.login} - not a valid developer profile`)
               continue
             }
+
+            enhancementStats.validation_passed++
 
             // Calculate enhanced experience and activity
             const accountAge = Math.floor((new Date().getFullYear() - new Date(userDetails.created_at).getFullYear()))
@@ -155,7 +174,7 @@ serve(async (req) => {
               title: extractEnhancedTitleFromBio(userDetails.bio) || inferTitleFromLanguages(repositories),
               location: userDetails.location || location || '',
               avatar_url: userDetails.avatar_url,
-              email: emailFromReadme || userDetails.email, // Prioritize README email
+              email: emailFromReadme || userDetails.email,
               github_username: userDetails.login,
               github_url: userDetails.html_url,
               summary: createEnhancedSummaryFromGitHub(userDetails, repositories, extractedSkills),
@@ -170,50 +189,112 @@ serve(async (req) => {
               social_proof: Math.min((userDetails.followers || 0) * 3, 100),
               risk_flags: calculateRiskFlags(userDetails, repositories),
               language_expertise: languageScore,
-              readme_email_found: !!emailFromReadme
+              readme_email_found: !!emailFromReadme,
+              github_followers: userDetails.followers || 0,
+              public_repos: userDetails.public_repos || 0,
+              platform: 'github'
+            }
+
+            // Enhance profile with AI
+            try {
+              const enhanceResponse = await supabase.functions.invoke('enhance-candidate-profile', {
+                body: { candidate, platform: 'github' }
+              })
+
+              if (enhanceResponse.data?.enhanced_candidate) {
+                Object.assign(candidate, enhanceResponse.data.enhanced_candidate)
+                if (enhanceResponse.data.ai_enhanced) {
+                  enhancementStats.ai_enhanced_profiles++
+                }
+              }
+            } catch (error) {
+              console.log(`⚠️ AI enhancement failed for ${user.login}, continuing with basic profile`)
             }
 
             candidates.push(candidate)
 
-            // Save enhanced candidate to database - FIXED upsert logic
+            // Save enhanced candidate to database with proper error handling
             try {
-              const { data: insertedCandidate, error: candidateError } = await supabase
+              // Check for existing candidate by email or github_username
+              const { data: existingCandidate } = await supabase
                 .from('candidates')
-                .insert({
-                  id: candidateId,
-                  name: candidate.name,
-                  title: candidate.title,
-                  location: candidate.location,
-                  avatar_url: candidate.avatar_url,
-                  email: candidate.email,
-                  github_username: candidate.github_username,
-                  summary: candidate.summary,
-                  skills: candidate.skills,
-                  experience_years: candidate.experience_years,
-                  last_active: candidate.last_active,
-                  overall_score: candidate.overall_score,
-                  skill_match: candidate.skill_match,
-                  experience: candidate.experience,
-                  reputation: candidate.reputation,
-                  freshness: candidate.freshness,
-                  social_proof: candidate.social_proof,
-                  risk_flags: candidate.risk_flags
-                })
-                .select()
-                .single()
+                .select('id')
+                .or(`email.eq.${candidate.email},github_username.eq.${candidate.github_username}`)
+                .limit(1)
+                .maybeSingle()
 
-              if (candidateError) {
-                console.error(`Error saving candidate ${userDetails.login}:`, candidateError)
-                continue
+              let savedCandidateId = candidateId
+
+              if (existingCandidate) {
+                // Update existing candidate
+                const { error: updateError } = await supabase
+                  .from('candidates')
+                  .update({
+                    name: candidate.name,
+                    title: candidate.title,
+                    location: candidate.location,
+                    avatar_url: candidate.avatar_url,
+                    email: candidate.email,
+                    summary: candidate.summary,
+                    skills: candidate.skills,
+                    experience_years: candidate.experience_years,
+                    last_active: candidate.last_active,
+                    overall_score: candidate.overall_score,
+                    skill_match: candidate.skill_match,
+                    experience: candidate.experience,
+                    reputation: candidate.reputation,
+                    freshness: candidate.freshness,
+                    social_proof: candidate.social_proof,
+                    risk_flags: candidate.risk_flags,
+                    updated_at: new Date().toISOString()
+                  })
+                  .eq('id', existingCandidate.id)
+
+                if (updateError) {
+                  console.error(`❌ Error updating candidate ${userDetails.login}:`, updateError)
+                  continue
+                }
+
+                savedCandidateId = existingCandidate.id
+                console.log(`🔄 Updated existing candidate: ${candidate.name}`)
+              } else {
+                // Insert new candidate
+                const { error: insertError } = await supabase
+                  .from('candidates')
+                  .insert({
+                    id: candidateId,
+                    name: candidate.name,
+                    title: candidate.title,
+                    location: candidate.location,
+                    avatar_url: candidate.avatar_url,
+                    email: candidate.email,
+                    github_username: candidate.github_username,
+                    summary: candidate.summary,
+                    skills: candidate.skills,
+                    experience_years: candidate.experience_years,
+                    last_active: candidate.last_active,
+                    overall_score: candidate.overall_score,
+                    skill_match: candidate.skill_match,
+                    experience: candidate.experience,
+                    reputation: candidate.reputation,
+                    freshness: candidate.freshness,
+                    social_proof: candidate.social_proof,
+                    risk_flags: candidate.risk_flags
+                  })
+
+                if (insertError) {
+                  console.error(`❌ Error inserting candidate ${userDetails.login}:`, insertError)
+                  continue
+                }
+
+                console.log(`✅ Inserted new candidate: ${candidate.name} with ID: ${candidateId}`)
               }
 
-              console.log(`Successfully saved candidate: ${candidate.name} with ID: ${candidateId}`)
-
-              // Save enhanced source data with error handling
+              // Save/update source data
               const { error: sourceError } = await supabase
                 .from('candidate_sources')
-                .insert({
-                  candidate_id: candidateId,
+                .upsert({
+                  candidate_id: savedCandidateId,
                   platform: 'github',
                   platform_id: userDetails.login,
                   url: userDetails.html_url,
@@ -221,43 +302,44 @@ serve(async (req) => {
                     ...userDetails, 
                     repositories: repositories.slice(0, 8),
                     readme_email: emailFromReadme,
-                    language_stats: calculateLanguageStats(repositories)
+                    language_stats: calculateLanguageStats(repositories),
+                    enhancement_timestamp: new Date().toISOString()
                   }
+                }, {
+                  onConflict: 'candidate_id,platform'
                 })
 
               if (sourceError) {
-                console.error(`Error saving source data for ${userDetails.login}:`, sourceError)
+                console.error(`❌ Error saving source data for ${userDetails.login}:`, sourceError)
               } else {
-                console.log(`Successfully saved source data for ${candidate.name}`)
+                console.log(`✅ Saved source data for ${candidate.name}`)
               }
 
             } catch (error) {
-              console.error(`Error saving data for ${userDetails.login}:`, error)
+              console.error(`❌ Critical error saving data for ${userDetails.login}:`, error)
             }
 
           } catch (error) {
-            console.error(`Error processing GitHub user ${user.login}:`, error)
+            console.error(`❌ Error processing GitHub user ${user.login}:`, error)
             continue
           }
         }
 
-        // Break early if we have enough candidates
-        if (candidates.length >= 20) {
-          break
-        }
+        if (candidates.length >= 20) break
 
       } catch (error) {
-        console.error(`GitHub search error for query "${searchQuery}":`, error)
+        console.error(`❌ GitHub search error for query "${searchQuery}":`, error)
         continue
       }
     }
 
     // Sort by overall score and language expertise
     const sortedCandidates = candidates
-      .sort((a, b) => (b.overall_score + b.language_expertise) - (a.overall_score + a.language_expertise))
-      .slice(0, 25) // Reduced from 30 to 25
+      .sort((a, b) => (b.overall_score + (b.language_expertise || 0)) - (a.overall_score + (a.language_expertise || 0)))
+      .slice(0, 25)
 
-    console.log(`Collected ${sortedCandidates.length} enhanced candidates from GitHub`)
+    console.log(`✅ GitHub collection completed: ${sortedCandidates.length} enhanced candidates`)
+    console.log(`📊 Stats: ${enhancementStats.emails_from_readme} README emails, ${enhancementStats.ai_enhanced_profiles} AI enhanced, ${enhancementStats.validation_passed}/${enhancementStats.total_processed} passed validation`)
 
     return new Response(
       JSON.stringify({ 
@@ -265,20 +347,23 @@ serve(async (req) => {
         total: sortedCandidates.length,
         source: 'github',
         enhancement_stats: {
-          emails_from_readme: sortedCandidates.filter(c => c.readme_email_found).length,
+          ...enhancementStats,
           language_based_searches: detectedLanguages.length,
-          avg_language_expertise: Math.round(sortedCandidates.reduce((sum, c) => sum + c.language_expertise, 0) / sortedCandidates.length || 0)
+          avg_language_expertise: Math.round(sortedCandidates.reduce((sum, c) => sum + (c.language_expertise || 0), 0) / sortedCandidates.length || 0)
         }
       }),
-      { 
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
-      }
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
 
   } catch (error) {
-    console.error('Error collecting enhanced GitHub data:', error)
+    console.error('❌ Error collecting enhanced GitHub data:', error)
     return new Response(
-      JSON.stringify({ error: 'Failed to collect enhanced GitHub data' }),
+      JSON.stringify({ 
+        candidates: [], 
+        total: 0, 
+        source: 'github',
+        error: 'Failed to collect enhanced GitHub data' 
+      }),
       { 
         status: 500, 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 

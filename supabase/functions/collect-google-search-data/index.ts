@@ -1,4 +1,3 @@
-
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
@@ -38,33 +37,51 @@ serve(async (req) => {
       )
     }
 
-    console.log('Starting enhanced Google Search with Boolean queries...')
+    console.log('🚀 Starting enhanced Google Search with advanced Boolean queries...')
 
-    // Enhanced Boolean search queries
+    // Enhanced Boolean search queries with better targeting
+    const skills = enhancedQuery?.skills || [query]
+    const roleTypes = enhancedQuery?.role_types || ['developer']
+    
     const searchQueries = [
-      `(\"portfolio\" OR \"resume\" OR \"CV\") \"${enhancedQuery?.role_types?.[0] || query}\" \"${enhancedQuery?.skills?.[0] || 'software'}\" filetype:pdf OR site:github.io`,
-      `site:linkedin.com/in \"${enhancedQuery?.role_types?.[0] || query}\" \"google\" \"${enhancedQuery?.skills?.[0] || 'software'}\"`,
-      `site:linkedin.com/in \"${enhancedQuery?.role_types?.[0] || query}\" \"microsoft\" \"${enhancedQuery?.skills?.[0] || 'software'}\"`,
-      `site:linkedin.com/in \"${enhancedQuery?.role_types?.[0] || query}\" \"amazon\" \"${enhancedQuery?.skills?.[0] || 'software'}\"`,
-      `site:stackoverflow.com/users \"${enhancedQuery?.role_types?.[0] || query}\" \"${enhancedQuery?.skills?.[0] || 'software'}\"`,
-      `site:github.com \"${enhancedQuery?.role_types?.[0] || query}\" \"${enhancedQuery?.skills?.[0] || 'software'}\"`
+      // LinkedIn professional profiles
+      `site:linkedin.com/in "${roleTypes[0]}" "${skills[0]}" ${location ? `"${location}"` : ''} -"LinkedIn"`,
+      `site:linkedin.com/in "${skills[0]}" "${skills[1] || 'software'}" "experience" -"LinkedIn"`,
+      
+      // GitHub developer profiles
+      `site:github.com "${roleTypes[0]}" "${skills[0]}" location:${location || 'anywhere'} followers:>10`,
+      
+      // Portfolio and personal websites
+      `"${roleTypes[0]}" "${skills[0]}" (portfolio OR resume OR CV) filetype:pdf OR site:*.dev OR site:*.io`,
+      
+      // Company directories and tech blogs
+      `"${roleTypes[0]}" "${skills[0]}" (site:about.me OR site:medium.com OR site:dev.to) ${location ? `"${location}"` : ''}`,
+      
+      // Professional networks
+      `"${roleTypes[0]}" "${skills[0]}" (contact OR hire OR available) ${location ? `"${location}"` : ''} -jobs -job`
     ]
 
-    console.log('Executing 6 enhanced search queries...')
+    console.log('🔍 Executing enhanced Boolean search queries...')
 
     const candidates = []
     const seenUrls = new Set()
+    const enhancementStats = {
+      total_results_found: 0,
+      unique_candidates: 0,
+      ai_enhanced_profiles: 0,
+      platform_distribution: {}
+    }
 
     for (const searchQuery of searchQueries) {
       try {
-        console.log(`🔍 Boolean search: ${searchQuery.slice(0, 60)}...`)
+        console.log(`🔍 Boolean search: ${searchQuery.slice(0, 80)}...`)
         
         const response = await fetch(
           `https://www.googleapis.com/customsearch/v1?key=${googleApiKey}&cx=${searchEngineId}&q=${encodeURIComponent(searchQuery)}&num=10`
         )
 
         if (!response.ok) {
-          console.error(`Google API error: ${response.status}`)
+          console.error(`❌ Google API error: ${response.status}`)
           continue
         }
 
@@ -72,6 +89,7 @@ serve(async (req) => {
         const results = data.items || []
         
         console.log(`📊 Found ${results.length} results for query`)
+        enhancementStats.total_results_found += results.length
 
         for (const result of results) {
           if (seenUrls.has(result.link)) continue
@@ -80,6 +98,9 @@ serve(async (req) => {
           const candidateId = generateUUID()
           
           // Enhanced candidate extraction from search results
+          const platform = detectPlatform(result.link)
+          enhancementStats.platform_distribution[platform] = (enhancementStats.platform_distribution[platform] || 0) + 1
+          
           const candidate = {
             id: candidateId,
             name: extractNameFromTitle(result.title),
@@ -88,7 +109,7 @@ serve(async (req) => {
             avatar_url: null,
             email: extractEmailFromSnippet(result.snippet),
             summary: result.snippet,
-            skills: enhancedQuery?.skills?.slice(0, 5) || [query],
+            skills: enhancedQuery?.skills?.slice(0, 8) || [query],
             experience_years: extractExperienceFromSnippet(result.snippet),
             last_active: new Date().toISOString(),
             overall_score: calculateGoogleScore(result, enhancedQuery),
@@ -99,49 +120,108 @@ serve(async (req) => {
             social_proof: 30,
             risk_flags: [],
             source_url: result.link,
-            source_platform: detectPlatform(result.link)
+            source_platform: platform,
+            platform: 'google'
+          }
+
+          // Enhance profile with AI
+          try {
+            const enhanceResponse = await supabase.functions.invoke('enhance-candidate-profile', {
+              body: { candidate, platform: 'google' }
+            })
+
+            if (enhanceResponse.data?.enhanced_candidate) {
+              Object.assign(candidate, enhanceResponse.data.enhanced_candidate)
+              if (enhanceResponse.data.ai_enhanced) {
+                enhancementStats.ai_enhanced_profiles++
+              }
+            }
+          } catch (error) {
+            console.log(`⚠️ AI enhancement failed for ${candidate.name}, continuing with basic profile`)
           }
 
           candidates.push(candidate)
+          enhancementStats.unique_candidates++
 
-          // Save to database with proper UUID - FIXED database saving
+          // Save enhanced candidate to database
           try {
-            const { data: insertedCandidate, error: candidateError } = await supabase
+            // Check for existing candidate by email or source URL
+            const { data: existingCandidate } = await supabase
               .from('candidates')
-              .insert({
-                id: candidateId,
-                name: candidate.name,
-                title: candidate.title,
-                location: candidate.location,
-                avatar_url: candidate.avatar_url,
-                email: candidate.email,
-                summary: candidate.summary,
-                skills: candidate.skills,
-                experience_years: candidate.experience_years,
-                last_active: candidate.last_active,
-                overall_score: candidate.overall_score,
-                skill_match: candidate.skill_match,
-                experience: candidate.experience,
-                reputation: candidate.reputation,
-                freshness: candidate.freshness,
-                social_proof: candidate.social_proof,
-                risk_flags: candidate.risk_flags
-              })
-              .select()
-              .single()
+              .select('id')
+              .or(`email.eq.${candidate.email},source_url.eq.${candidate.source_url}`)
+              .limit(1)
+              .maybeSingle()
 
-            if (candidateError) {
-              console.error(`Error saving Google candidate:`, candidateError)
-              continue
+            let savedCandidateId = candidateId
+
+            if (existingCandidate) {
+              // Update existing candidate
+              const { error: updateError } = await supabase
+                .from('candidates')
+                .update({
+                  name: candidate.name,
+                  title: candidate.title,
+                  location: candidate.location,
+                  summary: candidate.summary,
+                  skills: candidate.skills,
+                  experience_years: candidate.experience_years,
+                  last_active: candidate.last_active,
+                  overall_score: candidate.overall_score,
+                  skill_match: candidate.skill_match,
+                  experience: candidate.experience,
+                  reputation: candidate.reputation,
+                  freshness: candidate.freshness,
+                  social_proof: candidate.social_proof,
+                  risk_flags: candidate.risk_flags,
+                  updated_at: new Date().toISOString()
+                })
+                .eq('id', existingCandidate.id)
+
+              if (updateError) {
+                console.error(`❌ Error updating Google candidate:`, updateError)
+                continue
+              }
+
+              savedCandidateId = existingCandidate.id
+              console.log(`🔄 Updated existing candidate: ${candidate.name}`)
+            } else {
+              // Insert new candidate
+              const { error: insertError } = await supabase
+                .from('candidates')
+                .insert({
+                  id: candidateId,
+                  name: candidate.name,
+                  title: candidate.title,
+                  location: candidate.location,
+                  avatar_url: candidate.avatar_url,
+                  email: candidate.email,
+                  summary: candidate.summary,
+                  skills: candidate.skills,
+                  experience_years: candidate.experience_years,
+                  last_active: candidate.last_active,
+                  overall_score: candidate.overall_score,
+                  skill_match: candidate.skill_match,
+                  experience: candidate.experience,
+                  reputation: candidate.reputation,
+                  freshness: candidate.freshness,
+                  social_proof: candidate.social_proof,
+                  risk_flags: candidate.risk_flags
+                })
+
+              if (insertError) {
+                console.error(`❌ Error inserting Google candidate:`, insertError)
+                continue
+              }
+
+              console.log(`✅ Inserted new Google candidate: ${candidate.name} with ID: ${candidateId}`)
             }
 
-            console.log(`Successfully saved Google candidate: ${candidate.name} with ID: ${candidateId}`)
-
-            // Save source data
+            // Save/update source data
             const { error: sourceError } = await supabase
               .from('candidate_sources')
-              .insert({
-                candidate_id: candidateId,
+              .upsert({
+                candidate_id: savedCandidateId,
                 platform: 'google',
                 platform_id: result.link,
                 url: result.link,
@@ -149,36 +229,40 @@ serve(async (req) => {
                   title: result.title,
                   snippet: result.snippet,
                   search_query: searchQuery,
-                  platform: candidate.source_platform
+                  platform: candidate.source_platform,
+                  enhancement_timestamp: new Date().toISOString()
                 }
+              }, {
+                onConflict: 'candidate_id,platform'
               })
 
             if (sourceError) {
-              console.error(`Error saving Google source data:`, sourceError)
+              console.error(`❌ Error saving Google source data:`, sourceError)
             } else {
-              console.log(`Successfully saved source data for Google candidate: ${candidate.name}`)
+              console.log(`✅ Saved source data for Google candidate: ${candidate.name}`)
             }
 
           } catch (error) {
-            console.error(`Error saving Google candidate data:`, error)
+            console.error(`❌ Critical error saving Google candidate data:`, error)
           }
 
-          if (candidates.length >= 20) break
+          if (candidates.length >= 25) break
         }
 
-        if (candidates.length >= 20) break
+        if (candidates.length >= 25) break
 
       } catch (error) {
-        console.error(`Google search error for query "${searchQuery}":`, error)
+        console.error(`❌ Google search error for query "${searchQuery}":`, error)
         continue
       }
     }
 
     const sortedCandidates = candidates
       .sort((a, b) => b.overall_score - a.overall_score)
-      .slice(0, 20)
+      .slice(0, 25)
 
     console.log(`✅ Google Search completed: ${sortedCandidates.length} enhanced candidates`)
+    console.log(`📊 Stats: ${enhancementStats.ai_enhanced_profiles} AI enhanced, Platform distribution:`, enhancementStats.platform_distribution)
 
     return new Response(
       JSON.stringify({ 
@@ -186,8 +270,9 @@ serve(async (req) => {
         total: sortedCandidates.length,
         source: 'google',
         enhancement_stats: {
+          ...enhancementStats,
           boolean_queries_executed: searchQueries.length,
-          platforms_discovered: [...new Set(sortedCandidates.map(c => c.source_platform))].length,
+          platforms_discovered: Object.keys(enhancementStats.platform_distribution).length,
           avg_score: Math.round(sortedCandidates.reduce((sum, c) => sum + c.overall_score, 0) / sortedCandidates.length || 0)
         }
       }),
@@ -195,7 +280,7 @@ serve(async (req) => {
     )
 
   } catch (error) {
-    console.error('Error in enhanced Google Search:', error)
+    console.error('❌ Error in enhanced Google Search:', error)
     return new Response(
       JSON.stringify({ 
         candidates: [], 
@@ -213,10 +298,9 @@ serve(async (req) => {
 
 // Helper functions for enhanced candidate extraction
 function extractNameFromTitle(title: string): string {
-  // Extract name from LinkedIn profiles, GitHub profiles, etc.
   const patterns = [
-    /^([^|•-]+)(?:[|•-])/,  // Name before separator
-    /(\w+\s+\w+)/,          // First and last name pattern
+    /^([^|•-]+)(?:[|•-])/,
+    /(\w+\s+\w+)/,
   ]
   
   for (const pattern of patterns) {
@@ -231,7 +315,7 @@ function extractTitleFromSnippet(snippet: string, roleType?: string): string {
   const commonTitles = [
     'Senior Software Engineer', 'Software Engineer', 'Full Stack Developer',
     'Frontend Developer', 'Backend Developer', 'DevOps Engineer',
-    'Data Scientist', 'Product Manager', 'Tech Lead'
+    'Data Scientist', 'Product Manager', 'Tech Lead', 'Software Architect'
   ]
   
   for (const title of commonTitles) {
@@ -246,7 +330,7 @@ function extractTitleFromSnippet(snippet: string, roleType?: string): string {
 function extractLocationFromSnippet(snippet: string): string {
   const locationPatterns = [
     /(?:based in|located in|from)\s+([^.]+)/i,
-    /(San Francisco|New York|London|Toronto|Berlin|Bangalore|Hyderabad|Mumbai|Delhi)/i
+    /(San Francisco|New York|London|Toronto|Berlin|Bangalore|Hyderabad|Mumbai|Delhi|Seattle|Austin|Boston)/i
   ]
   
   for (const pattern of locationPatterns) {
@@ -275,16 +359,18 @@ function extractExperienceFromSnippet(snippet: string): number {
     if (match) return parseInt(match[1])
   }
   
-  return 3 // Default experience
+  return 3
 }
 
 function calculateGoogleScore(result: any, enhancedQuery: any): number {
-  let score = 50 // Base score
+  let score = 50
   
   // Platform-specific scoring
-  if (result.link.includes('linkedin.com')) score += 20
-  if (result.link.includes('github.com')) score += 15
-  if (result.link.includes('stackoverflow.com')) score += 10
+  if (result.link.includes('linkedin.com')) score += 25
+  if (result.link.includes('github.com')) score += 20
+  if (result.link.includes('stackoverflow.com')) score += 15
+  if (result.link.includes('medium.com')) score += 10
+  if (result.link.includes('dev.to')) score += 10
   
   // Keyword relevance
   const skills = enhancedQuery?.skills || []
@@ -324,5 +410,6 @@ function detectPlatform(url: string): string {
   if (url.includes('stackoverflow.com')) return 'stackoverflow'
   if (url.includes('medium.com')) return 'medium'
   if (url.includes('dev.to')) return 'devto'
+  if (url.includes('about.me')) return 'aboutme'
   return 'web'
 }
