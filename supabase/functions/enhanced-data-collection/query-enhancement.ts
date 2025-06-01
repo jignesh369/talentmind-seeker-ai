@@ -39,11 +39,11 @@ export async function enhanceQueryWithSemanticAI(query: string, openaiApiKey: st
         ],
         temperature: 0.2
       }),
-    })
+    });
 
-    const data = await response.json()
-    const content = data.choices[0].message.content
-    const parsed = extractJSON(content)
+    const data = await response.json();
+    const content = data.choices[0].message.content;
+    const parsed = extractJSON(content);
     
     return parsed || {
       skills: [],
@@ -55,21 +55,23 @@ export async function enhanceQueryWithSemanticAI(query: string, openaiApiKey: st
       searchTerms: [query],
       semantic_terms: [],
       role_types: [],
-      keywords: query.split(' ').filter(w => w.length > 2),
+      keywords: [],
       semantic_keywords: [],
       industries: [],
       company_types: [],
-      salary_range: { min: 0, max: 0, currency: 'USD' },
+      salary_range: null,
       must_have_skills: [],
       nice_to_have_skills: [],
       career_level_indicators: [],
       market_trends: [],
       skill_clusters: []
-    }
+    };
   } catch (error) {
-    console.error('Error in semantic query enhancement:', error)
+    console.error('AI query enhancement failed:', error);
+    // Return fallback structure
     return {
-      skills: [],
+      query,
+      skills: extractSkillsFromQuery(query),
       semantic_skills: [],
       experience_level: 'any',
       experience_min: 0,
@@ -77,44 +79,54 @@ export async function enhanceQueryWithSemanticAI(query: string, openaiApiKey: st
       location_preferences: [],
       searchTerms: [query],
       semantic_terms: [],
-      role_types: [],
-      keywords: query.split(' ').filter(w => w.length > 2),
+      role_types: extractRolesFromQuery(query),
+      keywords: query.split(' ').filter(word => word.length > 2),
       semantic_keywords: [],
       industries: [],
       company_types: [],
-      salary_range: { min: 0, max: 0, currency: 'USD' },
+      salary_range: null,
       must_have_skills: [],
       nice_to_have_skills: [],
       career_level_indicators: [],
       market_trends: [],
       skill_clusters: []
-    }
+    };
   }
 }
 
-export function extractJSON(text: string) {
+function extractJSON(text: string): any {
   try {
-    return JSON.parse(text)
-  } catch {
-    const cleanText = text
-      .replace(/```json\s*/g, '')
-      .replace(/```\s*/g, '')
-      .trim()
-    
-    try {
-      return JSON.parse(cleanText)
-    } catch {
-      const start = text.indexOf('{')
-      const end = text.lastIndexOf('}')
-      if (start !== -1 && end !== -1 && end > start) {
-        try {
-          return JSON.parse(text.substring(start, end + 1))
-        } catch {
-          console.error('Failed to parse JSON from text:', text)
-          return null
-        }
-      }
-      return null
+    // Try to find JSON in the text
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      return JSON.parse(jsonMatch[0]);
     }
+    return JSON.parse(text);
+  } catch (error) {
+    console.error('Failed to parse JSON from AI response:', error);
+    return null;
   }
+}
+
+function extractSkillsFromQuery(query: string): string[] {
+  const techSkills = [
+    'python', 'javascript', 'typescript', 'java', 'go', 'rust', 'php', 'ruby', 'c++',
+    'react', 'vue', 'angular', 'node.js', 'django', 'flask', 'spring', 'laravel',
+    'aws', 'azure', 'gcp', 'docker', 'kubernetes', 'terraform', 'jenkins',
+    'machine learning', 'ai', 'data science', 'devops', 'frontend', 'backend'
+  ];
+  
+  const queryLower = query.toLowerCase();
+  return techSkills.filter(skill => queryLower.includes(skill));
+}
+
+function extractRolesFromQuery(query: string): string[] {
+  const roles = [
+    'software engineer', 'developer', 'devops engineer', 'data scientist',
+    'frontend developer', 'backend developer', 'full stack developer',
+    'machine learning engineer', 'site reliability engineer', 'platform engineer'
+  ];
+  
+  const queryLower = query.toLowerCase();
+  return roles.filter(role => queryLower.includes(role));
 }
