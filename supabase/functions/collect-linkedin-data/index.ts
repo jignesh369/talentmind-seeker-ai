@@ -1,6 +1,7 @@
-
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { saveCandidateWithSource } from '../shared/database-operations.ts'
+import { buildCandidate } from '../shared/candidate-builder.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -91,39 +92,46 @@ serve(async (req) => {
           // Validate if this is a developer profile
           if (!isDeveloperProfile(profile, extractedSkills)) continue
 
-          const candidate = {
+          // Use shared candidate builder
+          const candidate = buildCandidate({
             name: profile.fullName || 'LinkedIn Professional',
             title: profile.currentPosition?.title || extractTitleFromProfile(profile),
-            summary: profile.summary || profile.about || '',
             location: profile.location || location || '',
+            summary: profile.summary || profile.about || '',
             skills: extractedSkills,
             experience_years: estimateExperienceFromLinkedIn(profile),
             last_active: new Date().toISOString(),
-            overall_score: calculateLinkedInScore(profile, extractedSkills),
-            skill_match: calculateSkillMatch(extractedSkills, searchTerms),
-            experience: calculateExperienceScore(profile),
-            reputation: 70, // LinkedIn profiles generally have good reputation
-            freshness: 80, // LinkedIn data is usually fresh
-            social_proof: 60,
-            risk_flags: [],
-            linkedin_url: profile.profileUrl
+            platform: 'linkedin',
+            platformSpecificData: {
+              connectionsCount: profile.connectionsCount,
+              pastPositions: profile.pastPositions
+            }
+          })
+
+          // Override with LinkedIn-specific scores
+          candidate.overall_score = calculateLinkedInScore(profile, extractedSkills)
+          candidate.skill_match = calculateSkillMatch(extractedSkills, searchTerms)
+          candidate.experience = calculateExperienceScore(profile)
+          candidate.reputation = 70
+          candidate.freshness = 80
+          candidate.social_proof = 60
+
+          const sourceData = {
+            candidate_id: candidate.id,
+            platform: 'linkedin',
+            platform_id: profile.profileUrl,
+            url: profile.profileUrl,
+            data: profile
           }
 
-          candidates.push(candidate)
-
-          // Save source data
-          try {
-            await supabase
-              .from('candidate_sources')
-              .upsert({
-                candidate_id: profile.profileUrl,
-                platform: 'linkedin',
-                platform_id: profile.profileUrl,
-                url: profile.profileUrl,
-                data: profile
-              }, { onConflict: 'platform,platform_id' })
-          } catch (error) {
-            console.error('Error saving LinkedIn source data:', error)
+          // Use shared database operations
+          const saveResult = await saveCandidateWithSource(supabase, candidate, sourceData)
+          
+          if (saveResult.success) {
+            candidates.push(candidate)
+            console.log(`💾 Saved LinkedIn candidate: ${candidate.name}`)
+          } else {
+            console.error(`❌ Failed to save LinkedIn candidate:`, saveResult.error)
           }
         }
 
@@ -170,21 +178,19 @@ function extractSkillsFromLinkedInProfile(profile, searchTerms) {
     'sql', 'mongodb', 'postgresql', 'redis', 'elasticsearch'
   ]
 
-  // Extract skills mentioned in profile
   for (const skill of techSkills) {
     if (text.includes(skill) || text.includes(skill.replace(/[.\s]/g, ''))) {
       skills.push(skill)
     }
   }
 
-  // Add search terms that appear in profile
   for (const term of searchTerms) {
     if (text.includes(term.toLowerCase()) && !skills.includes(term)) {
       skills.push(term)
     }
   }
 
-  return skills.slice(0, 10) // Limit to top 10 skills
+  return skills.slice(0, 10)
 }
 
 function isDeveloperProfile(profile, skills) {
@@ -205,7 +211,6 @@ function extractTitleFromProfile(profile) {
 
 function estimateExperienceFromLinkedIn(profile) {
   if (profile.pastPositions?.length) {
-    // Calculate years from position history
     return Math.min(profile.pastPositions.length * 2, 15)
   }
   
@@ -218,13 +223,13 @@ function estimateExperienceFromLinkedIn(profile) {
 }
 
 function calculateLinkedInScore(profile, skills) {
-  let score = 40 // Base score
+  let score = 40
   
-  score += skills.length * 6 // Skill bonus
-  score += profile.summary ? 10 : 0 // Summary bonus
-  score += profile.currentPosition ? 15 : 0 // Current position bonus
-  score += profile.pastPositions?.length ? Math.min(profile.pastPositions.length * 3, 15) : 0 // Experience bonus
-  score += profile.connectionsCount ? Math.min(profile.connectionsCount / 100, 10) : 0 // Network bonus
+  score += skills.length * 6
+  score += profile.summary ? 10 : 0
+  score += profile.currentPosition ? 15 : 0
+  score += profile.pastPositions?.length ? Math.min(profile.pastPositions.length * 3, 15) : 0
+  score += profile.connectionsCount ? Math.min(profile.connectionsCount / 100, 10) : 0
   
   return Math.min(score, 100)
 }
