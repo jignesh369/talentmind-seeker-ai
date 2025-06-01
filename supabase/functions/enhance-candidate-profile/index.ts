@@ -1,4 +1,3 @@
-
 import "https://deno.land/x/xhr@0.1.0/mod.ts"
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
@@ -14,7 +13,7 @@ serve(async (req) => {
   }
 
   try {
-    const { candidate, platform } = await req.json()
+    const { candidate, platform, jobContext } = await req.json()
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -25,12 +24,13 @@ serve(async (req) => {
 
     let enhancedCandidate = { ...candidate }
 
-    // LLM Enhancement if OpenAI is available
+    // Advanced LLM Enhancement with multiple AI features
     if (openaiApiKey && candidate.name && candidate.name !== 'Unknown') {
       try {
-        console.log(`🧠 Using AI to enhance ${candidate.name}'s profile`)
+        console.log(`🧠 Using advanced AI to enhance ${candidate.name}'s profile`)
         
-        const prompt = `Analyze this ${platform} profile and create a professional summary:
+        // Enhanced prompt with market context and role-specific insights
+        const enhancedPrompt = `Analyze this ${platform} profile and create a comprehensive professional enhancement:
 
 Name: ${candidate.name}
 Title: ${candidate.title || 'Not specified'}
@@ -39,14 +39,30 @@ Skills: ${candidate.skills?.join(', ') || 'Not specified'}
 Bio/Summary: ${candidate.summary || candidate.bio || 'Not specified'}
 Experience: ${candidate.experience_years || 0} years
 Platform: ${platform}
+Current Company: ${candidate.current_company || 'Not specified'}
+Availability Signals: ${candidate.availability_analysis?.signals?.join(', ') || 'None detected'}
 
-Create a 2-3 sentence professional summary that:
-1. Highlights their expertise and key skills
-2. Mentions their experience level appropriately
-3. Sounds professional and engaging for recruiters
-4. Is specific to their actual background, not generic
+Create a comprehensive enhancement that includes:
 
-Return only the summary text, no additional formatting.`
+1. PROFESSIONAL_SUMMARY: A compelling 2-3 sentence summary highlighting expertise, impact, and market position
+2. ROLE_CLASSIFICATION: Primary role (e.g., "Senior Full-Stack Engineer", "Data Science Lead")
+3. EXPERTISE_LEVEL: Technical expertise assessment (Expert/Advanced/Intermediate/Emerging)
+4. MARKET_POSITIONING: How they compare in the current market
+5. GROWTH_TRAJECTORY: Career development insights
+6. COLLABORATION_STYLE: Working style and team fit assessment
+7. IMPACT_POTENTIAL: Potential value to organizations
+
+Return as JSON:
+{
+  "professional_summary": "...",
+  "role_classification": "...",
+  "expertise_level": "...",
+  "market_positioning": "...",
+  "growth_trajectory": "...",
+  "collaboration_style": "...",
+  "impact_potential": "...",
+  "confidence_score": 85
+}`
 
         const response = await fetch('https://api.openai.com/v1/chat/completions', {
           method: 'POST',
@@ -59,25 +75,51 @@ Return only the summary text, no additional formatting.`
             messages: [
               {
                 role: 'system',
-                content: 'You are an expert recruiter and talent analyst. Create concise, professional candidate summaries based on their profile data.'
+                content: 'You are an expert talent analyst and career consultant. Provide deep, actionable insights about technical professionals based on their profiles and market context.'
               },
-              { role: 'user', content: prompt }
+              { role: 'user', content: enhancedPrompt }
             ],
             temperature: 0.3,
-            max_tokens: 200
+            max_tokens: 600
           }),
         })
 
         if (response.ok) {
           const data = await response.json()
-          const aiSummary = data.choices[0].message.content.trim()
+          const aiContent = data.choices[0].message.content.trim()
           
-          if (aiSummary && aiSummary.length > 50) {
-            enhancedCandidate.summary = aiSummary
+          try {
+            const aiAnalysis = JSON.parse(aiContent)
+            
+            // Apply comprehensive AI enhancements
+            enhancedCandidate.summary = aiAnalysis.professional_summary
+            enhancedCandidate.title = aiAnalysis.role_classification || enhancedCandidate.title
+            enhancedCandidate.expertise_level = aiAnalysis.expertise_level
+            enhancedCandidate.market_positioning = aiAnalysis.market_positioning
+            enhancedCandidate.growth_trajectory = aiAnalysis.growth_trajectory
+            enhancedCandidate.collaboration_style = aiAnalysis.collaboration_style
+            enhancedCandidate.impact_potential = aiAnalysis.impact_potential
+            enhancedCandidate.ai_confidence_score = aiAnalysis.confidence_score
             enhancedCandidate.ai_enhanced = true
-            console.log(`✨ AI enhanced summary for ${candidate.name}`)
+            
+            console.log(`✨ Advanced AI enhancement completed for ${candidate.name}`)
+            
+          } catch (parseError) {
+            // Fallback to simple summary if JSON parsing fails
+            enhancedCandidate.summary = aiContent.length > 50 ? aiContent : enhancedCandidate.summary
+            enhancedCandidate.ai_enhanced = true
           }
         }
+
+        // Generate personalized outreach if job context provided
+        if (jobContext) {
+          const outreachMessage = await generatePersonalizedOutreach(enhancedCandidate, jobContext, openaiApiKey)
+          if (outreachMessage) {
+            enhancedCandidate.personalized_outreach = outreachMessage
+            console.log(`📧 Generated personalized outreach for ${candidate.name}`)
+          }
+        }
+
       } catch (error) {
         console.error(`AI enhancement failed for ${candidate.name}:`, error)
       }
@@ -101,21 +143,34 @@ Return only the summary text, no additional formatting.`
     enhancedCandidate.completeness_score = calculateProfileCompleteness(enhancedCandidate)
 
     // Assign Candidate Tier
-    enhancedCandidate.candidate_tier = assignCandidateTier(enhancedCandidate)
+    enhancedCandidate.candidate_tier = assignAdvancedCandidateTier(enhancedCandidate)
+    
+    // Add enhancement metadata
+    enhancedCandidate.enhancement_metadata = {
+      ai_version: '2.0',
+      features_applied: {
+        advanced_ai_summary: !!enhancedCandidate.ai_enhanced,
+        expertise_analysis: !!enhancedCandidate.expertise_level,
+        market_positioning: !!enhancedCandidate.market_positioning,
+        personalized_outreach: !!enhancedCandidate.personalized_outreach
+      },
+      enhancement_timestamp: new Date().toISOString()
+    }
 
-    console.log(`🎯 Enhanced ${candidate.name}: ${enhancedCandidate.candidate_tier} tier, Score: ${enhancedCandidate.overall_score}`)
+    console.log(`🎯 Advanced enhancement completed for ${candidate.name}: ${enhancedCandidate.candidate_tier} tier, Score: ${enhancedCandidate.overall_score}`)
 
     return new Response(
       JSON.stringify({ 
         enhanced_candidate: enhancedCandidate,
         enhancement_applied: true,
-        ai_enhanced: enhancedCandidate.ai_enhanced || false
+        ai_enhanced: enhancedCandidate.ai_enhanced || false,
+        advanced_features: enhancedCandidate.enhancement_metadata.features_applied
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
 
   } catch (error) {
-    console.error('Error enhancing candidate profile:', error)
+    console.error('Error in advanced candidate enhancement:', error)
     return new Response(
       JSON.stringify({ 
         enhanced_candidate: candidate,
@@ -290,17 +345,88 @@ function calculateProfileCompleteness(candidate: any): number {
   return Math.min(completeness, 100)
 }
 
-function assignCandidateTier(candidate: any): string {
+function assignAdvancedCandidateTier(candidate: any): string {
   const score = candidate.overall_score || 0
   const completeness = candidate.completeness_score || 0
   const skillCount = candidate.skills?.length || 0
+  const semanticScore = candidate.semantic_similarity || 0
+  const apolloScore = candidate.apollo_enrichment_score || 0
+  const availabilityScore = candidate.availability_analysis?.availability_score || 0
   
-  // Gold tier: High score, complete profile, many skills
-  if (score >= 75 && completeness >= 80 && skillCount >= 8) return 'Gold'
+  // Platinum tier: Exceptional candidates with multiple verification sources
+  if (score >= 85 && completeness >= 90 && skillCount >= 10 && 
+      semanticScore >= 80 && apolloScore >= 50) {
+    return 'Platinum'
+  }
   
-  // Silver tier: Good score, decent profile
-  if (score >= 60 && completeness >= 60 && skillCount >= 5) return 'Silver'
+  // Gold tier: High-quality candidates with strong profiles
+  if (score >= 75 && completeness >= 80 && skillCount >= 8 && 
+      (semanticScore >= 70 || apolloScore >= 30)) {
+    return 'Gold'
+  }
   
-  // Bronze tier: Basic requirements met
+  // Silver tier: Good candidates with decent verification
+  if (score >= 60 && completeness >= 60 && skillCount >= 5) {
+    return 'Silver'
+  }
+  
+  // Bronze tier: Basic candidates
   return 'Bronze'
+}
+
+async function generatePersonalizedOutreach(candidate: any, jobContext: any, openaiApiKey: string): Promise<string | null> {
+  try {
+    const prompt = `Create a personalized outreach message for this developer:
+
+Candidate: ${candidate.name}
+Title: ${candidate.title}
+Skills: ${candidate.skills?.join(', ') || 'Not specified'}
+Company: ${candidate.current_company || 'Unknown'}
+Location: ${candidate.location || 'Unknown'}
+Expertise Level: ${candidate.expertise_level || 'Not assessed'}
+Availability Signals: ${candidate.availability_analysis?.signals?.join(', ') || 'None detected'}
+
+Job Context:
+${JSON.stringify(jobContext, null, 2)}
+
+Create a personalized, professional outreach message that:
+1. References their specific expertise and recent work
+2. Explains why they're uniquely qualified for this opportunity
+3. Highlights specific growth and impact opportunities
+4. Includes a respectful, clear call-to-action
+5. Demonstrates genuine interest in their career goals
+
+Keep it under 200 words, professional but warm, and avoid generic templated language.`
+
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${openaiApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          {
+            role: 'system',
+            content: 'You are an expert recruiter who writes personalized, effective outreach messages that respect candidates and focus on mutual career benefit and growth opportunities.'
+          },
+          { role: 'user', content: prompt }
+        ],
+        temperature: 0.7,
+        max_tokens: 400
+      }),
+    })
+
+    if (response.ok) {
+      const data = await response.json()
+      return data.choices[0].message.content.trim()
+    }
+    
+    return null
+
+  } catch (error) {
+    console.error('Error generating personalized outreach:', error)
+    return null
+  }
 }

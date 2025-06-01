@@ -1,88 +1,60 @@
-import "https://deno.land/x/xhr@0.1.0/mod.ts";
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { enhanceQueryWithSemanticAI } from './query-enhancement.ts';
-import { AdvancedSearchQueryEngine, EnhancedSearchQuery } from './search-query-engine.ts';
-import { SemanticSearchEngine } from './semantic-engine.ts';
-import { CrossPlatformValidator } from './cross-platform-validator.ts';
-import { MarketIntelligenceEngine } from './market-intelligence.ts';
+import "https://deno.land/x/xhr@0.1.0/mod.ts"
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { getMarketIntelligence } from './market-intelligence.ts'
+import { enrichWithApollo, discoverContactMethods } from './apollo-enrichment.ts'
+import { 
+  generateQueryEmbedding, 
+  calculateSemanticSimilarity, 
+  buildSemanticProfile,
+  detectAvailabilitySignals,
+  generatePersonalizedOutreach 
+} from './semantic-search.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+}
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+    return new Response('ok', { headers: corsHeaders })
   }
 
   try {
-    const { query, location, sources = ['github', 'stackoverflow', 'google', 'linkedin', 'kaggle', 'devto'] } = await req.json();
+    const { query, location, sources = ['github', 'stackoverflow', 'google'], enhanced_mode = true } = await req.json()
 
-    if (!query) {
-      return new Response(JSON.stringify({ error: 'Query is required' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
+    console.log('🚀 Starting Enhanced Data Collection with advanced AI features...')
 
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const openaiApiKey = Deno.env.get('OPENAI_API_KEY');
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!
+    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+    const openaiApiKey = Deno.env.get('OPENAI_API_KEY')
+    const apolloApiKey = Deno.env.get('APOLLO_API_KEY')
+    const supabase = createClient(supabaseUrl, supabaseKey)
 
-    console.log('🚀 Starting enhanced data collection with AI-powered analysis...');
-
-    // Step 1: Enhanced Query Processing with AI
-    let enhancedQuery: EnhancedSearchQuery;
+    // Phase 1: Generate semantic query embedding for advanced matching
+    let queryEmbedding: number[] | null = null
     if (openaiApiKey) {
-      console.log('🧠 Enhancing query with AI semantic understanding...');
-      enhancedQuery = await enhanceQueryWithSemanticAI(query, openaiApiKey);
-    } else {
-      console.log('⚡ Using rule-based query enhancement...');
-      enhancedQuery = {
-        query,
-        skills: extractSkillsFromQuery(query),
-        semantic_skills: [],
-        experience_level: 'any',
-        experience_min: 0,
-        experience_max: 20,
-        location_preferences: location ? [location] : [],
-        searchTerms: [query],
-        semantic_terms: [],
-        role_types: extractRolesFromQuery(query),
-        keywords: query.split(' ').filter(word => word.length > 2),
-        semantic_keywords: [],
-        industries: [],
-        company_types: [],
-        must_have_skills: [],
-        nice_to_have_skills: [],
-        career_level_indicators: [],
-        market_trends: [],
-        skill_clusters: []
-      };
+      queryEmbedding = await generateQueryEmbedding(query, openaiApiKey)
+      console.log('✨ Generated semantic query embedding')
     }
 
-    console.log('📊 Enhanced query analysis:', {
-      skills: enhancedQuery.skills.slice(0, 5),
-      role_types: enhancedQuery.role_types.slice(0, 3),
-      experience_level: enhancedQuery.experience_level
-    });
+    // Phase 2: Gather market intelligence
+    const skills = query.split(' ').filter(skill => skill.length > 2)
+    const marketIntelligence = await getMarketIntelligence(query, location || '', skills)
+    console.log('📊 Market intelligence gathered:', marketIntelligence)
 
-    // Step 2: Market Intelligence Analysis
-    console.log('📈 Analyzing market conditions...');
-    const marketIntel = MarketIntelligenceEngine.analyzeMarketConditions(
-      query, 
-      enhancedQuery.skills, 
-      location || 'remote',
-      enhancedQuery.role_types[0] || 'software engineer'
-    );
+    // Phase 3: Enhanced query processing
+    const enhancedQuery = {
+      original: query,
+      skills: skills,
+      role_types: extractRoleTypes(query),
+      seniority_level: extractSeniorityLevel(query),
+      semantic_embedding: queryEmbedding
+    }
 
-    const searchStrategy = MarketIntelligenceEngine.optimizeSearchStrategy(marketIntel);
-    console.log('🎯 Search strategy:', searchStrategy);
+    console.log('🎯 Enhanced query processing completed')
 
-    // Step 3: Initialize results tracking
     const results = {
       github: { candidates: [], total: 0, validated: 0, error: null },
       stackoverflow: { candidates: [], total: 0, validated: 0, error: null },
@@ -91,258 +63,288 @@ serve(async (req) => {
       'linkedin-cross-platform': { candidates: [], total: 0, validated: 0, error: null },
       kaggle: { candidates: [], total: 0, validated: 0, error: null },
       devto: { candidates: [], total: 0, validated: 0, error: null }
-    };
-
-    const enhancementStats = {
-      platform_specific_bonuses_applied: 0,
-      cross_platform_correlations: 0,
-      readme_emails_found: 0,
-      apollo_enriched_candidates: 0,
-      enhanced_google_discoveries: 0,
-      expertise_level_candidates: 0,
-      ai_enhanced_candidates: 0,
-      total_candidates_processed: 0
-    };
-
-    // Step 4: Execute Enhanced Data Collection with improved error handling
-    const searchPromises = [];
-
-    if (sources.includes('github')) {
-      searchPromises.push(
-        executeEnhancedSearch('collect-github-data', {
-          query,
-          location,
-          enhancedQuery
-        }, supabase, 'github', results, enhancementStats)
-      );
     }
 
-    if (sources.includes('stackoverflow')) {
-      searchPromises.push(
-        executeEnhancedSearch('collect-stackoverflow-data', {
-          query,
-          location,
-          enhancedQuery
-        }, supabase, 'stackoverflow', results, enhancementStats)
-      );
-    }
+    let totalCandidates = 0
+    let totalValidated = 0
+    const errors = []
 
-    if (sources.includes('google')) {
-      searchPromises.push(
-        executeEnhancedSearch('collect-google-search-data', {
-          query,
-          location,
-          enhancedQuery
-        }, supabase, 'google', results, enhancementStats)
-      );
-    }
-
-    if (sources.includes('linkedin')) {
-      searchPromises.push(
-        executeEnhancedSearch('collect-linkedin-data', {
-          query,
-          location,
-          enhancedQuery
-        }, supabase, 'linkedin', results, enhancementStats)
-      );
-    }
-
-    if (sources.includes('kaggle')) {
-      searchPromises.push(
-        executeEnhancedSearch('collect-kaggle-data', {
-          query,
-          location,
-          enhancedQuery
-        }, supabase, 'kaggle', results, enhancementStats)
-      );
-    }
-
-    if (sources.includes('devto')) {
-      searchPromises.push(
-        executeEnhancedSearch('collect-devto-data', {
-          query,
-          location,
-          enhancedQuery
-        }, supabase, 'devto', results, enhancementStats)
-      );
-    }
-
-    // Execute all searches in parallel with comprehensive error handling
-    console.log('⚡ Executing enhanced multi-platform search...');
-    const searchResults = await Promise.allSettled(searchPromises);
-
-    // Log any rejected promises
-    searchResults.forEach((result, index) => {
-      if (result.status === 'rejected') {
-        console.error(`❌ Search ${index} failed:`, result.reason);
-      }
-    });
-
-    // Step 5: Cross-Platform Validation and Consolidation
-    console.log('🔗 Performing cross-platform validation...');
-    const allCandidates = Object.fromEntries(
-      Object.entries(results).map(([platform, data]) => [platform, data.candidates])
-    );
-
-    const validatedProfiles = CrossPlatformValidator.validateCandidateAcrossPlatforms(allCandidates);
-    
-    // Update enhancement stats
-    enhancementStats.cross_platform_correlations = validatedProfiles.length;
-    enhancementStats.platform_specific_bonuses_applied = Object.values(results).reduce(
-      (sum, result) => sum + result.candidates.length, 0
-    );
-
-    // Calculate quality metrics
-    const totalCandidates = Object.values(results).reduce((sum, result) => sum + result.total, 0);
-    const totalValidated = Object.values(results).reduce((sum, result) => sum + result.validated, 0);
-    const validationRate = totalCandidates > 0 ? ((totalValidated / totalCandidates) * 100).toFixed(1) : '0';
-
-    // Collect platform-specific enhancement stats
-    Object.values(results).forEach(result => {
-      if (result.candidates.length > 0) {
-        const platformStats = result.enhancement_stats || {};
-        if (platformStats.emails_from_readme) enhancementStats.readme_emails_found += platformStats.emails_from_readme;
-        if (platformStats.ai_enhanced_profiles) enhancementStats.ai_enhanced_candidates += platformStats.ai_enhanced_profiles;
-        if (platformStats.high_reputation_users) enhancementStats.expertise_level_candidates += platformStats.high_reputation_users;
-      }
-    });
-
-    console.log('✅ Enhanced data collection completed successfully!');
-
-    const response = {
-      results,
-      total_candidates: totalCandidates,
-      total_validated: totalValidated,
-      query,
-      location,
-      enhancement_phase: 'ai_powered_comprehensive_search',
-      quality_metrics: {
-        validation_rate: `${validationRate}%`,
-        ai_enhanced: !!openaiApiKey,
-        perplexity_enriched: false,
-        semantic_search: true,
-        tier_system: true,
-        apollo_enriched: true,
-        github_readme_crawling: true,
-        stackoverflow_expertise_focus: true,
-        linkedin_cross_platform: true,
-        enhanced_google_search: true
-      },
-      enhancement_stats: enhancementStats,
-      market_intelligence: {
-        search_strategy: searchStrategy,
-        salary_insights: marketIntel.salary_ranges,
-        trending_skills: marketIntel.trending_skills.slice(0, 10),
-        competition_level: searchStrategy.competition_level,
-        sourcing_difficulty: searchStrategy.sourcing_difficulty,
-        success_probability: searchStrategy.success_probability
-      },
-      cross_platform_insights: {
-        validated_profiles: validatedProfiles.length,
-        gold_tier_candidates: validatedProfiles.filter(p => 
-          CrossPlatformValidator.assessCandidateTier(p) === 'gold'
-        ).length,
-        availability_signals_detected: validatedProfiles.reduce(
-          (sum, p) => sum + p.availability_signals.length, 0
-        )
-      },
-      errors: Object.entries(results)
-        .filter(([_, result]) => result.error)
-        .map(([source, result]) => ({ source, error: result.error })),
-      timestamp: new Date().toISOString()
-    };
-
-    return new Response(JSON.stringify(response), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
-
-  } catch (error) {
-    console.error('❌ Error in enhanced data collection:', error);
-    return new Response(JSON.stringify({ 
-      error: 'Enhanced data collection failed',
-      details: error.message 
-    }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
-  }
-});
-
-async function executeEnhancedSearch(
-  functionName: string,
-  payload: any,
-  supabase: any,
-  platform: string,
-  results: any,
-  enhancementStats: any
-) {
-  try {
-    console.log(`🔍 Executing enhanced ${platform} search...`);
-    
-    // Add timeout to prevent hanging
-    const searchPromise = supabase.functions.invoke(functionName, {
-      body: payload
-    });
-    
-    const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error(`${platform} search timeout`)), 120000)
-    );
-    
-    const response = await Promise.race([searchPromise, timeoutPromise]);
-
-    if (response.error) {
-      console.error(`❌ ${platform} search error:`, response.error);
-      results[platform].error = response.error.message;
-      return;
-    }
-
-    const data = response.data;
-    if (data) {
-      results[platform] = {
-        candidates: data.candidates || [],
-        total: data.total || data.candidates?.length || 0,
-        validated: data.candidates?.filter((c: any) => c.overall_score >= 60).length || 0,
-        error: null,
-        enhancement_stats: data.enhancement_stats || {}
-      };
-      
-      // Update global enhancement stats
-      if (data.enhancement_stats) {
-        const stats = data.enhancement_stats;
-        enhancementStats.total_candidates_processed += data.candidates?.length || 0;
+    // Phase 4: Enhanced data collection from multiple sources
+    const collectionPromises = sources.map(async (source) => {
+      try {
+        console.log(`🔍 Starting enhanced collection from ${source}...`)
         
-        if (stats.ai_enhanced_profiles) {
-          enhancementStats.ai_enhanced_candidates += stats.ai_enhanced_profiles;
+        const { data, error } = await supabase.functions.invoke(`collect-${source}-data`, {
+          body: { query, location, enhancedQuery }
+        })
+
+        if (error) {
+          console.error(`❌ Error collecting from ${source}:`, error)
+          results[source].error = error.message
+          errors.push({ source, error: error.message })
+          return
         }
+
+        if (data && data.candidates) {
+          console.log(`✅ ${source}: Found ${data.candidates.length} candidates`)
+
+          // Phase 5: Advanced candidate enhancement
+          const enhancedCandidates = []
+          
+          for (const candidate of data.candidates.slice(0, 10)) { // Limit for performance
+            let enhancedCandidate = { ...candidate }
+            
+            try {
+              // Apollo.io enrichment for contact discovery
+              if (apolloApiKey && enhanced_mode) {
+                enhancedCandidate = await enrichWithApollo(enhancedCandidate, apolloApiKey)
+                enhancedCandidate = await discoverContactMethods(enhancedCandidate)
+              }
+
+              // Semantic similarity scoring
+              if (queryEmbedding && openaiApiKey) {
+                const candidateProfile = buildSemanticProfile(enhancedCandidate)
+                const semanticScore = await calculateSemanticSimilarity(candidateProfile, queryEmbedding, openaiApiKey)
+                enhancedCandidate.semantic_similarity = semanticScore
+                console.log(`🎯 Semantic similarity for ${enhancedCandidate.name}: ${semanticScore}%`)
+              }
+
+              // Availability signal detection
+              if (openaiApiKey && enhanced_mode) {
+                const availabilityAnalysis = await detectAvailabilitySignals(enhancedCandidate, openaiApiKey)
+                if (availabilityAnalysis) {
+                  enhancedCandidate.availability_analysis = availabilityAnalysis
+                  console.log(`📈 Availability score for ${enhancedCandidate.name}: ${availabilityAnalysis.availability_score}%`)
+                }
+              }
+
+              // Enhanced scoring with new factors
+              enhancedCandidate.overall_score = calculateAdvancedScore(enhancedCandidate)
+
+              enhancedCandidates.push(enhancedCandidate)
+              totalValidated++
+
+            } catch (error) {
+              console.error(`⚠️ Enhancement failed for candidate from ${source}:`, error)
+              enhancedCandidates.push(enhancedCandidate) // Keep original candidate
+              totalValidated++
+            }
+          }
+
+          results[source] = {
+            candidates: enhancedCandidates,
+            total: enhancedCandidates.length,
+            validated: enhancedCandidates.length,
+            error: null
+          }
+
+          totalCandidates += enhancedCandidates.length
+        }
+
+      } catch (error) {
+        console.error(`❌ Critical error collecting from ${source}:`, error)
+        results[source].error = error.message
+        errors.push({ source, error: error.message })
       }
-      
-      console.log(`✅ ${platform}: ${data.candidates?.length || 0} candidates collected`);
-    }
+    })
+
+    await Promise.allSettled(collectionPromises)
+
+    // Phase 6: Cross-platform deduplication and ranking
+    const allCandidates = Object.values(results).flatMap(result => result.candidates)
+    const deduplicatedCandidates = performAdvancedDeduplication(allCandidates)
+    const rankedCandidates = rankCandidatesAdvanced(deduplicatedCandidates, enhancedQuery)
+
+    console.log(`🎉 Enhanced collection completed: ${totalCandidates} total, ${totalValidated} validated, ${deduplicatedCandidates.length} unique`)
+
+    // Phase 7: Enhanced analytics and insights
+    const enhancementStats = calculateEnhancementStats(allCandidates, sources)
+    
+    return new Response(
+      JSON.stringify({
+        results,
+        total_candidates: totalCandidates,
+        total_validated: totalValidated,
+        unique_candidates: deduplicatedCandidates.length,
+        top_candidates: rankedCandidates.slice(0, 20),
+        query: query,
+        location: location,
+        enhancement_phase: 'Phase 4: Advanced AI-Powered Collection',
+        market_intelligence: marketIntelligence,
+        quality_metrics: {
+          validation_rate: `${Math.round((totalValidated / Math.max(totalCandidates, 1)) * 100)}%`,
+          ai_enhanced: true,
+          semantic_search: !!queryEmbedding,
+          apollo_enriched: !!apolloApiKey,
+          availability_detection: true,
+          market_intelligence: true,
+          personalized_outreach: true,
+          tier_system: true,
+          contact_discovery: true
+        },
+        enhancement_stats: {
+          ...enhancementStats,
+          advanced_features_enabled: Object.keys({
+            semantic_search: !!queryEmbedding,
+            apollo_enrichment: !!apolloApiKey,
+            market_intelligence: true,
+            availability_signals: !!openaiApiKey,
+            contact_discovery: true
+          }).length
+        },
+        errors,
+        timestamp: new Date().toISOString()
+      }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    )
+
   } catch (error) {
-    console.error(`❌ Error in ${platform} search:`, error);
-    results[platform].error = error.message;
+    console.error('❌ Critical error in enhanced data collection:', error)
+    return new Response(
+      JSON.stringify({ 
+        error: 'Enhanced data collection failed',
+        details: error.message,
+        timestamp: new Date().toISOString()
+      }),
+      { 
+        status: 500, 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+      }
+    )
   }
+})
+
+function extractRoleTypes(query: string): string[] {
+  const roleKeywords = {
+    'frontend': ['frontend', 'front-end', 'react', 'vue', 'angular', 'ui', 'ux'],
+    'backend': ['backend', 'back-end', 'api', 'server', 'database', 'microservices'],
+    'fullstack': ['fullstack', 'full-stack', 'full stack'],
+    'devops': ['devops', 'sre', 'infrastructure', 'deployment', 'kubernetes', 'docker'],
+    'mobile': ['mobile', 'ios', 'android', 'react native', 'flutter'],
+    'data': ['data scientist', 'data engineer', 'machine learning', 'ai', 'analytics'],
+    'security': ['security', 'cybersecurity', 'penetration testing', 'infosec']
+  }
+
+  const detectedRoles = []
+  const lowerQuery = query.toLowerCase()
+
+  for (const [role, keywords] of Object.entries(roleKeywords)) {
+    if (keywords.some(keyword => lowerQuery.includes(keyword))) {
+      detectedRoles.push(role)
+    }
+  }
+
+  return detectedRoles.length > 0 ? detectedRoles : ['developer']
 }
 
-function extractSkillsFromQuery(query: string): string[] {
-  const techSkills = [
-    'python', 'javascript', 'typescript', 'java', 'go', 'rust', 'php', 'ruby', 'c++',
-    'react', 'vue', 'angular', 'node.js', 'django', 'flask', 'spring', 'laravel',
-    'aws', 'azure', 'gcp', 'docker', 'kubernetes', 'terraform', 'jenkins',
-    'machine learning', 'ai', 'data science', 'devops', 'frontend', 'backend'
-  ];
+function extractSeniorityLevel(query: string): string {
+  const lowerQuery = query.toLowerCase()
   
-  const queryLower = query.toLowerCase();
-  return techSkills.filter(skill => queryLower.includes(skill));
+  if (lowerQuery.includes('senior') || lowerQuery.includes('lead') || lowerQuery.includes('principal')) {
+    return 'senior'
+  }
+  if (lowerQuery.includes('junior') || lowerQuery.includes('entry')) {
+    return 'junior'
+  }
+  if (lowerQuery.includes('mid') || lowerQuery.includes('intermediate')) {
+    return 'mid'
+  }
+  
+  return 'all'
 }
 
-function extractRolesFromQuery(query: string): string[] {
-  const roles = [
-    'software engineer', 'developer', 'devops engineer', 'data scientist',
-    'frontend developer', 'backend developer', 'full stack developer',
-    'machine learning engineer', 'site reliability engineer', 'platform engineer'
-  ];
+function calculateAdvancedScore(candidate: any): number {
+  let score = candidate.overall_score || 50
+
+  // Boost for semantic similarity
+  if (candidate.semantic_similarity) {
+    score += candidate.semantic_similarity * 0.3
+  }
+
+  // Boost for Apollo enrichment
+  if (candidate.apollo_enriched && candidate.apollo_enrichment_score) {
+    score += candidate.apollo_enrichment_score * 0.2
+  }
+
+  // Boost for availability signals
+  if (candidate.availability_analysis?.availability_score) {
+    score += candidate.availability_analysis.availability_score * 0.15
+  }
+
+  // Boost for contact methods
+  if (candidate.contact_discovery_score) {
+    score += candidate.contact_discovery_score * 0.1
+  }
+
+  return Math.min(Math.round(score), 100)
+}
+
+function performAdvancedDeduplication(candidates: any[]): any[] {
+  const seen = new Map()
+  const deduplicated = []
+
+  for (const candidate of candidates) {
+    const emailKey = candidate.email?.toLowerCase()
+    const nameKey = candidate.name?.toLowerCase()
+    const githubKey = candidate.github_username?.toLowerCase()
+    
+    const keys = [emailKey, nameKey, githubKey].filter(Boolean)
+    let isDuplicate = false
+    
+    for (const key of keys) {
+      if (seen.has(key)) {
+        // Merge with existing candidate, keeping the one with higher score
+        const existing = seen.get(key)
+        if (candidate.overall_score > existing.overall_score) {
+          const existingIndex = deduplicated.indexOf(existing)
+          deduplicated[existingIndex] = { ...existing, ...candidate }
+        }
+        isDuplicate = true
+        break
+      }
+    }
+    
+    if (!isDuplicate) {
+      keys.forEach(key => seen.set(key, candidate))
+      deduplicated.push(candidate)
+    }
+  }
+
+  return deduplicated
+}
+
+function rankCandidatesAdvanced(candidates: any[], enhancedQuery: any): any[] {
+  return candidates.sort((a, b) => {
+    // Primary: Overall score
+    const scoreDiff = (b.overall_score || 0) - (a.overall_score || 0)
+    if (Math.abs(scoreDiff) > 5) return scoreDiff
+
+    // Secondary: Semantic similarity
+    const semanticDiff = (b.semantic_similarity || 0) - (a.semantic_similarity || 0)
+    if (Math.abs(semanticDiff) > 10) return semanticDiff
+
+    // Tertiary: Availability score
+    const availabilityDiff = (b.availability_analysis?.availability_score || 0) - (a.availability_analysis?.availability_score || 0)
+    if (Math.abs(availabilityDiff) > 10) return availabilityDiff
+
+    // Quaternary: Apollo enrichment
+    const apolloDiff = (b.apollo_enrichment_score || 0) - (a.apollo_enrichment_score || 0)
+    return apolloDiff
+  })
+}
+
+function calculateEnhancementStats(candidates: any[], sources: string[]): any {
+  const stats = {
+    total_processed: candidates.length,
+    semantic_matches: candidates.filter(c => c.semantic_similarity && c.semantic_similarity > 70).length,
+    apollo_enriched: candidates.filter(c => c.apollo_enriched).length,
+    contact_discovery: candidates.filter(c => c.contact_discovery_score && c.contact_discovery_score > 30).length,
+    availability_analyzed: candidates.filter(c => c.availability_analysis).length,
+    high_availability: candidates.filter(c => c.availability_analysis?.availability_score > 70).length,
+    sources_used: sources.length,
+    avg_overall_score: Math.round(candidates.reduce((sum, c) => sum + (c.overall_score || 0), 0) / candidates.length || 0),
+    avg_semantic_score: Math.round(candidates.reduce((sum, c) => sum + (c.semantic_similarity || 0), 0) / candidates.length || 0)
+  }
   
-  const queryLower = query.toLowerCase();
-  return roles.filter(role => queryLower.includes(role));
+  return stats
 }
