@@ -21,23 +21,27 @@ export interface EnhancedDataCollectionResult {
   enhancement_phase: string;
   quality_metrics: {
     validation_rate: string;
-    ai_enhanced: boolean;
-    perplexity_enriched: boolean;
-    semantic_search: boolean;
-    tier_system: boolean;
-    apollo_enriched: boolean;
-    github_readme_crawling: boolean;
-    stackoverflow_expertise_focus: boolean;
-    linkedin_cross_platform: boolean;
-    enhanced_google_search: boolean;
+    processing_time: string;
+    time_efficiency: string;
+    parallel_processing: boolean;
+    smart_limiting: boolean;
+    early_returns: boolean;
+  };
+  performance_metrics: {
+    total_time_ms: number;
+    average_time_per_source: number;
+    timeout_rate: number;
+    success_rate: number;
   };
   enhancement_stats: {
-    platform_specific_bonuses_applied: number;
-    cross_platform_correlations: number;
-    readme_emails_found: number;
-    apollo_enriched_candidates: number;
-    enhanced_google_discoveries: number;
-    expertise_level_candidates: number;
+    total_processed: number;
+    unique_candidates: number;
+    processing_time_ms: number;
+    time_budget_used: number;
+    sources_successful: number;
+    parallel_processing: boolean;
+    ai_enhancements: number;
+    apollo_enriched: number;
   };
   errors?: Array<{ source: string; error: string }>;
   timestamp: string;
@@ -53,7 +57,7 @@ export const useEnhancedDataCollection = () => {
   const collectData = async (
     query: string, 
     location?: string, 
-    sources: string[] = ['github', 'stackoverflow', 'google', 'linkedin', 'kaggle', 'devto']
+    sources: string[] = ['github', 'stackoverflow', 'linkedin', 'google']
   ) => {
     if (!user) {
       toast({
@@ -66,65 +70,61 @@ export const useEnhancedDataCollection = () => {
 
     setIsCollecting(true);
     setCollectionResult(null);
-    setProgress('🧠 Initializing advanced Boolean search engine...');
+    setProgress('⚡ Initializing time-budget architecture...');
     
     const updateProgress = (message: string) => {
       setProgress(message);
     };
 
     try {
-      // Enhanced progress phases
+      // Fast progress phases with time-budget awareness
       let phaseCount = 0;
       const phases = [
-        '🔍 Building semantic query understanding with AI...',
-        '📊 Analyzing market intelligence and competition...',
-        '🎯 Generating Boolean search queries for each platform...',
-        '🌐 Executing LinkedIn Boolean searches: site:linkedin.com/in...',
-        '⚡ Running GitHub advanced queries: language:python location:...',
-        '🔍 Performing Google Boolean discovery across platforms...',
-        '📈 Cross-platform validation and authenticity scoring...',
-        '✨ Applying tier classification and availability detection...',
+        '📊 Analyzing market intelligence (5s budget)...',
+        '🎯 Processing enhanced query (3s budget)...',
+        '🌐 Parallel source collection (60s budget)...',
+        '🔄 Fast deduplication and ranking (5s budget)...',
+        '✨ Selective AI enhancement (remaining time)...',
       ];
       
       const progressInterval = setInterval(() => {
-        phaseCount = (phaseCount + 1) % phases.length;
-        updateProgress(phases[phaseCount]);
-      }, 2500);
+        if (phaseCount < phases.length - 1) {
+          phaseCount++;
+          updateProgress(phases[phaseCount]);
+        }
+      }, 12000); // Slower updates for more accurate representation
       
-      console.log('🚀 Starting enhanced Boolean search collection with:', { query, location, sources });
+      console.log('🚀 Starting time-budget enhanced collection with:', { query, location, sources });
       
-      // Create a timeout promise that rejects after 2 minutes
+      // Reduced timeout to 75 seconds (from 120)
       const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error('Enhanced collection timeout')), 120000);
+        setTimeout(() => reject(new Error('Time budget exceeded')), 75000);
       });
       
-      // Create the collection promise with enhanced parameters
       const collectionPromise = supabase.functions.invoke('enhanced-data-collection', {
         body: { 
           query, 
           location, 
           sources,
           enhanced_mode: true,
-          boolean_search: true,
-          semantic_expansion: true
+          time_budget: 90 // 90 second budget
         }
       });
       
-      // Use Promise.race with proper error handling
       let response;
       try {
         response = await Promise.race([collectionPromise, timeoutPromise]);
       } catch (error) {
         clearInterval(progressInterval);
-        if (error instanceof Error && error.message === 'Enhanced collection timeout') {
-          throw new Error('Collection timeout: Advanced search took too long');
+        if (error instanceof Error && error.message === 'Time budget exceeded') {
+          throw new Error('Collection exceeded time budget: Search took too long');
         }
         throw error;
       }
       
       clearInterval(progressInterval);
 
-      console.log('🎉 Enhanced Boolean search collection response:', response);
+      console.log('🎉 Time-budget collection response:', response);
 
       if (response.error) {
         console.error('Enhanced collection error:', response.error);
@@ -139,52 +139,30 @@ export const useEnhancedDataCollection = () => {
       setCollectionResult(data);
       setProgress('');
       
-      // Calculate enhanced success metrics
+      // Enhanced success metrics with time efficiency
       const successfulSources = Object.values(data.results).filter((result: any) => !result.error).length;
-      const failedSources = sources.length - successfulSources;
-      const validationRate = data.quality_metrics?.validation_rate || '0';
+      const processingTime = data.performance_metrics?.total_time_ms || 0;
+      const timeEfficiency = data.quality_metrics?.time_efficiency || 'N/A';
+      const timeBudgetUsed = data.enhancement_stats?.time_budget_used || 0;
       
-      // Generate enhanced feature highlights
-      const readmeEmails = data.enhancement_stats?.readme_emails_found || 0;
-      const apolloEmails = data.enhancement_stats?.apollo_enriched_candidates || 0;
-      const expertiseCandidates = data.enhancement_stats?.expertise_level_candidates || 0;
-      const crossPlatformMatches = data.enhancement_stats?.cross_platform_correlations || 0;
-      const googleDiscoveries = data.enhancement_stats?.enhanced_google_discoveries || 0;
-      const booleanQueries = data.enhancement_stats?.boolean_queries_executed || 0;
+      // Generate performance highlights
+      const performanceHighlights = [];
+      if (processingTime < 30000) performanceHighlights.push('⚡ Ultra-fast');
+      if (processingTime < 60000) performanceHighlights.push('🚀 Fast');
+      if (data.quality_metrics?.parallel_processing) performanceHighlights.push('🔀 Parallel');
+      if (data.quality_metrics?.smart_limiting) performanceHighlights.push('🎯 Smart limits');
+      if (data.quality_metrics?.early_returns) performanceHighlights.push('⏰ Early return');
       
-      const featureHighlights = [];
-      if (booleanQueries > 0) featureHighlights.push(`${booleanQueries} Boolean queries`);
-      if (readmeEmails > 0) featureHighlights.push(`${readmeEmails} README emails`);
-      if (apolloEmails > 0) featureHighlights.push(`${apolloEmails} Apollo enriched`);
-      if (googleDiscoveries > 0) featureHighlights.push(`${googleDiscoveries} Google discoveries`);
-      if (expertiseCandidates > 0) featureHighlights.push(`${expertiseCandidates} expert-level`);
-      if (crossPlatformMatches > 0) featureHighlights.push(`${crossPlatformMatches} cross-platform`);
+      const timeMessage = `${Math.round(processingTime / 1000)}s (${timeBudgetUsed}% budget)`;
+      const efficiencyMessage = timeEfficiency !== 'N/A' ? `${timeEfficiency} efficiency` : '';
       
-      // Enhanced market intelligence insights
-      const marketInsights = [];
-      if (data.market_intelligence?.competition_level) {
-        marketInsights.push(`${data.market_intelligence.competition_level} competition`);
-      }
-      if (data.market_intelligence?.success_probability) {
-        marketInsights.push(`${data.market_intelligence.success_probability}% success rate`);
-      }
-
-      // Check for errors
-      const errorSources = data.errors || [];
-      const errorMessage = errorSources.length > 0 
-        ? ` (${errorSources.length} sources had issues)`
-        : failedSources > 0 
-        ? ` (${failedSources} sources failed)`
-        : '';
-      
-      // Enhanced success message with market intelligence
-      const successMessage = `Found ${data.total_validated} quality candidates (${validationRate}% success rate)`;
-      const featuresMessage = featureHighlights.length > 0 ? `. Enhanced: ${featureHighlights.join(', ')}` : '';
-      const marketMessage = marketInsights.length > 0 ? `. Market: ${marketInsights.join(', ')}` : '';
+      const successMessage = `Found ${data.total_validated} candidates in ${timeMessage}`;
+      const performanceMessage = performanceHighlights.length > 0 ? ` • ${performanceHighlights.join(' ')}` : '';
+      const efficiencyDisplayMessage = efficiencyMessage ? ` • ${efficiencyMessage}` : '';
       
       toast({
-        title: "🎉 Enhanced Collection Completed",
-        description: `${successMessage}${featuresMessage}${marketMessage}${errorMessage}`,
+        title: "⚡ Fast Collection Completed",
+        description: `${successMessage}${performanceMessage}${efficiencyDisplayMessage}`,
         variant: data.total_validated > 0 ? "default" : "destructive",
       });
 
@@ -194,28 +172,28 @@ export const useEnhancedDataCollection = () => {
       console.error('Enhanced data collection error:', error);
       setProgress('');
       
-      let errorMessage = "Failed to collect candidates with enhanced Boolean search";
+      let errorMessage = "Failed to collect candidates with time-budget optimization";
       let debugInfo = "";
       
-      if (error.message?.includes('Failed to fetch') || error.message?.includes('fetch failed')) {
-        errorMessage = "Network issue: Unable to connect to the enhanced search service";
-        debugInfo = "Check your connection or try again later";
-      } else if (error.message?.includes('timeout')) {
-        errorMessage = "Collection timeout: Advanced Boolean search took too long";
+      if (error.message?.includes('Time budget exceeded')) {
+        errorMessage = "Collection exceeded time budget";
         debugInfo = "Try fewer sources or a more specific query";
-      } else if (error.message?.includes('API')) {
-        errorMessage = "External API issue during Boolean search";
-        debugInfo = "Some search services may be experiencing problems";
+      } else if (error.message?.includes('timeout')) {
+        errorMessage = "Time budget optimization timeout";
+        debugInfo = "Some sources took longer than expected";
+      } else if (error.message?.includes('Failed to fetch')) {
+        errorMessage = "Network issue during optimized collection";
+        debugInfo = "Check connection and try again";
       }
       
-      console.error('Enhanced search error information:', {
+      console.error('Time-budget collection error:', {
         originalError: error,
         message: errorMessage,
         debugInfo
       });
       
       toast({
-        title: "Enhanced Collection Failed",
+        title: "Fast Collection Failed",
         description: errorMessage + (debugInfo ? ` - ${debugInfo}` : ''),
         variant: "destructive",
       });

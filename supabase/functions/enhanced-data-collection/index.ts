@@ -1,14 +1,13 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts"
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { TimeBudgetManager } from './time-budget-manager.ts'
+import { ParallelProcessor } from './parallel-processor.ts'
 import { getMarketIntelligence } from './market-intelligence.ts'
-import { enrichWithApollo, discoverContactMethods } from './apollo-enrichment.ts'
 import { 
   generateQueryEmbedding, 
-  calculateSemanticSimilarity, 
   buildSemanticProfile,
-  detectAvailabilitySignals,
-  generatePersonalizedOutreach 
+  detectAvailabilitySignals 
 } from './semantic-search.ts'
 
 const corsHeaders = {
@@ -22,9 +21,9 @@ serve(async (req) => {
   }
 
   try {
-    const { query, location, sources = ['github', 'stackoverflow', 'google'], enhanced_mode = true } = await req.json()
+    const { query, location, sources = ['github', 'stackoverflow', 'google', 'linkedin'], enhanced_mode = true } = await req.json()
 
-    console.log('🚀 Starting Enhanced Data Collection with advanced AI features...')
+    console.log('🚀 Starting Enhanced Data Collection with Time-Budget Architecture...')
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -32,167 +31,128 @@ serve(async (req) => {
     const apolloApiKey = Deno.env.get('APOLLO_API_KEY')
     const supabase = createClient(supabaseUrl, supabaseKey)
 
-    // Phase 1: Generate semantic query embedding for advanced matching
-    let queryEmbedding: number[] | null = null
-    if (openaiApiKey) {
-      queryEmbedding = await generateQueryEmbedding(query, openaiApiKey)
-      console.log('✨ Generated semantic query embedding')
-    }
+    // Initialize time budget manager (90 seconds total)
+    const timeBudget = new TimeBudgetManager(90)
+    const processor = new ParallelProcessor(timeBudget, {
+      maxCandidatesPerSource: 8, // Reduced from 10
+      maxAIEnhancements: 5,      // Only enhance top 5
+      maxConcurrentSources: 3    // Process 3 sources in parallel
+    })
 
-    // Phase 2: Gather market intelligence
+    // Phase 1: Quick market intelligence (5 seconds max)
+    console.log('📊 Phase 1: Gathering market intelligence...')
     const skills = query.split(' ').filter(skill => skill.length > 2)
-    const marketIntelligence = await getMarketIntelligence(query, location || '', skills)
-    console.log('📊 Market intelligence gathered:', marketIntelligence)
+    const marketIntelligence = await timeBudget.withTimeout(
+      getMarketIntelligence(query, location || '', skills),
+      5000
+    ) || null
 
-    // Phase 3: Enhanced query processing
+    // Phase 2: Enhanced query processing (lightweight, 2 seconds max)
+    console.log('🎯 Phase 2: Processing enhanced query...')
     const enhancedQuery = {
       original: query,
       skills: skills,
       role_types: extractRoleTypes(query),
       seniority_level: extractSeniorityLevel(query),
-      semantic_embedding: queryEmbedding
+      semantic_embedding: null // Skip embedding for faster processing
     }
 
-    console.log('🎯 Enhanced query processing completed')
-
-    const results = {
-      github: { candidates: [], total: 0, validated: 0, error: null },
-      stackoverflow: { candidates: [], total: 0, validated: 0, error: null },
-      google: { candidates: [], total: 0, validated: 0, error: null },
-      linkedin: { candidates: [], total: 0, validated: 0, error: null },
-      'linkedin-cross-platform': { candidates: [], total: 0, validated: 0, error: null },
-      kaggle: { candidates: [], total: 0, validated: 0, error: null },
-      devto: { candidates: [], total: 0, validated: 0, error: null }
+    // Skip semantic embedding for faster initial processing
+    if (openaiApiKey && enhanced_mode) {
+      enhancedQuery.semantic_embedding = await timeBudget.withTimeout(
+        generateQueryEmbedding(query, openaiApiKey),
+        3000
+      )
     }
 
-    let totalCandidates = 0
-    let totalValidated = 0
-    const errors = []
+    // Phase 3: Parallel source collection (main time budget)
+    console.log('🌐 Phase 3: Parallel data collection from sources...')
+    timeBudget.updateProgress('Collecting from sources', 0, sources.length, 0)
+    
+    const sourceResults = await processor.processSourcesInParallel(
+      sources,
+      query,
+      location,
+      enhancedQuery,
+      supabase
+    )
 
-    // Phase 4: Enhanced data collection from multiple sources
-    const collectionPromises = sources.map(async (source) => {
-      try {
-        console.log(`🔍 Starting enhanced collection from ${source}...`)
-        
-        const { data, error } = await supabase.functions.invoke(`collect-${source}-data`, {
-          body: { query, location, enhancedQuery }
-        })
+    // Aggregate results quickly
+    const allCandidates = sourceResults.flatMap(result => result.candidates)
+    console.log(`📊 Collected ${allCandidates.length} candidates from ${sourceResults.length} sources`)
 
-        if (error) {
-          console.error(`❌ Error collecting from ${source}:`, error)
-          results[source].error = error.message
-          errors.push({ source, error: error.message })
-          return
-        }
+    // Phase 4: Fast deduplication and basic ranking
+    console.log('🔄 Phase 4: Fast deduplication and ranking...')
+    const deduplicatedCandidates = performFastDeduplication(allCandidates)
+    const rankedCandidates = performFastRanking(deduplicatedCandidates)
 
-        if (data && data.candidates) {
-          console.log(`✅ ${source}: Found ${data.candidates.length} candidates`)
+    // Phase 5: Selective AI enhancement (only if time permits)
+    let enhancedCandidates = rankedCandidates
+    if (timeBudget.hasTimeRemaining() && enhanced_mode) {
+      console.log('✨ Phase 5: Selective AI enhancement...')
+      enhancedCandidates = await processor.batchEnhanceCandidates(
+        rankedCandidates,
+        openaiApiKey,
+        apolloApiKey
+      )
+    }
 
-          // Phase 5: Advanced candidate enhancement
-          const enhancedCandidates = []
-          
-          for (const candidate of data.candidates.slice(0, 10)) { // Limit for performance
-            let enhancedCandidate = { ...candidate }
-            
-            try {
-              // Apollo.io enrichment for contact discovery
-              if (apolloApiKey && enhanced_mode) {
-                enhancedCandidate = await enrichWithApollo(enhancedCandidate, apolloApiKey)
-                enhancedCandidate = await discoverContactMethods(enhancedCandidate)
-              }
-
-              // Semantic similarity scoring
-              if (queryEmbedding && openaiApiKey) {
-                const candidateProfile = buildSemanticProfile(enhancedCandidate)
-                const semanticScore = await calculateSemanticSimilarity(candidateProfile, queryEmbedding, openaiApiKey)
-                enhancedCandidate.semantic_similarity = semanticScore
-                console.log(`🎯 Semantic similarity for ${enhancedCandidate.name}: ${semanticScore}%`)
-              }
-
-              // Availability signal detection
-              if (openaiApiKey && enhanced_mode) {
-                const availabilityAnalysis = await detectAvailabilitySignals(enhancedCandidate, openaiApiKey)
-                if (availabilityAnalysis) {
-                  enhancedCandidate.availability_analysis = availabilityAnalysis
-                  console.log(`📈 Availability score for ${enhancedCandidate.name}: ${availabilityAnalysis.availability_score}%`)
-                }
-              }
-
-              // Enhanced scoring with new factors
-              enhancedCandidate.overall_score = calculateAdvancedScore(enhancedCandidate)
-
-              enhancedCandidates.push(enhancedCandidate)
-              totalValidated++
-
-            } catch (error) {
-              console.error(`⚠️ Enhancement failed for candidate from ${source}:`, error)
-              enhancedCandidates.push(enhancedCandidate) // Keep original candidate
-              totalValidated++
-            }
-          }
-
-          results[source] = {
-            candidates: enhancedCandidates,
-            total: enhancedCandidates.length,
-            validated: enhancedCandidates.length,
-            error: null
-          }
-
-          totalCandidates += enhancedCandidates.length
-        }
-
-      } catch (error) {
-        console.error(`❌ Critical error collecting from ${source}:`, error)
-        results[source].error = error.message
-        errors.push({ source, error: error.message })
+    // Build results structure for frontend
+    const results = {}
+    sourceResults.forEach(result => {
+      results[result.source] = {
+        candidates: result.candidates,
+        total: result.total,
+        validated: result.validated,
+        error: result.error
       }
     })
 
-    await Promise.allSettled(collectionPromises)
+    const totalCandidates = allCandidates.length
+    const totalValidated = deduplicatedCandidates.length
+    const processingTime = Date.now() - timeBudget.budget.startTime
 
-    // Phase 6: Cross-platform deduplication and ranking
-    const allCandidates = Object.values(results).flatMap(result => result.candidates)
-    const deduplicatedCandidates = performAdvancedDeduplication(allCandidates)
-    const rankedCandidates = rankCandidatesAdvanced(deduplicatedCandidates, enhancedQuery)
+    console.log(`🎉 Enhanced collection completed in ${processingTime}ms: ${totalValidated} unique candidates`)
 
-    console.log(`🎉 Enhanced collection completed: ${totalCandidates} total, ${totalValidated} validated, ${deduplicatedCandidates.length} unique`)
+    // Calculate enhancement stats
+    const enhancementStats = {
+      total_processed: totalCandidates,
+      unique_candidates: totalValidated,
+      processing_time_ms: processingTime,
+      time_budget_used: Math.round((processingTime / timeBudget.budget.total) * 100),
+      sources_successful: sourceResults.filter(r => !r.error).length,
+      parallel_processing: true,
+      ai_enhancements: enhancedCandidates.filter(c => c.ai_enhanced).length,
+      apollo_enriched: enhancedCandidates.filter(c => c.apollo_checked).length
+    }
 
-    // Phase 7: Enhanced analytics and insights
-    const enhancementStats = calculateEnhancementStats(allCandidates, sources)
-    
     return new Response(
       JSON.stringify({
         results,
         total_candidates: totalCandidates,
         total_validated: totalValidated,
-        unique_candidates: deduplicatedCandidates.length,
-        top_candidates: rankedCandidates.slice(0, 20),
+        unique_candidates: totalValidated,
+        top_candidates: enhancedCandidates.slice(0, 20),
         query: query,
         location: location,
-        enhancement_phase: 'Phase 4: Advanced AI-Powered Collection',
+        enhancement_phase: 'Phase 5: Time-Budget Optimized Collection',
         market_intelligence: marketIntelligence,
         quality_metrics: {
           validation_rate: `${Math.round((totalValidated / Math.max(totalCandidates, 1)) * 100)}%`,
-          ai_enhanced: true,
-          semantic_search: !!queryEmbedding,
-          apollo_enriched: !!apolloApiKey,
-          availability_detection: true,
-          market_intelligence: true,
-          personalized_outreach: true,
-          tier_system: true,
-          contact_discovery: true
+          ai_enhanced: enhanced_mode,
+          processing_time: `${Math.round(processingTime / 1000)}s`,
+          time_efficiency: `${Math.round((totalValidated / Math.max(processingTime / 1000, 1)) * 10) / 10} candidates/sec`,
+          parallel_processing: true,
+          smart_limiting: true,
+          early_returns: totalValidated >= 20
         },
-        enhancement_stats: {
-          ...enhancementStats,
-          advanced_features_enabled: Object.keys({
-            semantic_search: !!queryEmbedding,
-            apollo_enrichment: !!apolloApiKey,
-            market_intelligence: true,
-            availability_signals: !!openaiApiKey,
-            contact_discovery: true
-          }).length
+        enhancement_stats: enhancementStats,
+        performance_metrics: {
+          total_time_ms: processingTime,
+          average_time_per_source: Math.round(processingTime / sources.length),
+          timeout_rate: sourceResults.filter(r => r.error?.includes('timeout')).length / sourceResults.length,
+          success_rate: sourceResults.filter(r => !r.error).length / sourceResults.length
         },
-        errors,
         timestamp: new Date().toISOString()
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -214,15 +174,37 @@ serve(async (req) => {
   }
 })
 
+function performFastDeduplication(candidates: any[]): any[] {
+  const seen = new Set()
+  const deduplicated = []
+
+  for (const candidate of candidates) {
+    const key = candidate.email || candidate.github_username || candidate.name?.toLowerCase()
+    if (key && !seen.has(key)) {
+      seen.add(key)
+      deduplicated.push(candidate)
+    }
+  }
+
+  return deduplicated
+}
+
+function performFastRanking(candidates: any[]): any[] {
+  return candidates.sort((a, b) => {
+    const scoreA = (a.overall_score || 0) + (a.skill_match || 0)
+    const scoreB = (b.overall_score || 0) + (b.skill_match || 0)
+    return scoreB - scoreA
+  })
+}
+
 function extractRoleTypes(query: string): string[] {
   const roleKeywords = {
-    'frontend': ['frontend', 'front-end', 'react', 'vue', 'angular', 'ui', 'ux'],
-    'backend': ['backend', 'back-end', 'api', 'server', 'database', 'microservices'],
+    'frontend': ['frontend', 'front-end', 'react', 'vue', 'angular'],
+    'backend': ['backend', 'back-end', 'api', 'server'],
     'fullstack': ['fullstack', 'full-stack', 'full stack'],
-    'devops': ['devops', 'sre', 'infrastructure', 'deployment', 'kubernetes', 'docker'],
-    'mobile': ['mobile', 'ios', 'android', 'react native', 'flutter'],
-    'data': ['data scientist', 'data engineer', 'machine learning', 'ai', 'analytics'],
-    'security': ['security', 'cybersecurity', 'penetration testing', 'infosec']
+    'devops': ['devops', 'sre', 'infrastructure'],
+    'mobile': ['mobile', 'ios', 'android'],
+    'data': ['data scientist', 'data engineer', 'machine learning'],
   }
 
   const detectedRoles = []
@@ -240,111 +222,9 @@ function extractRoleTypes(query: string): string[] {
 function extractSeniorityLevel(query: string): string {
   const lowerQuery = query.toLowerCase()
   
-  if (lowerQuery.includes('senior') || lowerQuery.includes('lead') || lowerQuery.includes('principal')) {
-    return 'senior'
-  }
-  if (lowerQuery.includes('junior') || lowerQuery.includes('entry')) {
-    return 'junior'
-  }
-  if (lowerQuery.includes('mid') || lowerQuery.includes('intermediate')) {
-    return 'mid'
-  }
+  if (lowerQuery.includes('senior') || lowerQuery.includes('lead')) return 'senior'
+  if (lowerQuery.includes('junior') || lowerQuery.includes('entry')) return 'junior'
+  if (lowerQuery.includes('mid')) return 'mid'
   
   return 'all'
-}
-
-function calculateAdvancedScore(candidate: any): number {
-  let score = candidate.overall_score || 50
-
-  // Boost for semantic similarity
-  if (candidate.semantic_similarity) {
-    score += candidate.semantic_similarity * 0.3
-  }
-
-  // Boost for Apollo enrichment
-  if (candidate.apollo_enriched && candidate.apollo_enrichment_score) {
-    score += candidate.apollo_enrichment_score * 0.2
-  }
-
-  // Boost for availability signals
-  if (candidate.availability_analysis?.availability_score) {
-    score += candidate.availability_analysis.availability_score * 0.15
-  }
-
-  // Boost for contact methods
-  if (candidate.contact_discovery_score) {
-    score += candidate.contact_discovery_score * 0.1
-  }
-
-  return Math.min(Math.round(score), 100)
-}
-
-function performAdvancedDeduplication(candidates: any[]): any[] {
-  const seen = new Map()
-  const deduplicated = []
-
-  for (const candidate of candidates) {
-    const emailKey = candidate.email?.toLowerCase()
-    const nameKey = candidate.name?.toLowerCase()
-    const githubKey = candidate.github_username?.toLowerCase()
-    
-    const keys = [emailKey, nameKey, githubKey].filter(Boolean)
-    let isDuplicate = false
-    
-    for (const key of keys) {
-      if (seen.has(key)) {
-        // Merge with existing candidate, keeping the one with higher score
-        const existing = seen.get(key)
-        if (candidate.overall_score > existing.overall_score) {
-          const existingIndex = deduplicated.indexOf(existing)
-          deduplicated[existingIndex] = { ...existing, ...candidate }
-        }
-        isDuplicate = true
-        break
-      }
-    }
-    
-    if (!isDuplicate) {
-      keys.forEach(key => seen.set(key, candidate))
-      deduplicated.push(candidate)
-    }
-  }
-
-  return deduplicated
-}
-
-function rankCandidatesAdvanced(candidates: any[], enhancedQuery: any): any[] {
-  return candidates.sort((a, b) => {
-    // Primary: Overall score
-    const scoreDiff = (b.overall_score || 0) - (a.overall_score || 0)
-    if (Math.abs(scoreDiff) > 5) return scoreDiff
-
-    // Secondary: Semantic similarity
-    const semanticDiff = (b.semantic_similarity || 0) - (a.semantic_similarity || 0)
-    if (Math.abs(semanticDiff) > 10) return semanticDiff
-
-    // Tertiary: Availability score
-    const availabilityDiff = (b.availability_analysis?.availability_score || 0) - (a.availability_analysis?.availability_score || 0)
-    if (Math.abs(availabilityDiff) > 10) return availabilityDiff
-
-    // Quaternary: Apollo enrichment
-    const apolloDiff = (b.apollo_enrichment_score || 0) - (a.apollo_enrichment_score || 0)
-    return apolloDiff
-  })
-}
-
-function calculateEnhancementStats(candidates: any[], sources: string[]): any {
-  const stats = {
-    total_processed: candidates.length,
-    semantic_matches: candidates.filter(c => c.semantic_similarity && c.semantic_similarity > 70).length,
-    apollo_enriched: candidates.filter(c => c.apollo_enriched).length,
-    contact_discovery: candidates.filter(c => c.contact_discovery_score && c.contact_discovery_score > 30).length,
-    availability_analyzed: candidates.filter(c => c.availability_analysis).length,
-    high_availability: candidates.filter(c => c.availability_analysis?.availability_score > 70).length,
-    sources_used: sources.length,
-    avg_overall_score: Math.round(candidates.reduce((sum, c) => sum + (c.overall_score || 0), 0) / candidates.length || 0),
-    avg_semantic_score: Math.round(candidates.reduce((sum, c) => sum + (c.semantic_similarity || 0), 0) / candidates.length || 0)
-  }
-  
-  return stats
 }
