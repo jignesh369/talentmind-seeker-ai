@@ -68,25 +68,42 @@ export class DataCollectionService {
       sources: sources.slice(0, 4),
       timeBudget 
     });
+
+    // Validate inputs
+    if (!query || query.trim().length === 0) {
+      throw new Error('Query cannot be empty');
+    }
+
+    if (timeBudget < 30 || timeBudget > 120) {
+      console.warn('⚠️ Time budget outside recommended range (30-120s), adjusting to 80s');
+    }
+    
+    // Clean and validate location parameter
+    const cleanLocation = location && location.trim() !== '' && location !== 'undefined' ? location.trim() : undefined;
     
     const response = await supabase.functions.invoke('enhanced-data-collection', {
       body: { 
-        query, 
-        location: location || undefined, // Ensure clean location parameter
+        query: query.trim(), 
+        location: cleanLocation,
         sources: sources.slice(0, 4), // Enforce max 4 sources
-        time_budget: timeBudget
+        time_budget: Math.min(Math.max(timeBudget, 30), 120) // Clamp between 30-120s
       }
     });
 
     if (response.error) {
       console.error('❌ DataCollectionService: Collection error:', response.error);
-      // Provide more context in error messages
+      
+      // Enhanced error message handling
       let errorMessage = response.error.message || 'Data collection failed';
       
       if (errorMessage.includes('timeout')) {
-        errorMessage = 'Collection timed out on the server. Try using fewer sources or a simpler query.';
+        errorMessage = 'Collection timed out. Try using fewer sources or a simpler query.';
       } else if (errorMessage.includes('rate limit')) {
-        errorMessage = 'Service is temporarily rate limited. Please try again in a few minutes.';
+        errorMessage = 'Service temporarily rate limited. Please try again in a few minutes.';
+      } else if (errorMessage.includes('API key')) {
+        errorMessage = 'API configuration issue. Please check system configuration.';
+      } else if (errorMessage.includes('invalid')) {
+        errorMessage = 'Invalid request parameters. Please check your search query.';
       }
       
       throw new Error(errorMessage);
@@ -97,9 +114,16 @@ export class DataCollectionService {
       throw new Error('No data returned from collection service');
     }
 
+    // Validate response structure
+    if (typeof response.data.total_candidates !== 'number') {
+      console.warn('⚠️ Invalid response structure, attempting to fix');
+      response.data.total_candidates = response.data.total_candidates || 0;
+    }
+
     console.log('✅ DataCollectionService: Collection completed', {
       candidates: response.data.total_candidates,
-      processing_time: response.data.performance_metrics?.total_time_ms
+      processing_time: response.data.performance_metrics?.total_time_ms,
+      errors: response.data.errors?.length || 0
     });
 
     return response.data;

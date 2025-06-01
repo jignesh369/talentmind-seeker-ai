@@ -1,3 +1,4 @@
+
 import { useState } from 'react';
 import { useAuth } from './useAuth';
 import { useToast } from './use-toast';
@@ -6,7 +7,6 @@ import { useCollectionResults } from './useCollectionResults';
 import { DataCollectionService, DataCollectionResponse } from '@/services/dataCollectionService';
 import { NotificationService } from '@/services/notificationService';
 
-// Use the DataCollectionResponse as the main type
 export type EnhancedDataCollectionResult = DataCollectionResponse;
 
 export const useEnhancedDataCollection = () => {
@@ -30,6 +30,16 @@ export const useEnhancedDataCollection = () => {
       return;
     }
 
+    // Validate inputs
+    if (!query || query.trim().length === 0) {
+      toast({
+        title: "Invalid query",
+        description: "Please enter a valid search query",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsCollecting(true);
     clearResult();
     
@@ -37,50 +47,51 @@ export const useEnhancedDataCollection = () => {
 
     try {
       console.log('🚀 Starting enhanced collection with:', {
-        query,
+        query: query.trim(),
         location: location || 'Not specified',
-        sources,
+        sources: sources.slice(0, 4),
         user: user.id
       });
 
-      // Increase frontend timeout to 90 seconds to give backend more time
+      // Synchronized timeout: frontend matches backend (80s + 10s buffer)
       const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error('Collection is taking longer than expected. This may indicate high demand - please try again in a few minutes.')), 90000);
+        setTimeout(() => reject(new Error('Collection timed out after 90 seconds. The service may be under high demand - please try again in a few minutes.')), 90000);
       });
       
-      // Clean location parameter - handle undefined/null cases
-      const cleanLocation = location && location !== 'undefined' && location !== '' ? location : undefined;
-      
       const collectionPromise = DataCollectionService.collectCandidates({
-        query,
-        location: cleanLocation,
-        sources: sources.slice(0, 4), // Limit to max 4 sources
-        timeBudget: 80 // Increased backend time budget
+        query: query.trim(),
+        location: location && location !== 'undefined' && location.trim() !== '' ? location.trim() : undefined,
+        sources: sources.slice(0, 4), // Enforce max 4 sources
+        timeBudget: 80 // Synchronized with backend
       });
       
       const data = await Promise.race([collectionPromise, timeoutPromise]);
       
-      // Check if we got valid data
+      // Enhanced data validation
       if (!data) {
         throw new Error("No data returned - the collection service may be temporarily unavailable");
       }
 
-      // Accept results even if some sources failed, as long as we have some candidates
+      if (typeof data.total_candidates !== 'number') {
+        console.warn('⚠️ Invalid data structure received');
+        data.total_candidates = 0;
+      }
+
+      // Handle different result scenarios
       if (data.total_candidates === 0) {
-        // Check if all sources failed vs just no candidates found
         const allSourcesFailed = data.errors && data.errors.length === sources.length;
         
         if (allSourcesFailed) {
           const errorSummary = data.errors.slice(0, 2).map(e => e.source).join(', ');
           throw new Error(`Collection failed for all sources (${errorSummary}). Please try again with different search terms.`);
         } else {
-          // No candidates found but sources worked
           toast({
             title: "No candidates found",
             description: "Try adjusting your search query or location, or include more data sources.",
             variant: "destructive",
           });
-          return data; // Return empty result but don't throw error
+          updateResult(data);
+          return data;
         }
       }
 
@@ -91,8 +102,9 @@ export const useEnhancedDataCollection = () => {
 
       console.log('✅ Enhanced collection completed:', {
         candidates: data.total_candidates,
-        sources: Object.keys(data.results),
-        processing_time: data.performance_metrics?.total_time_ms
+        sources: Object.keys(data.results || {}),
+        processing_time: data.performance_metrics?.total_time_ms,
+        errors: data.errors?.length || 0
       });
 
       return data;
@@ -102,18 +114,19 @@ export const useEnhancedDataCollection = () => {
       
       let errorMessage = error.message || "Data collection failed unexpectedly";
       
-      // Provide more specific error messages based on error type
-      if (error.message?.includes('longer than expected')) {
-        errorMessage = "Collection is taking longer than usual. The service may be under high demand - please try again in a few minutes.";
-      } else if (error.message?.includes('Authentication')) {
+      // Enhanced error categorization
+      if (error.message?.includes('90 seconds') || error.message?.includes('timeout')) {
+        errorMessage = "Collection timed out. The service may be under high demand - please try again in a few minutes.";
+      } else if (error.message?.includes('Authentication') || error.message?.includes('auth')) {
         errorMessage = "Authentication expired. Please sign in again.";
       } else if (error.message?.includes('No data returned')) {
         errorMessage = "The collection service is temporarily unavailable. Please try again shortly.";
       } else if (error.message?.includes('all sources')) {
-        // Keep the detailed message for all sources failing
-        errorMessage = error.message;
-      } else if (error.message?.includes('timeout') || error.message?.includes('timed out')) {
-        errorMessage = "Collection timed out. Try using fewer sources or a simpler search query.";
+        errorMessage = error.message; // Keep detailed message for source failures
+      } else if (error.message?.includes('API key') || error.message?.includes('configuration')) {
+        errorMessage = "Service configuration issue. Please contact support if this persists.";
+      } else if (error.message?.includes('rate limit')) {
+        errorMessage = "Service temporarily rate limited. Please try again in a few minutes.";
       }
       
       const notification = NotificationService.generateErrorNotification({
