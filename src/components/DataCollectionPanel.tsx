@@ -1,7 +1,9 @@
+
 import React, { useState } from 'react';
 import { Search, Database, Github, Globe, Users, AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
 import { useEnhancedDataCollection } from '../hooks/useEnhancedDataCollection';
 import { useCandidates } from '../hooks/useCandidates';
+import { DeduplicationStatsCard } from './DeduplicationStatsCard';
 
 export const DataCollectionPanel = () => {
   const [query, setQuery] = useState('');
@@ -34,8 +36,8 @@ export const DataCollectionPanel = () => {
           <Database className="w-5 h-5 text-white" />
         </div>
         <div>
-          <h3 className="font-semibold text-slate-900">Data Collection</h3>
-          <p className="text-sm text-slate-600">Collect candidate data from multiple sources</p>
+          <h3 className="font-semibold text-slate-900">Enhanced Data Collection</h3>
+          <p className="text-sm text-slate-600">Collect and deduplicate candidate data from multiple sources</p>
         </div>
       </div>
 
@@ -123,24 +125,23 @@ export const DataCollectionPanel = () => {
         </div>
       )}
 
-      {/* Results Summary with Enhanced Deduplication Stats */}
+      {/* Enhanced Results Summary with Deduplication Stats */}
       {collectionResult && (
-        <div className="mt-6 pt-6 border-t border-slate-200">
+        <div className="mt-6 pt-6 border-t border-slate-200 space-y-4">
           <h4 className="font-medium text-slate-900 mb-3">Collection Results</h4>
           
-          {/* Enhanced stats with deduplication metrics */}
+          {/* Enhanced Deduplication Stats Card */}
           {collectionResult.enhancement_stats?.deduplication_metrics && (
-            <div className="mb-4 p-3 bg-blue-50 border border-blue-100 rounded-lg">
-              <div className="text-sm font-medium text-blue-800 mb-2">Enhanced Deduplication Applied</div>
-              <div className="grid grid-cols-2 gap-2 text-xs text-blue-700">
-                <div>Original: {collectionResult.enhancement_stats.deduplication_metrics.original_count}</div>
-                <div>Deduplicated: {collectionResult.enhancement_stats.deduplication_metrics.deduplicated_count}</div>
-                <div>Duplicates Removed: {collectionResult.enhancement_stats.deduplication_metrics.duplicates_removed}</div>
-                <div>Merge Rate: {collectionResult.enhancement_stats.deduplication_metrics.deduplication_rate}%</div>
-              </div>
-            </div>
+            <DeduplicationStatsCard
+              originalCount={collectionResult.enhancement_stats.deduplication_metrics.original_count}
+              deduplicatedCount={collectionResult.enhancement_stats.deduplication_metrics.deduplicated_count}
+              duplicatesRemoved={collectionResult.enhancement_stats.deduplication_metrics.duplicates_removed}
+              mergeDecisions={collectionResult.enhancement_stats.deduplication_metrics.merge_decisions}
+              deduplicationRate={collectionResult.enhancement_stats.deduplication_metrics.deduplication_rate}
+            />
           )}
 
+          {/* Source Results */}
           <div className="space-y-2">
             {Object.entries(collectionResult.results)
               .filter(([source, result]) => selectedSources.includes(source) || result.validated > 0)
@@ -160,6 +161,7 @@ export const DataCollectionPanel = () => {
                 </div>
               ))}
           </div>
+
           <div className="mt-3 p-3 bg-green-50 rounded-lg">
             <div className="text-sm font-medium text-green-800">
               Total: {collectionResult.total_validated} unique candidates collected

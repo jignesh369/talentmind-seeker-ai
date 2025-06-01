@@ -1,8 +1,10 @@
+
 import { useState } from 'react';
 import { useAuth } from './useAuth';
 import { useToast } from './use-toast';
 import { useCollectionProgress } from './useCollectionProgress';
 import { useCollectionResults } from './useCollectionResults';
+import { useDeduplicationMonitor } from './useDeduplicationMonitor';
 import { DataCollectionService, DataCollectionResponse } from '@/services/dataCollectionService';
 import { NotificationService } from '@/services/notificationService';
 
@@ -14,6 +16,7 @@ export const useEnhancedDataCollection = () => {
   const { toast } = useToast();
   const { progress, startProgress, resetProgress } = useCollectionProgress();
   const { result, updateResult, clearResult } = useCollectionResults();
+  const { validateAndTrack, getEfficiency } = useDeduplicationMonitor();
 
   const collectData = async (
     query: string, 
@@ -87,20 +90,31 @@ export const useEnhancedDataCollection = () => {
         data.total_candidates = totalCandidates;
       }
 
-      // Enhanced success detection with deduplication metrics
-      const hasGoodResults = data.total_candidates >= 5;
+      // Validate deduplication metrics if present
       const deduplicationStats = data.enhancement_stats?.deduplication_metrics;
-      
       if (deduplicationStats) {
-        console.log('🔄 Deduplication results:', {
-          original: deduplicationStats.original_count,
-          deduplicated: deduplicationStats.deduplicated_count,
-          duplicates_removed: deduplicationStats.duplicates_removed,
-          merge_decisions: deduplicationStats.merge_decisions,
-          deduplication_rate: `${deduplicationStats.deduplication_rate}%`
+        const isValid = validateAndTrack({
+          originalCount: deduplicationStats.original_count,
+          deduplicatedCount: deduplicationStats.deduplicated_count,
+          duplicatesRemoved: deduplicationStats.duplicates_removed,
+          mergeDecisions: deduplicationStats.merge_decisions,
+          deduplicationRate: deduplicationStats.deduplication_rate,
+          processingTimeMs: data.performance_metrics?.total_time_ms || 0
         });
+
+        if (!isValid) {
+          console.warn('⚠️ Deduplication metrics validation failed');
+        }
+
+        const efficiency = getEfficiency();
+        if (efficiency) {
+          console.log(`✨ Deduplication quality: ${efficiency.quality} (${efficiency.efficiency.toFixed(1)}% efficiency)`);
+        }
       }
 
+      // Enhanced success detection with deduplication metrics
+      const hasGoodResults = data.total_candidates >= 5;
+      
       // Early success detection - if we get good results quickly, that's success
       const processingTime = data.performance_metrics?.total_time_ms;
       
@@ -186,6 +200,7 @@ export const useEnhancedDataCollection = () => {
     collectData,
     isCollecting,
     collectionResult: result,
-    progress: progress.message
+    progress: progress.message,
+    deduplicationEfficiency: getEfficiency()
   };
 };
