@@ -3,7 +3,6 @@ import React, { useState } from 'react';
 import { CleanLayout } from '../components/CleanLayout';
 import { CleanCandidateGrid } from '../components/CleanCandidateGrid';
 import { DataCollectionDrawer } from '../components/DataCollectionDrawer';
-import { DataEnrichmentPanel } from '../components/DataEnrichmentPanel';
 import { AdvancedInsightsDashboard } from '../components/AdvancedInsightsDashboard';
 import { useCandidates } from '../hooks/useCandidates';
 import { useAuth } from '../hooks/useAuth';
@@ -20,12 +19,13 @@ const Index = () => {
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   
-  // Properly typed filters state with all required properties
+  // Enhanced filters state with new properties
   const [filters, setFilters] = useState({
     minScore: 0,
     maxScore: 100,
     location: '',
-    lastActive: '',
+    experience: '',
+    availability: '',
     skills: [] as string[]
   });
 
@@ -51,8 +51,8 @@ const Index = () => {
       setSearchResults(data.candidates || []);
       
       toast({
-        title: "Search completed",
-        description: `Found ${data.total_results || 0} candidates matching your criteria.`,
+        title: "AI Search Complete",
+        description: `Found ${data.total_results || 0} candidates with advanced matching algorithms.`,
       });
 
     } catch (error: any) {
@@ -80,24 +80,17 @@ const Index = () => {
       filters={filters}
       setFilters={setFilters}
     >
-      {/* Data Enrichment Panel */}
-      {candidates.length > 0 && (
-        <div className="mb-8">
-          <DataEnrichmentPanel 
-            candidates={candidates} 
-            onEnrichmentComplete={refetch}
-          />
-        </div>
-      )}
-
       {/* Insights Dashboard */}
       {showInsights && (
-        <div className="bg-white rounded-2xl p-6 shadow-lg border border-slate-200 mb-8">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-2xl font-bold text-slate-900">Analytics & Insights</h2>
+        <div className="bg-white rounded-2xl p-8 shadow-xl border border-slate-200 mb-10">
+          <div className="flex items-center justify-between mb-8">
+            <div>
+              <h2 className="text-3xl font-bold text-slate-900">AI Analytics Dashboard</h2>
+              <p className="text-slate-600 mt-1">Advanced insights and talent intelligence</p>
+            </div>
             <button
               onClick={() => setShowInsights(false)}
-              className="text-slate-500 hover:text-slate-700 text-xl font-bold"
+              className="text-slate-500 hover:text-slate-700 text-2xl font-bold hover:bg-slate-100 rounded-lg p-2 transition-colors"
             >
               ✕
             </button>

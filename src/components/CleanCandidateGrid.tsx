@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { Users } from 'lucide-react';
-import { CleanCandidateCard } from './CleanCandidateCard';
+import { EnhancedCandidateCard } from './EnhancedCandidateCard';
 import { Candidate } from '../hooks/useCandidates';
 
 interface CleanCandidateGridProps {
@@ -25,35 +25,39 @@ export const CleanCandidateGrid: React.FC<CleanCandidateGridProps> = ({
 }) => {
   if (isLoading) {
     return (
-      <div className="text-center py-16">
-        <div className="w-16 h-16 bg-gradient-to-r from-blue-600 to-purple-600 rounded-full animate-spin mx-auto mb-6"></div>
-        <h3 className="text-xl font-semibold text-slate-900 mb-2">Discovering Talent</h3>
-        <p className="text-slate-600">Finding the best developers for you...</p>
+      <div className="text-center py-20">
+        <div className="relative w-20 h-20 mx-auto mb-6">
+          <div className="absolute inset-0 bg-gradient-to-r from-blue-600 to-purple-600 rounded-full animate-spin"></div>
+          <div className="absolute inset-2 bg-white rounded-full"></div>
+          <div className="absolute inset-4 bg-gradient-to-r from-blue-600 to-purple-600 rounded-full"></div>
+        </div>
+        <h3 className="text-2xl font-bold text-slate-900 mb-3">AI Talent Discovery in Progress</h3>
+        <p className="text-slate-600 text-lg">Analyzing profiles and matching the perfect candidates...</p>
       </div>
     );
   }
 
   if (candidates.length === 0) {
     return (
-      <div className="text-center py-16">
-        <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-6">
-          <Users className="w-10 h-10 text-slate-400" />
+      <div className="text-center py-20">
+        <div className="w-24 h-24 bg-gradient-to-br from-slate-100 to-slate-200 rounded-full flex items-center justify-center mx-auto mb-8">
+          <Users className="w-12 h-12 text-slate-400" />
         </div>
-        <h3 className="text-xl font-semibold text-slate-900 mb-2">
-          {searchQuery ? 'No developers found' : 'No developers available'}
+        <h3 className="text-2xl font-bold text-slate-900 mb-3">
+          {searchQuery ? 'No matching developers found' : 'No developers in database'}
         </h3>
-        <p className="text-slate-600 mb-4">
+        <p className="text-slate-600 text-lg mb-6">
           {searchQuery 
-            ? `Try adjusting your search for "${searchQuery}" or browse all developers.`
-            : 'Start by collecting data or try searching for specific skills.'
+            ? `We couldn't find developers matching "${searchQuery}". Try adjusting your search terms or explore our full talent pool.`
+            : 'Start by collecting developer data or browse available profiles to discover amazing talent.'
           }
         </p>
         {searchQuery && (
           <button
             onClick={() => onSearch('')}
-            className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+            className="px-8 py-4 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl hover:from-blue-700 hover:to-purple-700 transition-all font-semibold text-lg shadow-lg hover:shadow-xl"
           >
-            Show All Developers
+            Explore All Developers
           </button>
         )}
       </div>
@@ -62,29 +66,33 @@ export const CleanCandidateGrid: React.FC<CleanCandidateGridProps> = ({
 
   return (
     <div>
-      {/* Results Header */}
-      <div className="mb-8">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-2xl font-bold text-slate-900">
-              {searchQuery ? 'Search Results' : 'All Developers'}
-            </h2>
-            <p className="text-slate-600 mt-1">
-              {candidates.length} developer{candidates.length !== 1 ? 's' : ''} found
-              {searchQuery && (
-                <span className="ml-2 text-blue-600 font-medium">
-                  for "{searchQuery}"
-                </span>
-              )}
-            </p>
-          </div>
+      {/* Enhanced Results Header */}
+      <div className="mb-10">
+        <div className="text-center">
+          <h2 className="text-3xl font-bold text-slate-900 mb-2">
+            {searchQuery ? 'AI-Powered Search Results' : 'Discovered Talent'}
+          </h2>
+          <p className="text-slate-600 text-lg">
+            Found <span className="font-bold text-blue-600">{candidates.length}</span> exceptional developer{candidates.length !== 1 ? 's' : ''}
+            {searchQuery && (
+              <span className="ml-2">
+                matching <span className="font-semibold text-purple-600">"{searchQuery}"</span>
+              </span>
+            )}
+          </p>
+          {candidates.length > 0 && (
+            <div className="mt-4 inline-flex items-center px-4 py-2 bg-green-100 text-green-700 rounded-full text-sm font-medium">
+              <div className="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></div>
+              AI-ranked by relevance and compatibility
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Candidate Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      {/* Enhanced Candidate Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-8">
         {candidates.map((candidate) => (
-          <CleanCandidateCard 
+          <EnhancedCandidateCard 
             key={candidate.id} 
             candidate={candidate}
             onContact={onContact}
@@ -93,6 +101,15 @@ export const CleanCandidateGrid: React.FC<CleanCandidateGridProps> = ({
           />
         ))}
       </div>
+
+      {/* Load More Section */}
+      {candidates.length >= 10 && (
+        <div className="text-center mt-12">
+          <button className="px-8 py-4 border-2 border-slate-300 text-slate-700 rounded-xl hover:bg-slate-50 hover:border-slate-400 transition-all font-semibold">
+            Load More Candidates
+          </button>
+        </div>
+      )}
     </div>
   );
 };
