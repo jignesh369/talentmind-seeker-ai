@@ -40,23 +40,22 @@ serve(async (req) => {
     }
 
     // Step 1: Parse and enhance the query using OpenAI
-    const enhancedQuery = await enhanceQuery(query, openaiApiKey)
+    const enhancedQuery = await enhanceQueryWithAI(query, openaiApiKey)
     console.log('Enhanced query:', enhancedQuery)
 
-    // Step 2: Collect from each source
+    // Step 2: Collect from each source with improved validation
     for (const source of sources) {
       try {
         console.log(`Collecting from ${source}...`)
         
-        // Fix function name mapping
         const functionName = source === 'google' ? 'collect-google-search-data' : `collect-${source}-data`
         
         // Collect raw data with timeout
         const { data: rawData, error: collectError } = await Promise.race([
           supabase.functions.invoke(functionName, {
-            body: { query: enhancedQuery.searchTerms.join(' '), location }
+            body: { query: enhancedQuery.searchTerms.join(' '), location, enhancedQuery }
           }),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 30000))
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 45000))
         ])
 
         if (collectError) throw collectError
@@ -66,22 +65,28 @@ serve(async (req) => {
 
         console.log(`Collected ${rawCandidates.length} raw candidates from ${source}`)
 
-        // Step 3: Validate and enrich candidates using LLMs (only if we have candidates)
+        // Step 3: AI-powered validation and enrichment
         const validatedCandidates = []
         
         if (rawCandidates.length > 0) {
-          for (const candidate of rawCandidates.slice(0, 10)) { // Limit to first 10 for performance
+          for (const candidate of rawCandidates.slice(0, 15)) {
             try {
-              // Validate candidate using OpenAI
-              const isValid = await validateCandidate(candidate, enhancedQuery, openaiApiKey)
+              // Step 3a: Pre-validation using AI
+              const isValidCandidate = await validateCandidateWithAI(candidate, enhancedQuery, openaiApiKey)
               
-              if (isValid) {
-                // Enrich candidate profile using Perplexity
-                const enrichedCandidate = await enrichCandidateProfile(candidate, perplexityApiKey)
-                
-                // Calculate enhanced scoring
-                const scoredCandidate = await calculateEnhancedScoring(enrichedCandidate, enhancedQuery, openaiApiKey)
-                
+              if (!isValidCandidate) {
+                console.log(`Candidate ${candidate.name} failed AI validation`)
+                continue
+              }
+
+              // Step 3b: Enrich candidate profile using Perplexity
+              const enrichedCandidate = await enrichCandidateProfile(candidate, perplexityApiKey)
+              
+              // Step 3c: Calculate enhanced scoring with AI
+              const scoredCandidate = await calculateEnhancedScoring(enrichedCandidate, enhancedQuery, openaiApiKey)
+              
+              // Step 3d: Final quality check
+              if (scoredCandidate.overall_score >= 40) {
                 validatedCandidates.push(scoredCandidate)
               }
             } catch (error) {
@@ -93,9 +98,9 @@ serve(async (req) => {
         results[source].candidates = validatedCandidates
         results[source].validated = validatedCandidates.length
 
-        // Step 4: Store validated candidates
+        // Step 4: Store validated candidates with deduplication
         if (validatedCandidates.length > 0) {
-          await storeCandidates(validatedCandidates, supabase)
+          await storeCandidatesWithDeduplication(validatedCandidates, supabase)
         }
 
       } catch (error) {
@@ -137,10 +142,8 @@ serve(async (req) => {
 
 function extractJSON(text) {
   try {
-    // Try to parse directly first
     return JSON.parse(text)
   } catch {
-    // Remove markdown code blocks and try again
     const cleanText = text
       .replace(/```json\s*/g, '')
       .replace(/```\s*/g, '')
@@ -149,7 +152,6 @@ function extractJSON(text) {
     try {
       return JSON.parse(cleanText)
     } catch {
-      // Extract content between first { and last }
       const start = text.indexOf('{')
       const end = text.lastIndexOf('}')
       if (start !== -1 && end !== -1 && end > start) {
@@ -165,7 +167,7 @@ function extractJSON(text) {
   }
 }
 
-async function enhanceQuery(query, openaiApiKey) {
+async function enhanceQueryWithAI(query, openaiApiKey) {
   try {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -185,8 +187,9 @@ async function enhanceQuery(query, openaiApiKey) {
             - experience_level: junior/mid/senior/lead
             - experience_min: minimum years of experience
             - location_preferences: array of locations if mentioned
-            - searchTerms: array of alternative search terms to use
-            - role_types: array of job titles/roles`
+            - searchTerms: array of alternative search terms to use (include specific keywords for developers)
+            - role_types: array of job titles/roles
+            - keywords: array of important keywords for validation`
           },
           { role: 'user', content: query }
         ],
@@ -204,7 +207,8 @@ async function enhanceQuery(query, openaiApiKey) {
       experience_min: 0,
       location_preferences: [],
       searchTerms: [query],
-      role_types: []
+      role_types: [],
+      keywords: query.split(' ').filter(w => w.length > 2)
     }
   } catch (error) {
     console.error('Error enhancing query:', error)
@@ -214,12 +218,13 @@ async function enhanceQuery(query, openaiApiKey) {
       experience_min: 0,
       location_preferences: [],
       searchTerms: [query],
-      role_types: []
+      role_types: [],
+      keywords: query.split(' ').filter(w => w.length > 2)
     }
   }
 }
 
-async function validateCandidate(candidate, enhancedQuery, openaiApiKey) {
+async function validateCandidateWithAI(candidate, enhancedQuery, openaiApiKey) {
   try {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -234,19 +239,28 @@ async function validateCandidate(candidate, enhancedQuery, openaiApiKey) {
             role: 'system',
             content: `You are a candidate validation expert. Determine if this candidate is a good match for the search criteria.
             
-            Return only "true" or "false" based on:
-            1. Does the candidate have relevant technical skills?
+            Validate based on:
+            1. Does the candidate have relevant technical skills matching the query?
             2. Is their experience level appropriate?
             3. Is their profile complete and professional?
-            4. Are they likely a real, active developer?
+            4. Are they likely a real, active developer/professional?
+            5. Do their skills match the required keywords?
             
+            Return only "true" if the candidate passes ALL validation criteria, "false" otherwise.
             Be strict - only validate high-quality, relevant candidates.`
           },
           {
             role: 'user',
             content: `Search criteria: ${JSON.stringify(enhancedQuery)}
             
-            Candidate: ${JSON.stringify(candidate)}`
+            Candidate: ${JSON.stringify({
+              name: candidate.name,
+              title: candidate.title,
+              summary: candidate.summary,
+              skills: candidate.skills,
+              experience_years: candidate.experience_years,
+              location: candidate.location
+            })}`
           }
         ],
         temperature: 0.1
@@ -263,7 +277,7 @@ async function validateCandidate(candidate, enhancedQuery, openaiApiKey) {
 
 async function enrichCandidateProfile(candidate, perplexityApiKey) {
   try {
-    const searchQuery = `${candidate.name} ${candidate.github_username || ''} developer programmer engineer`
+    const searchQuery = `${candidate.name} ${candidate.github_username || ''} ${candidate.title || ''} developer programmer engineer`
     
     const response = await fetch('https://api.perplexity.ai/chat/completions', {
       method: 'POST',
@@ -276,7 +290,7 @@ async function enrichCandidateProfile(candidate, perplexityApiKey) {
         messages: [
           {
             role: 'system',
-            content: 'You are a talent researcher. Find additional professional information about this developer. Return only factual, verifiable information in JSON format with fields: summary, experience_years, specializations, notable_projects, current_company.'
+            content: 'You are a talent researcher. Find additional professional information about this developer. Return only factual, verifiable information in JSON format with fields: summary, experience_years, specializations, notable_projects, current_company, verified_skills.'
           },
           {
             role: 'user',
@@ -298,7 +312,8 @@ async function enrichCandidateProfile(candidate, perplexityApiKey) {
       experience_years: enrichmentData.experience_years || candidate.experience_years,
       specializations: enrichmentData.specializations || [],
       notable_projects: enrichmentData.notable_projects || [],
-      current_company: enrichmentData.current_company
+      current_company: enrichmentData.current_company,
+      verified_skills: enrichmentData.verified_skills || candidate.skills
     }
   } catch (error) {
     console.error('Error enriching candidate profile:', error)
@@ -320,13 +335,15 @@ async function calculateEnhancedScoring(candidate, enhancedQuery, openaiApiKey) 
           {
             role: 'system',
             content: `You are a technical recruiter scoring candidates. Return ONLY a valid JSON object (no markdown) with scores (0-100) for:
-            - overall_score: overall match quality
+            - overall_score: overall match quality (weighted average of other scores)
             - skill_match: how well skills match requirements
             - experience: experience level appropriateness
             - reputation: professional reputation and activity
             - freshness: recent activity and relevance
             - social_proof: community involvement and recognition
-            - risk_flags: array of any concerns (strings)`
+            - risk_flags: array of any concerns (strings)
+            
+            Be thorough and consider all available information.`
           },
           {
             role: 'user',
@@ -368,49 +385,54 @@ async function calculateEnhancedScoring(candidate, enhancedQuery, openaiApiKey) 
   }
 }
 
-async function storeCandidates(candidates, supabase) {
+async function storeCandidatesWithDeduplication(candidates, supabase) {
   try {
     for (const candidate of candidates) {
-      // Check if candidate already exists
+      // Check for duplicates using multiple criteria
       const { data: existing } = await supabase
         .from('candidates')
-        .select('id')
-        .eq('name', candidate.name)
-        .eq('github_username', candidate.github_username)
-        .maybeSingle()
+        .select('id, name, github_username, email')
+        .or(`name.eq.${candidate.name},github_username.eq.${candidate.github_username || 'null'},email.eq.${candidate.email || 'null'}`)
 
-      if (!existing) {
-        // Insert new candidate
-        const { error } = await supabase
-          .from('candidates')
-          .insert({
-            name: candidate.name,
-            title: candidate.title,
-            location: candidate.location,
-            avatar_url: candidate.avatar_url,
-            email: candidate.email,
-            github_username: candidate.github_username,
-            stackoverflow_id: candidate.stackoverflow_id,
-            reddit_username: candidate.reddit_username,
-            summary: candidate.summary,
-            skills: candidate.skills || [],
-            experience_years: candidate.experience_years,
-            last_active: candidate.last_active,
-            overall_score: candidate.overall_score || 0,
-            skill_match: candidate.skill_match || 0,
-            experience: candidate.experience || 0,
-            reputation: candidate.reputation || 0,
-            freshness: candidate.freshness || 0,
-            social_proof: candidate.social_proof || 0,
-            risk_flags: candidate.risk_flags || []
-          })
+      if (existing && existing.length > 0) {
+        console.log(`Duplicate candidate found: ${candidate.name}, skipping...`)
+        continue
+      }
 
-        if (error) {
-          console.error('Error storing candidate:', error)
-        }
+      // Insert new candidate with validation
+      const candidateData = {
+        name: candidate.name,
+        title: candidate.title,
+        location: candidate.location,
+        avatar_url: candidate.avatar_url,
+        email: candidate.email,
+        github_username: candidate.github_username,
+        stackoverflow_id: candidate.stackoverflow_id,
+        reddit_username: candidate.reddit_username,
+        summary: candidate.summary,
+        skills: candidate.skills || [],
+        experience_years: candidate.experience_years || 0,
+        last_active: candidate.last_active,
+        overall_score: Math.round(candidate.overall_score || 0),
+        skill_match: Math.round(candidate.skill_match || 0),
+        experience: Math.round(candidate.experience || 0),
+        reputation: Math.round(candidate.reputation || 0),
+        freshness: Math.round(candidate.freshness || 0),
+        social_proof: Math.round(candidate.social_proof || 0),
+        risk_flags: candidate.risk_flags || []
+      }
+
+      const { error } = await supabase
+        .from('candidates')
+        .insert(candidateData)
+
+      if (error) {
+        console.error('Error storing candidate:', error)
+      } else {
+        console.log(`Successfully stored candidate: ${candidate.name}`)
       }
     }
   } catch (error) {
-    console.error('Error in storeCandidates:', error)
+    console.error('Error in storeCandidatesWithDeduplication:', error)
   }
 }

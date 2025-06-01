@@ -13,7 +13,7 @@ serve(async (req) => {
   }
 
   try {
-    const { query, location } = await req.json()
+    const { query, location, enhancedQuery } = await req.json()
 
     if (!query) {
       return new Response(
@@ -25,12 +25,10 @@ serve(async (req) => {
       )
     }
 
-    // Initialize Supabase client
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     const supabase = createClient(supabaseUrl, supabaseKey)
 
-    // Get Google API credentials
     const googleApiKey = Deno.env.get('GOOGLE_API_KEY')
     const googleSearchEngineId = Deno.env.get('GOOGLE_SEARCH_ENGINE_ID')
 
@@ -44,15 +42,26 @@ serve(async (req) => {
       )
     }
 
-    // Build search queries for different platforms
+    // Build developer-specific search queries
+    const skills = enhancedQuery?.skills || []
+    const keywords = enhancedQuery?.keywords || []
+    const searchTerms = [...skills, ...keywords].filter(Boolean)
+
     const searchQueries = [
-      `${query} site:github.com ${location ? location : ''}`,
-      `${query} site:linkedin.com/in ${location ? location : ''}`,
-      `${query} site:stackoverflow.com/users ${location ? location : ''}`,
-      `${query} developer portfolio ${location ? location : ''}`
+      // GitHub profiles with skills
+      `${searchTerms.join(' OR ')} site:github.com ${location ? location : ''} developer`,
+      // LinkedIn developer profiles
+      `"software engineer" OR "developer" OR "programmer" ${searchTerms.slice(0, 3).join(' ')} site:linkedin.com/in ${location ? location : ''}`,
+      // Stack Overflow user profiles
+      `${searchTerms.slice(0, 2).join(' ')} site:stackoverflow.com/users ${location ? location : ''}`,
+      // Dev.to profiles
+      `${searchTerms.slice(0, 2).join(' ')} site:dev.to ${location ? location : ''} developer`,
+      // Personal portfolios and websites
+      `"${searchTerms.slice(0, 2).join('" "')}" developer portfolio ${location ? location : ''} -site:github.com -site:linkedin.com`
     ]
 
     const candidates = []
+    const seenProfiles = new Set()
 
     for (const searchQuery of searchQueries) {
       try {
@@ -60,29 +69,38 @@ serve(async (req) => {
           `https://www.googleapis.com/customsearch/v1?key=${googleApiKey}&cx=${googleSearchEngineId}&q=${encodeURIComponent(searchQuery)}&num=10`
         )
 
-        if (!response.ok) continue
+        if (!response.ok) {
+          console.error(`Google API error for query "${searchQuery}":`, response.status)
+          continue
+        }
 
         const data = await response.json()
         const results = data.items || []
 
         for (const result of results) {
-          // Extract information from search results
+          // Skip if we've already processed this URL
+          if (seenProfiles.has(result.link)) continue
+          seenProfiles.add(result.link)
+
+          // Extract platform information
           let platform = 'web'
           let platformId = result.link
           let name = result.title
-          let summary = result.snippet
+          let summary = result.snippet || ''
 
-          // Detect platform
+          // Enhanced platform detection
           if (result.link.includes('github.com/')) {
             platform = 'github'
-            const githubMatch = result.link.match(/github\.com\/([^\/]+)/)
-            if (githubMatch) {
+            const githubMatch = result.link.match(/github\.com\/([^\/\?]+)/)
+            if (githubMatch && !githubMatch[1].includes('orgs')) {
               platformId = githubMatch[1]
-              name = platformId
+              name = githubMatch[1]
+            } else {
+              continue // Skip organization pages
             }
           } else if (result.link.includes('linkedin.com/in/')) {
             platform = 'linkedin'
-            const linkedinMatch = result.link.match(/linkedin\.com\/in\/([^\/]+)/)
+            const linkedinMatch = result.link.match(/linkedin\.com\/in\/([^\/\?]+)/)
             if (linkedinMatch) {
               platformId = linkedinMatch[1]
             }
@@ -92,31 +110,67 @@ serve(async (req) => {
             if (soMatch) {
               platformId = soMatch[1]
             }
+          } else if (result.link.includes('dev.to/')) {
+            platform = 'dev.to'
+            const devMatch = result.link.match(/dev\.to\/([^\/\?]+)/)
+            if (devMatch) {
+              platformId = devMatch[1]
+              name = devMatch[1]
+            }
           }
 
-          // Extract skills from title and snippet
+          // Enhanced skill extraction
+          const text = (result.title + ' ' + summary).toLowerCase()
           const skillKeywords = [
-            'python', 'javascript', 'typescript', 'java', 'c++', 'go', 'rust',
-            'react', 'vue', 'angular', 'node.js', 'django', 'flask', 'fastapi',
-            'machine learning', 'ml', 'ai', 'data science', 'backend', 'frontend'
+            'python', 'javascript', 'typescript', 'java', 'c++', 'c#', 'go', 'rust', 'php', 'ruby',
+            'react', 'vue', 'angular', 'node.js', 'django', 'flask', 'fastapi', 'spring', 'laravel',
+            'machine learning', 'ml', 'ai', 'data science', 'backend', 'frontend', 'full stack',
+            'devops', 'cloud', 'aws', 'azure', 'docker', 'kubernetes', 'tensorflow', 'pytorch'
           ]
 
-          const text = (result.title + ' ' + result.snippet).toLowerCase()
-          const extractedSkills = skillKeywords.filter(skill => text.includes(skill))
+          const extractedSkills = skillKeywords.filter(skill => 
+            text.includes(skill) || text.includes(skill.replace(/[.\s]/g, ''))
+          )
+
+          // Enhanced validation for developer profiles
+          const isDeveloper = (
+            extractedSkills.length > 0 ||
+            text.includes('developer') ||
+            text.includes('programmer') ||
+            text.includes('engineer') ||
+            text.includes('coding') ||
+            text.includes('software') ||
+            platform === 'github' ||
+            platform === 'stackoverflow' ||
+            platform === 'dev.to'
+          )
+
+          if (!isDeveloper) {
+            continue // Skip non-developer profiles
+          }
+
+          // Calculate quality score
+          let qualityScore = 30 // Base score
+          qualityScore += extractedSkills.length * 8 // Skill bonus
+          qualityScore += platform === 'github' ? 20 : 0 // GitHub bonus
+          qualityScore += platform === 'linkedin' ? 15 : 0 // LinkedIn bonus
+          qualityScore += platform === 'stackoverflow' ? 18 : 0 // SO bonus
+          qualityScore += summary.length > 100 ? 10 : 0 // Content bonus
 
           const candidate = {
             name: name || 'Unknown Developer',
-            title: result.title.substring(0, 100),
-            summary: summary.substring(0, 500),
+            title: extractTitleFromResult(result.title, platform),
+            summary: cleanSummary(summary),
+            location: extractLocationFromText(text) || location || '',
             skills: extractedSkills,
-            experience_years: 3, // Default estimate
+            experience_years: estimateExperienceFromText(text),
             last_active: new Date().toISOString(),
-            overall_score: 60 + (extractedSkills.length * 5), // Base score + skill bonus
-            skill_match: Math.min(extractedSkills.length * 20, 90),
-            experience: 50,
-            reputation: 40,
+            overall_score: Math.min(qualityScore, 100),
+            skill_match: Math.min(extractedSkills.length * 15, 90),
+            experience: estimateExperienceScore(text),
+            reputation: platform === 'github' || platform === 'stackoverflow' ? 60 : 40,
             freshness: 75,
-            social_proof: 30,
+            social_proof: platform === 'linkedin' ? 50 : 30,
             risk_flags: []
           }
 
@@ -129,26 +183,20 @@ serve(async (req) => {
 
           candidates.push(candidate)
 
-          // Save to database
-          const { error } = await supabase
-            .from('candidates')
-            .upsert(candidate)
-
-          if (error) {
-            console.error('Error saving Google search candidate:', error)
-          }
-
           // Save source data
-          await supabase
-            .from('candidate_sources')
-            .upsert({
-              candidate_id: platformId,
-              platform: platform,
-              platform_id: platformId,
-              url: result.link,
-              data: result
-            }, { onConflict: 'platform,platform_id' })
-
+          try {
+            await supabase
+              .from('candidate_sources')
+              .upsert({
+                candidate_id: platformId,
+                platform: platform,
+                platform_id: platformId,
+                url: result.link,
+                data: result
+              }, { onConflict: 'platform,platform_id' })
+          } catch (error) {
+            console.error('Error saving source data:', error)
+          }
         }
 
       } catch (error) {
@@ -157,12 +205,17 @@ serve(async (req) => {
       }
     }
 
-    console.log(`Collected ${candidates.length} candidates from Google Search`)
+    // Sort by quality score and limit results
+    const sortedCandidates = candidates
+      .sort((a, b) => b.overall_score - a.overall_score)
+      .slice(0, 20)
+
+    console.log(`Collected ${sortedCandidates.length} quality candidates from Google Search`)
 
     return new Response(
       JSON.stringify({ 
-        candidates,
-        total: candidates.length,
+        candidates: sortedCandidates,
+        total: sortedCandidates.length,
         source: 'google'
       }),
       { 
@@ -181,3 +234,64 @@ serve(async (req) => {
     )
   }
 })
+
+function extractTitleFromResult(title, platform) {
+  if (platform === 'github') {
+    return 'Software Developer'
+  }
+  if (platform === 'linkedin') {
+    // Extract title from LinkedIn result
+    const match = title.match(/([^-|]+)\s*[-|]/)
+    return match ? match[1].trim() : 'Software Professional'
+  }
+  if (platform === 'stackoverflow') {
+    return 'Stack Overflow Contributor'
+  }
+  if (platform === 'dev.to') {
+    return 'Developer & Writer'
+  }
+  return 'Software Developer'
+}
+
+function cleanSummary(summary) {
+  return summary
+    .replace(/\.\.\./g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .substring(0, 300)
+}
+
+function extractLocationFromText(text) {
+  const locationPatterns = [
+    /located in ([^,.]+)/i,
+    /based in ([^,.]+)/i,
+    /from ([^,.]+)/i
+  ]
+  
+  for (const pattern of locationPatterns) {
+    const match = text.match(pattern)
+    if (match) {
+      return match[1].trim()
+    }
+  }
+  
+  return null
+}
+
+function estimateExperienceFromText(text) {
+  const yearMatches = text.match(/(\d+)\+?\s*years?/i)
+  if (yearMatches) {
+    return parseInt(yearMatches[1])
+  }
+  
+  if (text.includes('senior') || text.includes('lead')) return 7
+  if (text.includes('mid') || text.includes('intermediate')) return 4
+  if (text.includes('junior') || text.includes('entry')) return 2
+  
+  return 3 // Default estimate
+}
+
+function estimateExperienceScore(text) {
+  const years = estimateExperienceFromText(text)
+  return Math.min(years * 12, 90)
+}
