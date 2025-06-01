@@ -1,4 +1,3 @@
-
 import { useState } from 'react';
 import { useAuth } from './useAuth';
 import { useToast } from './use-toast';
@@ -46,7 +45,7 @@ export const useEnhancedDataCollection = () => {
     const stopProgress = startProgress();
 
     try {
-      console.log('🚀 Starting enhanced collection with:', {
+      console.log('🚀 Starting enhanced collection with Phase 4.1 deduplication:', {
         query: query.trim(),
         location: location || 'Not specified',
         sources: sources.slice(0, 4),
@@ -88,8 +87,21 @@ export const useEnhancedDataCollection = () => {
         data.total_candidates = totalCandidates;
       }
 
-      // Early success detection - if we get good results quickly, that's success
+      // Enhanced success detection with deduplication metrics
       const hasGoodResults = data.total_candidates >= 5;
+      const deduplicationStats = data.enhancement_stats?.deduplication_metrics;
+      
+      if (deduplicationStats) {
+        console.log('🔄 Deduplication results:', {
+          original: deduplicationStats.original_count,
+          deduplicated: deduplicationStats.deduplicated_count,
+          duplicates_removed: deduplicationStats.duplicates_removed,
+          merge_decisions: deduplicationStats.merge_decisions,
+          deduplication_rate: `${deduplicationStats.deduplication_rate}%`
+        });
+      }
+
+      // Early success detection - if we get good results quickly, that's success
       const processingTime = data.performance_metrics?.total_time_ms;
       
       if (hasGoodResults && processingTime && processingTime < 60000) {
@@ -116,15 +128,20 @@ export const useEnhancedDataCollection = () => {
 
       updateResult(data);
       
+      // Enhanced notification with deduplication info
       const notification = NotificationService.generateSuccessNotification(data);
+      if (deduplicationStats && deduplicationStats.duplicates_removed > 0) {
+        notification.description += ` (${deduplicationStats.duplicates_removed} duplicates merged)`;
+      }
       toast(notification);
 
-      console.log('✅ Enhanced collection completed:', {
+      console.log('✅ Enhanced collection with deduplication completed:', {
         candidates: data.total_candidates,
         sources: Object.keys(data.results || {}),
         processing_time: data.performance_metrics?.total_time_ms,
         errors: data.errors?.length || 0,
-        ai_enhancements: data.enhancement_stats?.ai_enhancements || 0
+        duplicates_removed: deduplicationStats?.duplicates_removed || 0,
+        deduplication_rate: deduplicationStats?.deduplication_rate || 0
       });
 
       return data;

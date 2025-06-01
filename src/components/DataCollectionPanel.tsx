@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Search, Database, Github, Globe, Users, AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
 import { useEnhancedDataCollection } from '../hooks/useEnhancedDataCollection';
@@ -124,10 +123,24 @@ export const DataCollectionPanel = () => {
         </div>
       )}
 
-      {/* Results Summary */}
+      {/* Results Summary with Enhanced Deduplication Stats */}
       {collectionResult && (
         <div className="mt-6 pt-6 border-t border-slate-200">
           <h4 className="font-medium text-slate-900 mb-3">Collection Results</h4>
+          
+          {/* Enhanced stats with deduplication metrics */}
+          {collectionResult.enhancement_stats?.deduplication_metrics && (
+            <div className="mb-4 p-3 bg-blue-50 border border-blue-100 rounded-lg">
+              <div className="text-sm font-medium text-blue-800 mb-2">Enhanced Deduplication Applied</div>
+              <div className="grid grid-cols-2 gap-2 text-xs text-blue-700">
+                <div>Original: {collectionResult.enhancement_stats.deduplication_metrics.original_count}</div>
+                <div>Deduplicated: {collectionResult.enhancement_stats.deduplication_metrics.deduplicated_count}</div>
+                <div>Duplicates Removed: {collectionResult.enhancement_stats.deduplication_metrics.duplicates_removed}</div>
+                <div>Merge Rate: {collectionResult.enhancement_stats.deduplication_metrics.deduplication_rate}%</div>
+              </div>
+            </div>
+          )}
+
           <div className="space-y-2">
             {Object.entries(collectionResult.results)
               .filter(([source, result]) => selectedSources.includes(source) || result.validated > 0)
@@ -149,7 +162,12 @@ export const DataCollectionPanel = () => {
           </div>
           <div className="mt-3 p-3 bg-green-50 rounded-lg">
             <div className="text-sm font-medium text-green-800">
-              Total: {collectionResult.total_validated} candidates collected
+              Total: {collectionResult.total_validated} unique candidates collected
+              {collectionResult.enhancement_stats?.deduplication_metrics?.duplicates_removed > 0 && (
+                <span className="text-xs text-green-600 ml-2">
+                  ({collectionResult.enhancement_stats.deduplication_metrics.duplicates_removed} duplicates merged)
+                </span>
+              )}
             </div>
           </div>
         </div>
