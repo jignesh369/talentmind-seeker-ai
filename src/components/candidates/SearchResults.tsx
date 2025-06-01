@@ -1,7 +1,6 @@
-
 import React from 'react';
 import { Badge } from '@/components/ui/badge';
-import { Info, AlertTriangle, RefreshCw, Brain, Target, Award, Building } from 'lucide-react';
+import { Info, AlertTriangle, RefreshCw, Brain, Target, Award, Building, Zap, Layers, Lightbulb } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 interface SearchResultsProps {
@@ -27,17 +26,44 @@ export const SearchResults = ({
   retryCount = 0,
   onRetry
 }: SearchResultsProps) => {
-  const getEnhancedSearchBadges = () => {
+  const getAdvancedSearchBadges = () => {
     if (!searchMetadata?.enhanced_features) return null;
     
     const badges = [];
     const features = searchMetadata.enhanced_features;
     
+    if (features.contextual_search) {
+      badges.push(
+        <Badge key="contextual" variant="default" className="ml-2 bg-purple-600">
+          <Brain className="w-3 h-3 mr-1" />
+          Contextual AI
+        </Badge>
+      );
+    }
+    
+    if (features.technology_stack) {
+      badges.push(
+        <Badge key="stack" variant="default" className="ml-2 bg-cyan-500">
+          <Layers className="w-3 h-3 mr-1" />
+          Stack Match
+        </Badge>
+      );
+    }
+    
+    if (features.intent_detection) {
+      badges.push(
+        <Badge key="intent" variant="default" className="ml-2 bg-emerald-500">
+          <Lightbulb className="w-3 h-3 mr-1" />
+          Intent Detection
+        </Badge>
+      );
+    }
+    
     if (features.semantic_search) {
       badges.push(
         <Badge key="semantic" variant="default" className="ml-2 bg-purple-500">
           <Brain className="w-3 h-3 mr-1" />
-          Semantic Match
+          Semantic
         </Badge>
       );
     }
@@ -51,20 +77,11 @@ export const SearchResults = ({
       );
     }
     
-    if (features.seniority_filtering) {
+    if (features.confidence_scoring && features.confidence_scoring > 70) {
       badges.push(
-        <Badge key="seniority" variant="default" className="ml-2 bg-green-500">
-          <Award className="w-3 h-3 mr-1" />
-          Level Match
-        </Badge>
-      );
-    }
-    
-    if (features.industry_targeting) {
-      badges.push(
-        <Badge key="industry" variant="default" className="ml-2 bg-orange-500">
-          <Building className="w-3 h-3 mr-1" />
-          Industry Match
+        <Badge key="confidence" variant="default" className="ml-2 bg-green-600">
+          <Zap className="w-3 h-3 mr-1" />
+          High Confidence
         </Badge>
       );
     }
@@ -72,10 +89,10 @@ export const SearchResults = ({
     return badges;
   };
 
-  const getSearchQualityBadge = () => {
+  const getAdvancedSearchQualityBadge = () => {
     if (!searchMetadata) return null;
     
-    const { search_strategies, fallback_used, service_status } = searchMetadata;
+    const { search_strategies, fallback_used, service_status, enhanced_features } = searchMetadata;
     
     // Service status indicator
     if (service_status === 'degraded') {
@@ -86,26 +103,36 @@ export const SearchResults = ({
       return <Badge variant="secondary" className="ml-2">Broad Match</Badge>;
     }
     
+    // Enhanced quality indicators
+    if (enhanced_features?.confidence_scoring) {
+      const confidence = enhanced_features.confidence_scoring;
+      if (confidence >= 80) {
+        return <Badge variant="default" className="ml-2 bg-green-600">AI Precision+</Badge>;
+      } else if (confidence >= 60) {
+        return <Badge variant="default" className="ml-2 bg-blue-600">AI Enhanced</Badge>;
+      } else if (confidence >= 40) {
+        return <Badge variant="default" className="ml-2 bg-indigo-500">AI Assisted</Badge>;
+      }
+    }
+    
     if (search_strategies) {
       const activeStrategies = Object.keys(search_strategies).filter(
         key => search_strategies[key].count > 0
       );
       
-      if (activeStrategies.length >= 4) {
-        return <Badge variant="default" className="ml-2 bg-green-500">Enhanced Precision</Badge>;
-      } else if (activeStrategies.length >= 3) {
+      if (activeStrategies.length >= 5) {
+        return <Badge variant="default" className="ml-2 bg-green-500">Maximum Precision</Badge>;
+      } else if (activeStrategies.length >= 4) {
         return <Badge variant="default" className="ml-2 bg-blue-500">High Precision</Badge>;
-      } else if (activeStrategies.length >= 2) {
-        return <Badge variant="default" className="ml-2 bg-indigo-500">Good Match</Badge>;
-      } else if (activeStrategies.length === 1) {
-        return <Badge variant="outline" className="ml-2">Single Strategy</Badge>;
+      } else if (activeStrategies.length >= 3) {
+        return <Badge variant="default" className="ml-2 bg-indigo-500">Enhanced Match</Badge>;
       }
     }
     
-    return null;
+    return <Badge variant="outline" className="ml-2">Standard Search</Badge>;
   };
 
-  const getEnhancedStrategyInfo = () => {
+  const getAdvancedStrategyInfo = () => {
     if (!searchMetadata?.search_strategies) return null;
     
     const strategies = searchMetadata.search_strategies;
@@ -114,68 +141,78 @@ export const SearchResults = ({
       .map(([name, data]: [string, any]) => ({
         name: name.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
         count: data.count,
-        error: data.error
-      }));
-    
-    const errorStrategies = Object.entries(strategies)
-      .filter(([_, data]: [string, any]) => data.error && data.count === 0)
-      .map(([name, data]: [string, any]) => ({
-        name: name.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
-        error: data.error
+        error: data.error,
+        confidence: data.confidence,
+        intent: data.intent,
+        stacks: data.stacks
       }));
     
     return (
       <div className="text-xs text-slate-600 mt-2 space-y-1">
         {activeStrategies.length > 0 && (
           <div className="flex items-center gap-2">
-            <Info className="w-3 h-3" />
-            <span>
-              Active strategies: {activeStrategies.map(s => `${s.name} (${s.count})`).join(', ')}
-            </span>
-          </div>
-        )}
-        
-        {errorStrategies.length > 0 && (
-          <div className="flex items-center gap-2 text-amber-600">
-            <AlertTriangle className="w-3 h-3" />
-            <span>
-              {errorStrategies.length} search strategies had issues but results were still found
-            </span>
-          </div>
-        )}
-        
-        {searchMetadata.enhanced_features && (
-          <div className="flex items-center gap-2 text-blue-600">
             <Brain className="w-3 h-3" />
-            <span>Enhanced with semantic understanding and intelligent matching</span>
+            <span>
+              AI Strategies: {activeStrategies.map(s => {
+                let strategyInfo = `${s.name} (${s.count})`;
+                if (s.confidence) strategyInfo += ` [${s.confidence}% confidence]`;
+                if (s.intent) strategyInfo += ` [${s.intent}]`;
+                if (s.stacks) strategyInfo += ` [${s.stacks.join(', ')} stacks]`;
+                return strategyInfo;
+              }).join(', ')}
+            </span>
+          </div>
+        )}
+        
+        {searchMetadata.enhanced_features?.contextual_search && (
+          <div className="flex items-center gap-2 text-purple-600">
+            <Layers className="w-3 h-3" />
+            <span>Advanced contextual understanding and technology stack analysis active</span>
+          </div>
+        )}
+        
+        {searchMetadata.enhanced_features?.intent_detection && (
+          <div className="flex items-center gap-2 text-emerald-600">
+            <Lightbulb className="w-3 h-3" />
+            <span>Search intent detected and optimized for: {searchMetadata.parsed_criteria?.search_intent?.replace('_', ' ')}</span>
           </div>
         )}
       </div>
     );
   };
 
-  const getValidationInfo = () => {
-    if (!searchMetadata?.query_validation) return null;
+  const getAdvancedValidationInfo = () => {
+    if (!searchMetadata?.query_validation && !searchMetadata?.parsed_criteria) return null;
     
-    const { original_query, sanitized_query, validation_errors } = searchMetadata.query_validation;
+    const { parsed_criteria } = searchMetadata;
     
-    if (validation_errors && validation_errors.length > 0) {
-      return (
-        <div className="text-xs text-amber-600 mt-1">
-          Query was adjusted: {validation_errors.join(', ')}
+    return (
+      <div className="text-xs text-slate-500 mt-2 space-y-1">
+        {parsed_criteria?.confidence_score && (
+          <div>
+            <span className="font-medium">AI Confidence: {parsed_criteria.confidence_score}%</span>
+            {parsed_criteria.confidence_score >= 70 && <span className="text-green-600 ml-1">(High)</span>}
+            {parsed_criteria.confidence_score >= 40 && parsed_criteria.confidence_score < 70 && <span className="text-blue-600 ml-1">(Medium)</span>}
+            {parsed_criteria.confidence_score < 40 && <span className="text-amber-600 ml-1">(Low)</span>}
+          </div>
+        )}
+        
+        <div className="flex flex-wrap gap-2">
+          {parsed_criteria?.skills?.length > 0 && (
+            <span>Skills: {parsed_criteria.skills.slice(0, 3).join(', ')}</span>
+          )}
+          {parsed_criteria?.technology_stack?.length > 0 && (
+            <span>Tech Stacks: {parsed_criteria.technology_stack.join(', ')}</span>
+          )}
+          {parsed_criteria?.role_cluster?.length > 0 && (
+            <span>Role Clusters: {parsed_criteria.role_cluster.join(', ')}</span>
+          )}
+          {parsed_criteria?.location && (
+            <span>Location: {parsed_criteria.location}</span>
+          )}
         </div>
-      );
-    }
-    
-    if (original_query !== sanitized_query) {
-      return (
-        <div className="text-xs text-blue-600 mt-1">
-          Search query was optimized for better results
-        </div>
-      );
-    }
-    
-    return null;
+      </div>
+    );
   };
 
   const renderErrorState = () => {
@@ -222,10 +259,10 @@ export const SearchResults = ({
         <div className="flex-1">
           <div className="flex items-center flex-wrap">
             <h2 className="text-xl font-semibold text-slate-900">
-              {searchQuery ? 'Enhanced Search Results' : 'All Candidates'}
+              {searchQuery ? 'AI-Enhanced Search Results' : 'All Candidates'}
             </h2>
-            {getSearchQualityBadge()}
-            {getEnhancedSearchBadges()}
+            {getAdvancedSearchQualityBadge()}
+            {getAdvancedSearchBadges()}
           </div>
           
           <div className="mt-1">
@@ -233,7 +270,7 @@ export const SearchResults = ({
               {isSearching ? (
                 <span className="flex items-center">
                   <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                  Running enhanced search...
+                  Running AI-enhanced search...
                   {retryCount > 0 && ` (retry ${retryCount})`}
                 </span>
               ) : (
@@ -246,12 +283,12 @@ export const SearchResults = ({
               )}
             </p>
             
-            {getEnhancedStrategyInfo()}
-            {getValidationInfo()}
+            {getAdvancedStrategyInfo()}
+            {getAdvancedValidationInfo()}
             
             {searchMetadata?.fallback_used && !searchError && (
               <p className="text-xs text-amber-600 mt-1">
-                Showing top candidates - try more specific search terms for better matches
+                Showing top candidates - try more specific search terms for better AI matching
               </p>
             )}
             
@@ -273,8 +310,9 @@ export const SearchResults = ({
         </div>
         
         <select className="px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-          <option>Sort by Relevance</option>
+          <option>Sort by AI Relevance</option>
           <option>Sort by Overall Score</option>
+          <option>Sort by Context Match</option>
           <option>Sort by Experience</option>
           <option>Sort by Last Active</option>
         </select>

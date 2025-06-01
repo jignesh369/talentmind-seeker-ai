@@ -1,4 +1,3 @@
-
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
@@ -275,6 +274,212 @@ async function executeIndustrySearch(supabase: any, criteria: any): Promise<{ da
   }
 }
 
+async function executeAdvancedSemanticSearch(supabase: any, criteria: any): Promise<{ data: any[], error?: string }> {
+  try {
+    console.log('🧠 Executing advanced semantic search strategy')
+    
+    if (!criteria?.contextual_skills || !Array.isArray(criteria.contextual_skills) || criteria.contextual_skills.length === 0) {
+      return { data: [] }
+    }
+    
+    // Multi-layered semantic search with contextual understanding
+    const semanticQuery = supabase
+      .from('candidates')
+      .select('*')
+      .or(`skills.cs.{${criteria.contextual_skills.join(',')}},summary.ilike.%${criteria.contextual_skills.slice(0, 3).join('%,summary.ilike.%')}%`)
+      .order('overall_score', { ascending: false })
+      .limit(30)
+    
+    const { data, error } = await semanticQuery
+    
+    if (error) {
+      throw new Error(`Advanced semantic search failed: ${error.message}`)
+    }
+    
+    // Enhanced contextual scoring
+    const enhancedData = (data || []).map(candidate => {
+      let contextualBoost = 0;
+      
+      // Technology stack bonus
+      if (criteria.technology_stack?.length > 0) {
+        const stackMatches = criteria.technology_stack.filter(stack => 
+          candidate.skills?.some(skill => 
+            criteria.contextual_skills.includes(skill.toLowerCase())
+          )
+        ).length;
+        contextualBoost += stackMatches * 15;
+      }
+      
+      // Role cluster alignment bonus
+      if (criteria.role_cluster?.length > 0) {
+        const roleAlignment = criteria.role_cluster.some(cluster => 
+          candidate.title?.toLowerCase().includes(cluster.toLowerCase())
+        );
+        if (roleAlignment) contextualBoost += 25;
+      }
+      
+      // Search intent bonus
+      switch (criteria.search_intent) {
+        case 'active_hiring':
+          if (candidate.last_active && new Date(candidate.last_active) > new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)) {
+            contextualBoost += 20;
+          }
+          break;
+        case 'skill_assessment':
+          if (candidate.experience_years && candidate.experience_years >= 5) {
+            contextualBoost += 15;
+          }
+          break;
+      }
+      
+      // Confidence score multiplier
+      const confidenceMultiplier = Math.max(0.5, criteria.confidence_score / 100);
+      
+      return {
+        ...candidate,
+        hybrid_score: (candidate.overall_score || 0) + (contextualBoost * confidenceMultiplier) + 35,
+        search_strategy: 'advanced_semantic',
+        contextual_boost: contextualBoost,
+        confidence_factor: confidenceMultiplier
+      }
+    })
+    
+    console.log(`✅ Advanced semantic search completed: ${enhancedData.length} results`)
+    return { data: enhancedData }
+    
+  } catch (error) {
+    console.error('❌ Advanced semantic search error:', error.message)
+    return { data: [], error: error.message }
+  }
+}
+
+async function executeTechnologyStackSearch(supabase: any, criteria: any): Promise<{ data: any[], error?: string }> {
+  try {
+    console.log('🔧 Executing technology stack search strategy')
+    
+    if (!criteria?.technology_stack || !Array.isArray(criteria.technology_stack) || criteria.technology_stack.length === 0) {
+      return { data: [] }
+    }
+    
+    // Search for candidates with complete technology stacks
+    const stackQuery = supabase
+      .from('candidates')
+      .select('*')
+      .overlaps('skills', criteria.contextual_skills.slice(0, 10))
+      .order('overall_score', { ascending: false })
+      .limit(25)
+    
+    const { data, error } = await stackQuery
+    
+    if (error) {
+      throw new Error(`Technology stack search failed: ${error.message}`)
+    }
+    
+    // Stack completeness scoring
+    const enhancedData = (data || []).map(candidate => {
+      let stackScore = 0;
+      
+      criteria.technology_stack.forEach(stack => {
+        const stackSkills = getStackSkills(stack);
+        const matchedSkills = stackSkills.filter(skill => 
+          candidate.skills?.some(candidateSkill => 
+            candidateSkill.toLowerCase().includes(skill.toLowerCase())
+          )
+        ).length;
+        
+        const completeness = matchedSkills / stackSkills.length;
+        stackScore += completeness * 30;
+      });
+      
+      return {
+        ...candidate,
+        hybrid_score: (candidate.overall_score || 0) + stackScore + 28,
+        search_strategy: 'technology_stack',
+        stack_completeness: stackScore
+      }
+    })
+    
+    console.log(`✅ Technology stack search completed: ${enhancedData.length} results`)
+    return { data: enhancedData }
+    
+  } catch (error) {
+    console.error('❌ Technology stack search error:', error.message)
+    return { data: [], error: error.message }
+  }
+}
+
+async function executeIntentBasedSearch(supabase: any, criteria: any): Promise<{ data: any[], error?: string }> {
+  try {
+    console.log('🎯 Executing intent-based search strategy')
+    
+    let intentQuery = supabase.from('candidates').select('*');
+    let intentBoost = 0;
+    
+    switch (criteria.search_intent) {
+      case 'active_hiring':
+        // Prioritize recently active candidates
+        intentQuery = intentQuery
+          .gte('last_active', new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString())
+          .order('last_active', { ascending: false });
+        intentBoost = 22;
+        break;
+        
+      case 'skill_assessment':
+        // Prioritize experienced candidates
+        intentQuery = intentQuery
+          .gte('experience_years', 3)
+          .order('experience_years', { ascending: false });
+        intentBoost = 18;
+        break;
+        
+      case 'competitive_intelligence':
+        // Prioritize high-scoring candidates
+        intentQuery = intentQuery
+          .gte('overall_score', 70)
+          .order('overall_score', { ascending: false });
+        intentBoost = 20;
+        break;
+        
+      default:
+        intentQuery = intentQuery.order('overall_score', { ascending: false });
+        intentBoost = 10;
+    }
+    
+    const { data, error } = await intentQuery.limit(20);
+    
+    if (error) {
+      throw new Error(`Intent-based search failed: ${error.message}`)
+    }
+    
+    const enhancedData = (data || []).map(candidate => ({
+      ...candidate,
+      hybrid_score: (candidate.overall_score || 0) + intentBoost,
+      search_strategy: 'intent_based',
+      intent_match: criteria.search_intent
+    }))
+    
+    console.log(`✅ Intent-based search completed: ${enhancedData.length} results`)
+    return { data: enhancedData }
+    
+  } catch (error) {
+    console.error('❌ Intent-based search error:', error.message)
+    return { data: [], error: error.message }
+  }
+}
+
+function getStackSkills(stackName: string): string[] {
+  const stacks = {
+    'mern': ['mongodb', 'express', 'react', 'node.js'],
+    'mean': ['mongodb', 'express', 'angular', 'node.js'],
+    'lamp': ['linux', 'apache', 'mysql', 'php'],
+    'django_stack': ['python', 'django', 'postgresql', 'redis'],
+    'spring_stack': ['java', 'spring', 'mysql', 'maven'],
+    'jamstack': ['javascript', 'api', 'markup', 'gatsby', 'next.js']
+  };
+  
+  return stacks[stackName] || [];
+}
+
 async function executeSearchStrategy(strategyName: string, query: any, retryCount = 0): Promise<{ data: any[], error?: string }> {
   const MAX_RETRIES = 2
   
@@ -395,8 +600,56 @@ serve(async (req) => {
     const allResults = new Map()
     const searchResults = {}
 
-    // Strategy 1: Semantic search (highest priority)
-    if (parsed_criteria?.semantic_skills) {
+    // Strategy 1: Advanced Semantic Search (highest priority)
+    if (parsed_criteria?.contextual_skills && parsed_criteria.confidence_score > 30) {
+      const advancedSemanticResult = await executeAdvancedSemanticSearch(supabase, parsed_criteria)
+      searchResults['advanced_semantic'] = { 
+        count: advancedSemanticResult.data.length, 
+        error: advancedSemanticResult.error,
+        confidence: parsed_criteria.confidence_score
+      }
+      
+      advancedSemanticResult.data.forEach(candidate => {
+        if (!allResults.has(candidate.id)) {
+          allResults.set(candidate.id, candidate)
+        }
+      })
+    }
+
+    // Strategy 2: Technology Stack Search
+    if (parsed_criteria?.technology_stack?.length > 0) {
+      const stackResult = await executeTechnologyStackSearch(supabase, parsed_criteria)
+      searchResults['technology_stack'] = { 
+        count: stackResult.data.length, 
+        error: stackResult.error,
+        stacks: parsed_criteria.technology_stack
+      }
+      
+      stackResult.data.forEach(candidate => {
+        if (!allResults.has(candidate.id)) {
+          allResults.set(candidate.id, candidate)
+        }
+      })
+    }
+
+    // Strategy 3: Intent-Based Search
+    if (parsed_criteria?.search_intent) {
+      const intentResult = await executeIntentBasedSearch(supabase, parsed_criteria)
+      searchResults['intent_based'] = { 
+        count: intentResult.data.length, 
+        error: intentResult.error,
+        intent: parsed_criteria.search_intent
+      }
+      
+      intentResult.data.forEach(candidate => {
+        if (!allResults.has(candidate.id)) {
+          allResults.set(candidate.id, candidate)
+        }
+      })
+    }
+
+    // Strategy 4: Semantic search
+    if (parsed_criteria?.semantic_skills || Array.isArray(parsed_criteria.semantic_skills) || parsed_criteria.semantic_skills.length > 0) {
       const semanticResult = await executeSemanticSearch(supabase, parsed_criteria)
       searchResults['semantic_search'] = { 
         count: semanticResult.data.length, 
@@ -410,8 +663,8 @@ serve(async (req) => {
       })
     }
 
-    // Strategy 2: Role-based search
-    if (parsed_criteria?.role_types) {
+    // Strategy 5: Role-based search
+    if (parsed_criteria?.role_types || Array.isArray(parsed_criteria.role_types) || parsed_criteria.role_types.length > 0) {
       const roleResult = await executeRoleBasedSearch(supabase, parsed_criteria)
       searchResults['role_based_search'] = { 
         count: roleResult.data.length, 
@@ -425,8 +678,8 @@ serve(async (req) => {
       })
     }
 
-    // Strategy 3: Seniority-based search
-    if (parsed_criteria?.seniority_level) {
+    // Strategy 6: Seniority-based search
+    if (parsed_criteria?.seniority_level || parsed_criteria.seniority_level !== 'any') {
       const seniorityResult = await executeSenioritySearch(supabase, parsed_criteria)
       searchResults['seniority_search'] = { 
         count: seniorityResult.data.length, 
@@ -440,8 +693,8 @@ serve(async (req) => {
       })
     }
 
-    // Strategy 4: Industry-based search
-    if (parsed_criteria?.industries) {
+    // Strategy 7: Industry-based search
+    if (parsed_criteria?.industries || Array.isArray(parsed_criteria.industries) || parsed_criteria.industries.length > 0) {
       const industryResult = await executeIndustrySearch(supabase, parsed_criteria)
       searchResults['industry_search'] = { 
         count: industryResult.data.length, 
@@ -455,7 +708,7 @@ serve(async (req) => {
       })
     }
 
-    // Strategy 5: Skills-based search (traditional)
+    // Strategy 8: Skills-based search (traditional)
     if (parsed_criteria?.skills && Array.isArray(parsed_criteria.skills) && parsed_criteria.skills.length > 0) {
       try {
         const skillsQuery = supabase
@@ -485,7 +738,7 @@ serve(async (req) => {
       }
     }
 
-    // Strategy 6: Text-based search (fallback)
+    // Strategy 9: Text-based search (fallback)
     try {
       const searchTerms = sanitizedQuery.toLowerCase()
         .split(/\s+/)
@@ -544,7 +797,7 @@ serve(async (req) => {
       searchResults['text_based'] = { count: 0, error: error.message }
     }
 
-    // Convert results and sort
+    // Convert results and sort with advanced scoring
     let candidates = Array.from(allResults.values())
       .sort((a, b) => (b.hybrid_score || 0) - (a.hybrid_score || 0))
 
@@ -611,9 +864,13 @@ serve(async (req) => {
         },
         enhanced_features: {
           semantic_search: !!parsed_criteria?.semantic_skills?.length,
+          contextual_search: !!parsed_criteria?.contextual_skills?.length,
           role_matching: !!parsed_criteria?.role_types?.length,
           seniority_filtering: parsed_criteria?.seniority_level !== 'any',
-          industry_targeting: !!parsed_criteria?.industries?.length
+          industry_targeting: !!parsed_criteria?.industries?.length,
+          technology_stack: !!parsed_criteria?.technology_stack?.length,
+          intent_detection: !!parsed_criteria?.search_intent,
+          confidence_scoring: parsed_criteria?.confidence_score || 0
         }
       }),
       { 
