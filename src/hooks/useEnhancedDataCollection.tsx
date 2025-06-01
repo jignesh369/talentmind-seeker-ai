@@ -1,3 +1,4 @@
+
 import { useState } from 'react';
 import { useAuth } from './useAuth';
 import { useToast } from './use-toast';
@@ -80,7 +81,11 @@ export const useEnhancedDataCollection = () => {
 
       if (typeof data.total_candidates !== 'number') {
         console.warn('⚠️ Invalid data structure received, attempting to fix...');
-        data.total_candidates = data.candidates?.length || 0;
+        // Calculate total candidates from results object
+        const totalCandidates = Object.values(data.results || {}).reduce((sum, result: any) => {
+          return sum + (result.candidates?.length || 0);
+        }, 0);
+        data.total_candidates = totalCandidates;
       }
 
       // Early success detection - if we get good results quickly, that's success
