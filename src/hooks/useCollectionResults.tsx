@@ -1,11 +1,11 @@
 
 import { useState } from 'react';
-import type { EnhancedDataCollectionResult } from './useEnhancedDataCollection';
+import type { DataCollectionResponse } from '@/services/dataCollectionService';
 
 export const useCollectionResults = () => {
-  const [result, setResult] = useState<EnhancedDataCollectionResult | null>(null);
+  const [result, setResult] = useState<DataCollectionResponse | null>(null);
 
-  const updateResult = (newResult: EnhancedDataCollectionResult) => {
+  const updateResult = (newResult: DataCollectionResponse) => {
     setResult(newResult);
   };
 

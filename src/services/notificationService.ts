@@ -1,5 +1,5 @@
 
-import type { EnhancedDataCollectionResult } from '@/hooks/useEnhancedDataCollection';
+import type { DataCollectionResponse } from '@/services/dataCollectionService';
 
 export interface NotificationOptions {
   title: string;
@@ -8,7 +8,7 @@ export interface NotificationOptions {
 }
 
 export class NotificationService {
-  static generateSuccessNotification(result: EnhancedDataCollectionResult): NotificationOptions {
+  static generateSuccessNotification(result: DataCollectionResponse): NotificationOptions {
     const successfulSources = Object.values(result.results).filter((res: any) => !res.error).length;
     const processingTime = result.performance_metrics?.total_time_ms || 0;
     const successRate = result.performance_metrics?.success_rate || 0;

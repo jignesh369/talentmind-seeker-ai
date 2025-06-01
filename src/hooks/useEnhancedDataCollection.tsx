@@ -1,53 +1,14 @@
+
 import { useState } from 'react';
 import { useAuth } from './useAuth';
 import { useToast } from './use-toast';
 import { useCollectionProgress } from './useCollectionProgress';
 import { useCollectionResults } from './useCollectionResults';
-import { DataCollectionService } from '@/services/dataCollectionService';
+import { DataCollectionService, DataCollectionResponse } from '@/services/dataCollectionService';
 import { NotificationService } from '@/services/notificationService';
 
-export interface EnhancedDataCollectionResult {
-  results: {
-    github: { candidates: any[], total: number, validated: number, error: string | null };
-    stackoverflow: { candidates: any[], total: number, validated: number, error: string | null };
-    google: { candidates: any[], total: number, validated: number, error: string | null };
-    linkedin: { candidates: any[], total: number, validated: number, error: string | null };
-    'linkedin-cross-platform': { candidates: any[], total: number, validated: number, error: string | null };
-    kaggle: { candidates: any[], total: number, validated: number, error: string | null };
-    devto: { candidates: any[], total: number, validated: number, error: string | null };
-  };
-  total_candidates: number;
-  total_validated: number;
-  query: string;
-  location?: string;
-  enhancement_phase: string;
-  quality_metrics: {
-    validation_rate: string;
-    processing_time: string;
-    time_efficiency: string;
-    parallel_processing: boolean;
-    smart_limiting: boolean;
-    early_returns: boolean;
-  };
-  performance_metrics: {
-    total_time_ms: number;
-    average_time_per_source: number;
-    timeout_rate: number;
-    success_rate: number;
-  };
-  enhancement_stats: {
-    total_processed: number;
-    unique_candidates: number;
-    processing_time_ms: number;
-    time_budget_used: number;
-    sources_successful: number;
-    parallel_processing: boolean;
-    ai_enhancements: number;
-    apollo_enriched: number;
-  };
-  errors?: Array<{ source: string; error: string }>;
-  timestamp: string;
-}
+// Use the DataCollectionResponse as the main type
+export type EnhancedDataCollectionResult = DataCollectionResponse;
 
 export const useEnhancedDataCollection = () => {
   const [isCollecting, setIsCollecting] = useState(false);
