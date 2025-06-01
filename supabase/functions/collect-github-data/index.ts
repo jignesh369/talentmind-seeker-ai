@@ -52,20 +52,16 @@ serve(async (req) => {
       high_star_repos: 0
     }
 
+    // Simplified search strategies for better results
     const searchStrategies = [
       {
-        name: 'Primary Skill Search',
-        query: `${query} in:login,name,email,location`,
+        name: 'Direct Skill Search',
+        query: query.split(' ').slice(0, 3).join(' '), // Use first 3 words only
         sort: 'followers'
       },
       {
-        name: 'Location-Based Search',
-        query: `${query} location:${location || 'remote'}`,
-        sort: 'followers'
-      },
-      {
-        name: 'Skill-Based Search',
-        query: query,
+        name: 'Location Search',
+        query: `${query.split(' ')[0]} location:${location || 'anywhere'}`,
         sort: 'followers'
       }
     ]
@@ -79,11 +75,11 @@ serve(async (req) => {
         console.log(`📋 Found ${users.length} GitHub users for strategy: ${strategy.name}`)
         enhancementStats.total_processed += users.length
 
-        for (const user of users.slice(0, 20)) {
+        for (const user of users.slice(0, 15)) { // Reduced from 20 to 15
           if (seenUsers.has(user.login)) continue
           seenUsers.add(user.login)
 
-          if (candidates.length >= 25) {
+          if (candidates.length >= 20) { // Reduced from 25 to 20
             console.log('✅ Reached candidate limit, stopping collection')
             break
           }
@@ -109,11 +105,11 @@ serve(async (req) => {
 
             const enhancedProfile = buildEnhancedProfile(userProfile, repos)
 
-            // Calculate scores properly - ensure integers
-            const repoScore = Math.round(calculateRepoScore(repos))
-            const contributionScore = Math.round(calculateContributionScore(userProfile))
-            const skillScore = Math.round(calculateSkillScore(userProfile, repos, enhancedQuery?.skills || []))
-            const activityScore = Math.round(calculateActivityScore(userProfile, repos))
+            // Calculate scores with proper integer conversion
+            const repoScore = Math.round(Math.min(Math.max(calculateRepoScore(repos), 0), 100))
+            const contributionScore = Math.round(Math.min(Math.max(calculateContributionScore(userProfile), 0), 100))
+            const skillScore = Math.round(Math.min(Math.max(calculateSkillScore(userProfile, repos, enhancedQuery?.skills || []), 0), 100))
+            const activityScore = Math.round(Math.min(Math.max(calculateActivityScore(userProfile, repos), 0), 100))
             const overallScore = Math.round((repoScore + contributionScore + skillScore + activityScore) / 4)
 
             const candidateId = generateUUID()
@@ -128,14 +124,14 @@ serve(async (req) => {
               github_username: user.login,
               summary: enhancedProfile.summary,
               skills: enhancedProfile.skills,
-              experience_years: Math.round(enhancedProfile.estimatedExperience), // Ensure integer
+              experience_years: Math.round(Math.min(Math.max(enhancedProfile.estimatedExperience, 1), 20)), // Ensure 1-20 range
               last_active: userProfile.updated_at || new Date().toISOString(),
-              overall_score: Math.min(Math.max(overallScore, 0), 100), // Ensure 0-100 range
-              skill_match: Math.min(Math.max(skillScore, 0), 100),
-              experience: Math.min(Math.max(Math.round(enhancedProfile.estimatedExperience * 10), 0), 100),
-              reputation: Math.min(Math.max(repoScore, 0), 100),
-              freshness: Math.min(Math.max(activityScore, 0), 100),
-              social_proof: Math.min(Math.max(Math.round((userProfile.followers || 0) / 10), 0), 100),
+              overall_score: overallScore,
+              skill_match: skillScore,
+              experience: Math.round(Math.min(Math.max(enhancedProfile.estimatedExperience * 10, 0), 100)),
+              reputation: repoScore,
+              freshness: activityScore,
+              social_proof: Math.round(Math.min(Math.max((userProfile.followers || 0) / 10, 0), 100)),
               risk_flags: enhancedProfile.riskFlags,
               platform: 'github'
             }
@@ -170,7 +166,7 @@ serve(async (req) => {
               let savedCandidateId = candidateId
 
               if (existingCandidate) {
-                // Update existing candidate - ensure all numeric fields are integers
+                // Update existing candidate
                 const { error: updateError } = await supabase
                   .from('candidates')
                   .update({
@@ -202,7 +198,7 @@ serve(async (req) => {
                 savedCandidateId = existingCandidate.id
                 console.log(`🔄 Updated existing candidate: ${candidate.name}`)
               } else {
-                // Insert new candidate - ensure all numeric fields are integers
+                // Insert new candidate
                 const { error: insertError } = await supabase
                   .from('candidates')
                   .insert({
@@ -266,7 +262,7 @@ serve(async (req) => {
           }
         }
 
-        if (candidates.length >= 25) break
+        if (candidates.length >= 20) break
 
         // Rate limiting - wait between searches
         await new Promise(resolve => setTimeout(resolve, 1000))
@@ -279,7 +275,7 @@ serve(async (req) => {
 
     const sortedCandidates = candidates
       .sort((a, b) => (b.skill_match + b.reputation) - (a.skill_match + a.reputation))
-      .slice(0, 30)
+      .slice(0, 25)
 
     console.log(`✅ GitHub collection completed: ${sortedCandidates.length} enhanced candidates`)
     console.log(`📊 Stats: ${enhancementStats.high_star_repos} high star repos, ${enhancementStats.ai_enhanced_profiles} AI enhanced, ${enhancementStats.validation_passed}/${enhancementStats.total_processed} passed validation`)

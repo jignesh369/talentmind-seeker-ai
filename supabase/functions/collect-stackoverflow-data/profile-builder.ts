@@ -1,82 +1,188 @@
 
-import { UserInfo, AnswererStats, UserTag } from './user-validator.ts';
+import { StackOverflowUser, StackOverflowAnswer, StackOverflowQuestion } from './api-client.ts'
 
-export function createEnhancedSOTitle(userTags: UserTag[], answerer: AnswererStats, expertiseScore: number): string {
-  if (userTags.length === 0) return 'Stack Overflow Contributor';
-  
-  const primaryTag = userTags[0];
-  const answerCount = answerer.answer_count || 0;
-  const score = primaryTag.score || primaryTag.answer_score || 0;
-  
-  let level = 'Contributor';
-  if (expertiseScore > 80 || score > 50) {
-    level = 'Expert';
-  } else if (expertiseScore > 60 || answerCount > 25) {
-    level = 'Senior';
-  } else if (answerCount > 10) {
-    level = 'Experienced';
-  }
-  
-  const technology = (primaryTag.name || primaryTag.tag_name || '').replace(/-/g, ' ')
-    .split(' ')
-    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
-  
-  return `${level} ${technology} Developer`;
+export interface EnhancedProfile {
+  title: string
+  summary: string
+  skills: string[]
+  estimatedExperience: number
+  riskFlags: string[]
 }
 
-export function createEnhancedSOSummary(
-  userInfo: UserInfo, 
-  answerer: AnswererStats, 
-  userTags: UserTag[], 
-  expertiseScore: number
-): string {
-  const parts = [];
+export function buildEnhancedProfile(
+  user: StackOverflowUser,
+  answers: StackOverflowAnswer[],
+  questions: StackOverflowQuestion[],
+  primaryTag: string
+): EnhancedProfile {
+  const skills = extractSkillsFromActivity(answers, questions, primaryTag)
+  const experience = estimateExperience(user, answers, questions)
+  const riskFlags = identifyRiskFlags(user, answers, questions)
   
-  const level = expertiseScore > 70 ? 'Expert' : 'Active';
-  parts.push(`${level} Stack Overflow contributor with ${userInfo.reputation || 0} reputation`);
-  
-  if (answerer.answer_count && answerer.answer_count > 0) {
-    parts.push(`${answerer.answer_count} quality answers`);
+  return {
+    title: generateTitle(primaryTag, skills),
+    summary: generateSummary(user, answers, questions, skills),
+    skills,
+    estimatedExperience: experience,
+    riskFlags
   }
-  
-  if (answerer.answer_score && answerer.answer_score > 10) {
-    parts.push(`${answerer.answer_score} answer score`);
-  }
-  
-  if (userTags.length > 0) {
-    const topSkills = userTags.slice(0, 4).map(tag => tag.name || tag.tag_name).join(', ');
-    parts.push(`Specialized in: ${topSkills}`);
-  }
-  
-  if (userInfo.accept_rate) {
-    parts.push(`${userInfo.accept_rate}% accept rate`);
-  }
-  
-  const yearsActive = Math.floor((Date.now() - userInfo.creation_date * 1000) / (365 * 24 * 60 * 60 * 1000));
-  if (yearsActive > 1) {
-    parts.push(`${yearsActive} years on Stack Overflow`);
-  }
-  
-  return parts.join('. ').substring(0, 350);
 }
 
-export function enhanceSkillsFromTags(userTags: UserTag[], searchTags: string[]): string[] {
-  const skills = new Set<string>();
+function extractSkillsFromActivity(
+  answers: StackOverflowAnswer[],
+  questions: StackOverflowQuestion[],
+  primaryTag: string
+): string[] {
+  const skillMap = new Map<string, number>()
   
-  // Add user's top tags with score weighting
-  userTags
-    .sort((a, b) => (b.score || b.answer_score || 0) - (a.score || a.answer_score || 0))
+  // Add primary tag
+  skillMap.set(primaryTag, 10)
+  
+  // Extract from answer tags
+  answers.forEach(answer => {
+    answer.tags?.forEach(tag => {
+      if (isValidSkill(tag)) {
+        skillMap.set(tag, (skillMap.get(tag) || 0) + 2)
+      }
+    })
+  })
+  
+  // Extract from question tags
+  questions.forEach(question => {
+    question.tags?.forEach(tag => {
+      if (isValidSkill(tag)) {
+        skillMap.set(tag, (skillMap.get(tag) || 0) + 1)
+      }
+    })
+  })
+  
+  // Sort by frequency and return top skills
+  return Array.from(skillMap.entries())
+    .sort((a, b) => b[1] - a[1])
     .slice(0, 8)
-    .forEach(tag => {
-      const tagName = tag.name || tag.tag_name || '';
-      skills.add(tagName.replace(/-/g, ' '));
-    });
+    .map(([skill]) => skill)
+}
+
+function isValidSkill(tag: string): boolean {
+  const commonTags = [
+    'javascript', 'python', 'java', 'c#', 'php', 'html', 'css', 'sql',
+    'react', 'angular', 'vue.js', 'node.js', 'express', 'django', 'flask',
+    'spring', 'laravel', 'ruby', 'go', 'rust', 'swift', 'kotlin',
+    'typescript', 'jquery', 'bootstrap', 'sass', 'less',
+    'mysql', 'postgresql', 'mongodb', 'redis', 'sqlite',
+    'aws', 'azure', 'gcp', 'docker', 'kubernetes', 'jenkins',
+    'git', 'github', 'gitlab', 'bitbucket',
+    'linux', 'ubuntu', 'windows', 'macos',
+    'android', 'ios', 'flutter', 'react-native',
+    'machine-learning', 'artificial-intelligence', 'data-science',
+    'tensorflow', 'pytorch', 'pandas', 'numpy'
+  ]
   
-  // Add relevant search tags
-  searchTags.forEach(tag => {
-    skills.add(tag.replace(/-/g, ' '));
-  });
+  return commonTags.includes(tag.toLowerCase()) || tag.length <= 20
+}
+
+function generateTitle(primaryTag: string, skills: string[]): string {
+  const titleMap: Record<string, string> = {
+    'javascript': 'JavaScript Developer',
+    'python': 'Python Developer',
+    'java': 'Java Developer',
+    'c#': 'C# Developer',
+    'php': 'PHP Developer',
+    'react': 'React Developer',
+    'angular': 'Angular Developer',
+    'vue.js': 'Vue.js Developer',
+    'node.js': 'Node.js Developer',
+    'machine-learning': 'Machine Learning Engineer',
+    'data-science': 'Data Scientist',
+    'android': 'Android Developer',
+    'ios': 'iOS Developer'
+  }
   
-  return Array.from(skills).slice(0, 10);
+  return titleMap[primaryTag.toLowerCase()] || `${primaryTag} Developer`
+}
+
+function generateSummary(
+  user: StackOverflowUser,
+  answers: StackOverflowAnswer[],
+  questions: StackOverflowQuestion[],
+  skills: string[]
+): string {
+  let summary = `Stack Overflow contributor with ${user.reputation} reputation points`
+  
+  if (answers.length > 0) {
+    const acceptedAnswers = answers.filter(a => a.is_accepted).length
+    summary += `. Provided ${answers.length} answers`
+    if (acceptedAnswers > 0) {
+      summary += ` (${acceptedAnswers} accepted)`
+    }
+  }
+  
+  if (questions.length > 0) {
+    summary += `. Asked ${questions.length} questions`
+  }
+  
+  if (skills.length > 0) {
+    summary += `. Expertise in ${skills.slice(0, 3).join(', ')}`
+  }
+  
+  return summary
+}
+
+function estimateExperience(
+  user: StackOverflowUser,
+  answers: StackOverflowAnswer[],
+  questions: StackOverflowQuestion[]
+): number {
+  // Base experience from account age
+  const accountAge = (Date.now() / 1000 - user.creation_date) / (365 * 24 * 60 * 60)
+  let experience = Math.min(accountAge, 8)
+  
+  // Bonus for reputation (indicates expertise)
+  if (user.reputation > 10000) experience += 2
+  else if (user.reputation > 5000) experience += 1.5
+  else if (user.reputation > 1000) experience += 1
+  
+  // Bonus for answer quality
+  const acceptedAnswers = answers.filter(a => a.is_accepted).length
+  experience += Math.min(acceptedAnswers * 0.2, 2)
+  
+  // Bonus for high-scoring content
+  const highScoreAnswers = answers.filter(a => a.score > 10).length
+  experience += Math.min(highScoreAnswers * 0.1, 1)
+  
+  return Math.max(1, Math.min(experience, 15)) // 1-15 years
+}
+
+function identifyRiskFlags(
+  user: StackOverflowUser,
+  answers: StackOverflowAnswer[],
+  questions: StackOverflowQuestion[]
+): string[] {
+  const flags: string[] = []
+  
+  if (user.reputation < 100) {
+    flags.push('Low reputation')
+  }
+  
+  if (answers.length === 0) {
+    flags.push('No answers provided')
+  }
+  
+  if (answers.length > 0) {
+    const acceptanceRate = answers.filter(a => a.is_accepted).length / answers.length
+    if (acceptanceRate < 0.1) {
+      flags.push('Low answer acceptance rate')
+    }
+  }
+  
+  // Check for recent activity
+  const sixMonthsAgo = Date.now() / 1000 - (6 * 30 * 24 * 60 * 60)
+  const recentActivity = answers.some(a => a.creation_date > sixMonthsAgo) ||
+                        questions.some(q => q.creation_date > sixMonthsAgo)
+  
+  if (!recentActivity && user.last_access_date < sixMonthsAgo) {
+    flags.push('No recent activity')
+  }
+  
+  return flags
 }

@@ -39,10 +39,12 @@ serve(async (req) => {
     const candidates = []
     const seenUrls = new Set()
 
-    const searchResults = await searchGoogle(query, location)
+    // Simplified search query for better results
+    const simplifiedQuery = query.split(' ').slice(0, 4).join(' ') // Use first 4 words only
+    const searchResults = await searchGoogle(simplifiedQuery, location)
 
     if (!searchResults || searchResults.length === 0) {
-      console.log('No search results found for query:', query)
+      console.log('No search results found for query:', simplifiedQuery)
       return new Response(
         JSON.stringify({ 
           candidates: [], 
@@ -54,13 +56,13 @@ serve(async (req) => {
       )
     }
 
-    for (const result of searchResults.slice(0, 15)) {
+    for (const result of searchResults.slice(0, 12)) { // Reduced from 15 to 12
       if (seenUrls.has(result.link)) continue
       seenUrls.add(result.link)
 
       try {
-        const relevanceScore = Math.round(calculateRelevanceScore(result, query))
-        const qualityScore = Math.round(calculateQualityScore(result))
+        const relevanceScore = Math.round(Math.min(Math.max(calculateRelevanceScore(result, simplifiedQuery), 0), 100))
+        const qualityScore = Math.round(Math.min(Math.max(calculateQualityScore(result), 0), 100))
         const overallScore = Math.round((relevanceScore + qualityScore) / 2)
 
         const candidateId = generateUUID()
@@ -68,20 +70,20 @@ serve(async (req) => {
         const candidate = {
           id: candidateId,
           name: result.title,
-          title: extractTitleFromSnippet(result.snippet) || `${query} Professional`,
+          title: extractTitleFromSnippet(result.snippet) || `${simplifiedQuery} Professional`,
           location: location || extractLocationFromSnippet(result.snippet) || '',
           avatar_url: null,
           email: extractEmailFromSnippet(result.snippet),
           summary: result.snippet,
           skills: extractSkillsFromSnippet(result.snippet, enhancedQuery?.skills || []),
-          experience_years: Math.round(extractExperienceFromSnippet(result.snippet)),
+          experience_years: Math.round(Math.min(Math.max(extractExperienceFromSnippet(result.snippet), 1), 20)), // 1-20 range
           last_active: new Date().toISOString(),
-          overall_score: Math.min(Math.max(overallScore, 0), 100),
-          skill_match: Math.min(Math.max(relevanceScore, 0), 100),
-          experience: Math.min(Math.max(Math.round(extractExperienceFromSnippet(result.snippet) * 10), 0), 100),
-          reputation: Math.min(Math.max(qualityScore, 0), 100),
-          freshness: Math.round(calculateFreshnessScore(result)),
-          social_proof: Math.round(calculateSocialProofScore(result)),
+          overall_score: overallScore,
+          skill_match: relevanceScore,
+          experience: Math.round(Math.min(Math.max(extractExperienceFromSnippet(result.snippet) * 8, 0), 100)),
+          reputation: qualityScore,
+          freshness: Math.round(Math.min(Math.max(calculateFreshnessScore(result), 0), 100)),
+          social_proof: Math.round(Math.min(Math.max(calculateSocialProofScore(result), 0), 100)),
           risk_flags: [],
           platform: 'google'
         }
@@ -156,7 +158,7 @@ serve(async (req) => {
       }
     }
 
-    const sortedCandidates = candidates.sort((a, b) => b.overall_score - a.overall_score).slice(0, 25)
+    const sortedCandidates = candidates.sort((a, b) => b.overall_score - a.overall_score).slice(0, 20)
 
     console.log(`✅ Google Search collection completed: ${sortedCandidates.length} enhanced candidates`)
 
@@ -189,11 +191,11 @@ serve(async (req) => {
 function extractExperienceFromSnippet(snippet: string): number {
   const experienceRegex = /(\d+)\+?\s*(?:year|yr)s?\s*(?:of\s*)?(?:experience|exp)/i
   const match = snippet.match(experienceRegex)
-  return match ? parseInt(match[1], 10) : 3
+  return match ? Math.min(parseInt(match[1], 10), 20) : 3 // Default to 3 years, max 20
 }
 
 function calculateFreshnessScore(result: any): number {
-  return Math.floor(Math.random() * 30) + 70
+  return Math.floor(Math.random() * 30) + 70 // 70-100 range
 }
 
 function calculateSocialProofScore(result: any): number {

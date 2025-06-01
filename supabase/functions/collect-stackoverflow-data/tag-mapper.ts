@@ -1,132 +1,88 @@
 
-export interface EnhancedQuery {
-  skills?: string[];
-  keywords?: string[];
-  experience_level?: string;
-}
-
-export function buildEnhancedTagMapping() {
-  return {
-    'javascript': 'javascript',
-    'js': 'javascript',
-    'python': 'python',
-    'java': 'java',
-    'c++': 'c++',
-    'c#': 'c#',
-    'typescript': 'typescript',
-    'react': 'reactjs',
-    'reactjs': 'reactjs',
-    'angular': 'angular',
-    'vue': 'vue.js',
-    'vuejs': 'vue.js',
-    'node.js': 'node.js',
-    'nodejs': 'node.js',
-    'machine learning': 'machine-learning',
-    'machine-learning': 'machine-learning',
-    'ml': 'machine-learning',
-    'ai': 'artificial-intelligence',
-    'django': 'django',
-    'flask': 'flask',
-    'spring': 'spring',
-    'spring boot': 'spring-boot',
-    'aws': 'amazon-web-services',
-    'docker': 'docker',
-    'kubernetes': 'kubernetes',
-    'tensorflow': 'tensorflow',
-    'pytorch': 'pytorch',
-    'data science': 'data-science',
-    'backend': 'backend',
-    'frontend': 'frontend',
-    'api': 'api',
-    'rest': 'rest',
-    'graphql': 'graphql'
-  };
-}
-
-export function generatePrioritizedTags(enhancedQuery: EnhancedQuery | null): string[] {
-  const enhancedTagMapping = buildEnhancedTagMapping();
-  const skills = enhancedQuery?.skills || [];
-  const keywords = enhancedQuery?.keywords || [];
-  
-  const searchTerms = [...skills, ...keywords].map(term => term.toLowerCase());
-  const prioritizedTags = [];
-  
-  // Priority 1: Direct skill matches
-  searchTerms.forEach(term => {
-    if (enhancedTagMapping[term]) {
-      prioritizedTags.push(enhancedTagMapping[term]);
-    } else if (term.length > 2) {
-      prioritizedTags.push(term.replace(/\s+/g, '-'));
-    }
-  });
-
-  // Priority 2: Technology combinations
-  const techCombinations = [
-    ['python', 'django'], ['python', 'flask'], ['javascript', 'react'],
-    ['javascript', 'node.js'], ['java', 'spring'], ['typescript', 'angular']
-  ];
-  
-  techCombinations.forEach(combo => {
-    if (combo.every(tech => searchTerms.includes(tech))) {
-      prioritizedTags.push(...combo.map(tech => enhancedTagMapping[tech] || tech));
-    }
-  });
-
-  // Fallback tags for broad searches
-  if (prioritizedTags.length === 0) {
-    prioritizedTags.push('javascript', 'python', 'java', 'backend', 'frontend');
-  }
-
-  // Remove duplicates and limit
-  return [...new Set(prioritizedTags)].slice(0, 6);
-}
-
-export function getSemanticTagMatches(userTags: string[], searchTags: string[]): number {
-  const semanticRelations = {
-    'javascript': ['node.js', 'reactjs', 'angular', 'vue.js', 'frontend'],
-    'python': ['django', 'flask', 'machine-learning', 'data-science'],
-    'java': ['spring', 'spring-boot', 'android', 'backend'],
-    'backend': ['api', 'rest', 'graphql', 'microservices'],
-    'frontend': ['html', 'css', 'ui', 'ux', 'responsive-design'],
-    'machine-learning': ['tensorflow', 'pytorch', 'data-science', 'ai']
-  };
-  
-  let matches = 0;
-  searchTags.forEach(searchTag => {
-    const relatedTags = semanticRelations[searchTag] || [];
-    if (relatedTags.some(related => userTags.includes(related))) {
-      matches++;
-    }
-  });
-  
-  return matches;
-}
-
-export function generateUsernameVariations(displayName: string): string[] {
-  if (!displayName) return [];
-  
-  const variations = [];
-  const cleaned = displayName.replace(/[^a-zA-Z0-9\s]/g, '').toLowerCase();
-  
-  // Add original
-  variations.push(displayName);
-  
-  // Add cleaned version
-  if (cleaned !== displayName.toLowerCase()) {
-    variations.push(cleaned);
+export function mapSkillsToTags(skills: string[]): string[] {
+  const tagMap: Record<string, string[]> = {
+    'javascript': ['javascript', 'js', 'node.js', 'typescript'],
+    'python': ['python', 'django', 'flask', 'pandas', 'numpy'],
+    'java': ['java', 'spring', 'spring-boot', 'hibernate'],
+    'react': ['reactjs', 'react', 'react-native'],
+    'angular': ['angular', 'angularjs', 'typescript'],
+    'vue': ['vue.js', 'vuejs', 'vue'],
+    'php': ['php', 'laravel', 'symfony', 'wordpress'],
+    'c#': ['c#', '.net', 'asp.net', 'entity-framework'],
+    'go': ['go', 'golang'],
+    'rust': ['rust'],
+    'swift': ['swift', 'ios'],
+    'kotlin': ['kotlin', 'android'],
+    'sql': ['sql', 'mysql', 'postgresql', 'sqlite'],
+    'mongodb': ['mongodb', 'mongoose'],
+    'aws': ['amazon-web-services', 'aws', 'ec2', 's3'],
+    'docker': ['docker', 'containers'],
+    'kubernetes': ['kubernetes', 'k8s'],
+    'machine learning': ['machine-learning', 'tensorflow', 'pytorch', 'scikit-learn'],
+    'data science': ['data-science', 'pandas', 'numpy', 'matplotlib'],
+    'frontend': ['html', 'css', 'javascript', 'reactjs', 'vue.js', 'angular'],
+    'backend': ['node.js', 'python', 'java', 'php', 'go', 'rust'],
+    'fullstack': ['javascript', 'node.js', 'reactjs', 'python', 'java'],
+    'mobile': ['android', 'ios', 'react-native', 'flutter'],
+    'devops': ['docker', 'kubernetes', 'aws', 'jenkins', 'ci-cd']
   }
   
-  // Add without spaces
-  variations.push(cleaned.replace(/\s+/g, ''));
+  const mappedTags = new Set<string>()
   
-  // Add with dots
-  variations.push(cleaned.replace(/\s+/g, '.'));
+  skills.forEach(skill => {
+    const normalizedSkill = skill.toLowerCase()
+    
+    // Direct mapping
+    if (tagMap[normalizedSkill]) {
+      tagMap[normalizedSkill].forEach(tag => mappedTags.add(tag))
+    }
+    
+    // Fuzzy matching
+    Object.entries(tagMap).forEach(([key, tags]) => {
+      if (normalizedSkill.includes(key) || key.includes(normalizedSkill)) {
+        tags.forEach(tag => mappedTags.add(tag))
+      }
+    })
+    
+    // Add the skill itself if it looks like a valid tag
+    if (isValidTag(normalizedSkill)) {
+      mappedTags.add(normalizedSkill)
+    }
+  })
   
-  // Add with underscores
-  variations.push(cleaned.replace(/\s+/g, '_'));
+  return Array.from(mappedTags).slice(0, 10) // Limit to avoid too many API calls
+}
+
+export function getRelevantTags(skills: string[]): string[] {
+  if (skills.length === 0) {
+    return ['javascript', 'python', 'java', 'react', 'node.js']
+  }
   
-  // Add with dashes
-  variations.push(cleaned.replace(/\s+/g, '-'));
+  const mapped = mapSkillsToTags(skills)
   
-  return [...new Set(variations)].filter(v => v.length > 2);
+  // Add some high-value tags if not present
+  const essentialTags = ['javascript', 'python', 'java', 'react']
+  essentialTags.forEach(tag => {
+    if (!mapped.includes(tag) && mapped.length < 8) {
+      mapped.push(tag)
+    }
+  })
+  
+  return mapped
+}
+
+function isValidTag(tag: string): boolean {
+  // Check if it looks like a programming-related tag
+  const programmingPatterns = [
+    /^[a-z]+(-[a-z]+)*$/, // kebab-case
+    /^[a-z]+(\.[a-z]+)?$/, // with dots like vue.js
+    /^[a-z]+[0-9]*$/, // with numbers
+  ]
+  
+  const invalidWords = ['the', 'and', 'or', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by']
+  
+  return tag.length >= 2 && 
+         tag.length <= 30 && 
+         !invalidWords.includes(tag) &&
+         programmingPatterns.some(pattern => pattern.test(tag))
 }

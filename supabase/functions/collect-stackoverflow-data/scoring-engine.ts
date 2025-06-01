@@ -1,137 +1,120 @@
 
-import { UserInfo, AnswererStats, UserTag } from './user-validator.ts';
-import { EnhancedQuery, getSemanticTagMatches } from './tag-mapper.ts';
+import { StackOverflowUser, StackOverflowAnswer, StackOverflowQuestion } from './api-client.ts'
+
+export function calculateAnswerQualityScore(answers: StackOverflowAnswer[]): number {
+  if (answers.length === 0) return 0
+  
+  let score = 0
+  
+  // Base score for having answers
+  score += Math.min(answers.length * 5, 30)
+  
+  // Bonus for accepted answers
+  const acceptedAnswers = answers.filter(a => a.is_accepted).length
+  score += Math.min(acceptedAnswers * 15, 40)
+  
+  // Bonus for high-scoring answers
+  const totalScore = answers.reduce((sum, a) => sum + Math.max(a.score, 0), 0)
+  score += Math.min(totalScore * 0.5, 20)
+  
+  // Bonus for answer acceptance rate
+  if (answers.length > 0) {
+    const acceptanceRate = acceptedAnswers / answers.length
+    score += acceptanceRate * 10
+  }
+  
+  return Math.min(score, 100)
+}
 
 export function calculateExpertiseScore(
-  userInfo: UserInfo, 
-  answerer: AnswererStats, 
-  userTags: UserTag[], 
-  searchTag: string
+  user: StackOverflowUser,
+  answers: StackOverflowAnswer[],
+  relevantTags: string[]
 ): number {
-  let score = 0;
+  let score = 0
   
-  // Base reputation component (weighted)
-  score += Math.min((userInfo.reputation || 0) / 100, 35);
+  // Reputation-based scoring
+  if (user.reputation >= 25000) score += 40
+  else if (user.reputation >= 10000) score += 35
+  else if (user.reputation >= 5000) score += 30
+  else if (user.reputation >= 1000) score += 25
+  else if (user.reputation >= 500) score += 20
+  else score += Math.min(user.reputation * 0.02, 15)
   
-  // Answer quality and quantity
-  score += Math.min((answerer.answer_count || 0) * 3, 25);
-  score += Math.min((answerer.answer_score || 0) / 10, 20);
-  
-  // Tag-specific expertise
-  const relevantTag = userTags.find(tag => (tag.name || tag.tag_name) === searchTag);
-  if (relevantTag) {
-    score += Math.min((relevantTag.score || relevantTag.answer_score || 0) / 5, 15);
-    score += Math.min((relevantTag.count || relevantTag.answer_count || 0) * 2, 10);
-  }
-  
-  // Top tags performance
-  const topTagsBonus = userTags.slice(0, 3).reduce((sum, tag) => 
-    sum + Math.min((tag.score || tag.answer_score || 0) / 20, 5), 0
-  );
-  score += topTagsBonus;
-  
-  return Math.min(score, 100);
-}
-
-export function calculateEnhancedReputationScore(userInfo: UserInfo): number {
-  const reputation = userInfo.reputation || 0;
-  
-  // Progressive scoring with diminishing returns
-  if (reputation >= 10000) return 100;
-  if (reputation >= 5000) return 85;
-  if (reputation >= 2000) return 70;
-  if (reputation >= 1000) return 55;
-  if (reputation >= 500) return 40;
-  
-  return Math.min(reputation / 20, 35);
-}
-
-export function calculateEnhancedSOActivityScore(userInfo: UserInfo, answerer: AnswererStats): number {
-  let score = 0;
-  
-  // Recent activity (enhanced weight)
-  const lastActive = new Date(userInfo.last_access_date * 1000);
-  const daysSinceActive = (Date.now() - lastActive.getTime()) / (1000 * 60 * 60 * 24);
-  
-  if (daysSinceActive < 7) score += 40;
-  else if (daysSinceActive < 30) score += 35;
-  else if (daysSinceActive < 90) score += 25;
-  else if (daysSinceActive < 180) score += 15;
-  else if (daysSinceActive < 365) score += 10;
-  
-  // Answer activity
-  score += Math.min((answerer.answer_count || 0) * 2, 25);
-  
-  // Question activity (shows engagement)
-  score += Math.min((userInfo.question_count || 0) * 3, 15);
-  
-  // Vote participation (community engagement)
-  const upVotes = userInfo.up_vote_count || 0;
-  const downVotes = userInfo.down_vote_count || 0;
-  if (upVotes > 0) {
-    const voteRatio = upVotes / (downVotes + 1);
-    score += Math.min(voteRatio * 3, 12);
-  }
-  
-  // Acceptance rate bonus
-  if (userInfo.accept_rate && userInfo.accept_rate > 80) {
-    score += 8;
-  }
-  
-  return Math.min(score, 100);
-}
-
-export function calculateEnhancedSOSkillMatch(
-  userTags: UserTag[], 
-  searchTags: string[], 
-  enhancedQuery: EnhancedQuery | null
-): number {
-  if (searchTags.length === 0) return 50;
-  
-  const userTagNames = userTags.map(tag => (tag.name || tag.tag_name || '').toLowerCase());
-  const normalizedSearchTags = searchTags.map(tag => tag.toLowerCase().replace(/[.\s]/g, '-'));
-  
-  // Direct matches (highest weight)
-  const directMatches = normalizedSearchTags.filter(searchTag =>
-    userTagNames.some(userTag => 
-      userTag.includes(searchTag) || searchTag.includes(userTag)
+  // Tag relevance scoring
+  const tagMatches = answers.filter(answer => 
+    answer.tags?.some(tag => 
+      relevantTags.some(relevantTag => 
+        tag.toLowerCase().includes(relevantTag.toLowerCase()) ||
+        relevantTag.toLowerCase().includes(tag.toLowerCase())
+      )
     )
-  );
+  ).length
   
-  // Semantic matches
-  const semanticMatches = getSemanticTagMatches(userTagNames, normalizedSearchTags);
+  score += Math.min(tagMatches * 3, 25)
   
-  // Experience level matches
-  const experienceMatches = getExperienceLevelMatches(userTags, enhancedQuery);
+  // Answer quality bonus
+  const highQualityAnswers = answers.filter(a => a.score > 5 || a.is_accepted).length
+  score += Math.min(highQualityAnswers * 2, 20)
   
-  const totalScore = (directMatches.length * 25) + (semanticMatches * 15) + (experienceMatches * 10);
-  return Math.min(totalScore, 100);
+  // Activity consistency bonus
+  if (answers.length > 10) score += 10
+  if (user.answer_count > 50) score += 5
+  
+  return Math.min(score, 100)
 }
 
-export function getExperienceLevelMatches(userTags: UserTag[], enhancedQuery: EnhancedQuery | null): number {
-  if (!enhancedQuery?.experience_level) return 0;
-  
-  const experienceLevel = enhancedQuery.experience_level.toLowerCase();
-  const totalScore = userTags.reduce((sum, tag) => sum + (tag.score || tag.answer_score || 0), 0);
-  
-  if (experienceLevel === 'senior' || experienceLevel === 'lead') {
-    return totalScore > 100 ? 10 : 5;
-  } else if (experienceLevel === 'mid') {
-    return totalScore > 50 ? 10 : 5;
-  } else {
-    return totalScore > 20 ? 10 : 5;
-  }
+export function calculateReputationScore(reputation: number): number {
+  if (reputation >= 100000) return 100
+  if (reputation >= 50000) return 95
+  if (reputation >= 25000) return 90
+  if (reputation >= 10000) return 85
+  if (reputation >= 5000) return 75
+  if (reputation >= 1000) return 65
+  if (reputation >= 500) return 55
+  if (reputation >= 200) return 45
+  if (reputation >= 100) return 35
+  if (reputation >= 50) return 25
+  return Math.min(reputation * 0.3, 20)
 }
 
-export function calculateAnswerQualityScore(answerer: AnswererStats, userInfo: UserInfo): number {
-  const answerCount = answerer.answer_count || 0;
-  const answerScore = answerer.answer_score || 0;
-  const reputation = userInfo.reputation || 0;
+export function calculateActivityScore(
+  user: StackOverflowUser,
+  answers: StackOverflowAnswer[],
+  questions: StackOverflowQuestion[]
+): number {
+  let score = 0
   
-  if (answerCount === 0) return 0;
+  // Recent activity scoring
+  const now = Date.now() / 1000
+  const lastAccess = user.last_access_date || now
+  const daysSinceLastAccess = (now - lastAccess) / (24 * 60 * 60)
   
-  const avgScorePerAnswer = answerScore / answerCount;
-  const reputationFactor = Math.min(reputation / 1000, 5);
+  if (daysSinceLastAccess < 7) score += 30
+  else if (daysSinceLastAccess < 30) score += 25
+  else if (daysSinceLastAccess < 90) score += 20
+  else if (daysSinceLastAccess < 180) score += 15
+  else if (daysSinceLastAccess < 365) score += 10
+  else score += 5
   
-  return Math.min(avgScorePerAnswer * 10 + reputationFactor, 100);
+  // Content recency scoring
+  const sixMonthsAgo = now - (6 * 30 * 24 * 60 * 60)
+  const recentAnswers = answers.filter(a => a.creation_date > sixMonthsAgo).length
+  const recentQuestions = questions.filter(q => q.creation_date > sixMonthsAgo).length
+  
+  score += Math.min(recentAnswers * 3, 25)
+  score += Math.min(recentQuestions * 2, 15)
+  
+  // Overall activity level
+  const totalActivity = user.answer_count + user.question_count
+  if (totalActivity > 100) score += 15
+  else if (totalActivity > 50) score += 10
+  else if (totalActivity > 20) score += 5
+  
+  // Engagement quality
+  const avgAnswerScore = answers.length > 0 ? 
+    answers.reduce((sum, a) => sum + a.score, 0) / answers.length : 0
+  score += Math.min(avgAnswerScore * 2, 15)
+  
+  return Math.min(score, 100)
 }
