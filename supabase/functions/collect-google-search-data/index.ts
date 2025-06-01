@@ -7,148 +7,201 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
+function generateUUID() {
+  return crypto.randomUUID();
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
 
   try {
-    const { query, location, enhancedQuery, searchQueries } = await req.json()
-
-    if (!query) {
-      return new Response(
-        JSON.stringify({ error: 'Query is required' }),
-        { 
-          status: 400, 
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
-        }
-      )
-    }
+    const { query, location, enhancedQuery } = await req.json()
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     const googleApiKey = Deno.env.get('GOOGLE_API_KEY')
-    const googleSearchEngineId = Deno.env.get('GOOGLE_SEARCH_ENGINE_ID')
+    const searchEngineId = Deno.env.get('GOOGLE_SEARCH_ENGINE_ID')
     const supabase = createClient(supabaseUrl, supabaseKey)
 
-    if (!googleApiKey || !googleSearchEngineId) {
-      console.log('Google Search API not configured, skipping...')
+    if (!googleApiKey || !searchEngineId) {
+      console.log('Google API not configured, skipping Google Search')
       return new Response(
         JSON.stringify({ 
-          candidates: [],
-          total: 0,
+          candidates: [], 
+          total: 0, 
           source: 'google',
-          error: 'Google Search API not configured'
+          error: 'Google API not configured' 
         }),
-        { 
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
-        }
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
 
     console.log('Starting enhanced Google Search with Boolean queries...')
 
+    // Enhanced Boolean search queries
+    const searchQueries = [
+      `(\"portfolio\" OR \"resume\" OR \"CV\") \"${enhancedQuery?.role_types?.[0] || query}\" \"${enhancedQuery?.skills?.[0] || 'software'}\" filetype:pdf OR site:github.io`,
+      `site:linkedin.com/in \"${enhancedQuery?.role_types?.[0] || query}\" \"google\" \"${enhancedQuery?.skills?.[0] || 'software'}\"`,
+      `site:linkedin.com/in \"${enhancedQuery?.role_types?.[0] || query}\" \"microsoft\" \"${enhancedQuery?.skills?.[0] || 'software'}\"`,
+      `site:linkedin.com/in \"${enhancedQuery?.role_types?.[0] || query}\" \"amazon\" \"${enhancedQuery?.skills?.[0] || 'software'}\"`,
+      `site:stackoverflow.com/users \"${enhancedQuery?.role_types?.[0] || query}\" \"${enhancedQuery?.skills?.[0] || 'software'}\"`,
+      `site:github.com \"${enhancedQuery?.role_types?.[0] || query}\" \"${enhancedQuery?.skills?.[0] || 'software'}\"`
+    ]
+
+    console.log('Executing 6 enhanced search queries...')
+
     const candidates = []
     const seenUrls = new Set()
 
-    // Use advanced Boolean search queries if provided
-    const queriesToSearch = searchQueries && searchQueries.length > 0 
-      ? searchQueries.slice(0, 6) // Limit to 6 queries to conserve API calls
-      : buildFallbackQueries(query, location, enhancedQuery)
-
-    console.log(`Executing ${queriesToSearch.length} enhanced search queries...`)
-
-    for (const searchQuery of queriesToSearch) {
+    for (const searchQuery of searchQueries) {
       try {
-        console.log(`🔍 Boolean search: ${searchQuery.substring(0, 100)}...`)
+        console.log(`🔍 Boolean search: ${searchQuery.slice(0, 60)}...`)
         
-        const searchUrl = `https://www.googleapis.com/customsearch/v1?key=${googleApiKey}&cx=${googleSearchEngineId}&q=${encodeURIComponent(searchQuery)}&num=10`
-        
-        const response = await fetch(searchUrl)
-        
+        const response = await fetch(
+          `https://www.googleapis.com/customsearch/v1?key=${googleApiKey}&cx=${searchEngineId}&q=${encodeURIComponent(searchQuery)}&num=10`
+        )
+
         if (!response.ok) {
-          console.error(`Google Search API error: ${response.status}`)
+          console.error(`Google API error: ${response.status}`)
           continue
         }
 
         const data = await response.json()
-        const items = data.items || []
+        const results = data.items || []
+        
+        console.log(`📊 Found ${results.length} results for query`)
 
-        console.log(`📊 Found ${items.length} results for query`)
+        for (const result of results) {
+          if (seenUrls.has(result.link)) continue
+          seenUrls.add(result.link)
 
-        for (const item of items) {
-          if (seenUrls.has(item.link)) continue
-          seenUrls.add(item.link)
-
-          // Enhanced candidate extraction with Boolean context
-          const candidate = await extractEnhancedCandidateFromResult(item, enhancedQuery, searchQuery)
+          const candidateId = generateUUID()
           
-          if (candidate && isValidDeveloperCandidate(candidate, enhancedQuery)) {
-            candidates.push(candidate)
-
-            // Save enhanced source data
-            try {
-              await supabase
-                .from('candidate_sources')
-                .upsert({
-                  candidate_id: generateCandidateId(item),
-                  platform: 'google',
-                  platform_id: item.link,
-                  url: item.link,
-                  data: { 
-                    ...item, 
-                    search_query: searchQuery,
-                    boolean_context: true,
-                    discovery_method: 'enhanced_google_boolean'
-                  }
-                }, { onConflict: 'platform,platform_id' })
-            } catch (error) {
-              console.error('Error saving Google source data:', error)
-            }
+          // Enhanced candidate extraction from search results
+          const candidate = {
+            id: candidateId,
+            name: extractNameFromTitle(result.title),
+            title: extractTitleFromSnippet(result.snippet, enhancedQuery?.role_types?.[0]),
+            location: location || extractLocationFromSnippet(result.snippet),
+            avatar_url: null,
+            email: extractEmailFromSnippet(result.snippet),
+            summary: result.snippet,
+            skills: enhancedQuery?.skills?.slice(0, 5) || [query],
+            experience_years: extractExperienceFromSnippet(result.snippet),
+            last_active: new Date().toISOString(),
+            overall_score: calculateGoogleScore(result, enhancedQuery),
+            skill_match: calculateSkillMatch(result.snippet, enhancedQuery?.skills || []),
+            experience: 50,
+            reputation: 40,
+            freshness: 80,
+            social_proof: 30,
+            risk_flags: [],
+            source_url: result.link,
+            source_platform: detectPlatform(result.link)
           }
+
+          candidates.push(candidate)
+
+          // Save to database with proper UUID
+          try {
+            const { error: candidateError } = await supabase
+              .from('candidates')
+              .upsert({
+                id: candidateId,
+                name: candidate.name,
+                title: candidate.title,
+                location: candidate.location,
+                avatar_url: candidate.avatar_url,
+                email: candidate.email,
+                summary: candidate.summary,
+                skills: candidate.skills,
+                experience_years: candidate.experience_years,
+                last_active: candidate.last_active,
+                overall_score: candidate.overall_score,
+                skill_match: candidate.skill_match,
+                experience: candidate.experience,
+                reputation: candidate.reputation,
+                freshness: candidate.freshness,
+                social_proof: candidate.social_proof,
+                risk_flags: candidate.risk_flags
+              }, { 
+                onConflict: 'email',
+                ignoreDuplicates: true 
+              })
+
+            if (candidateError) {
+              console.error(`Error saving Google candidate:`, candidateError)
+            }
+
+            // Save source data
+            const { error: sourceError } = await supabase
+              .from('candidate_sources')
+              .upsert({
+                candidate_id: candidateId,
+                platform: 'google',
+                platform_id: result.link,
+                url: result.link,
+                data: {
+                  title: result.title,
+                  snippet: result.snippet,
+                  search_query: searchQuery,
+                  platform: candidate.source_platform
+                }
+              }, { 
+                onConflict: 'platform,platform_id',
+                ignoreDuplicates: true 
+              })
+
+            if (sourceError) {
+              console.error(`Error saving Google source data:`, sourceError)
+            }
+
+          } catch (error) {
+            console.error(`Error saving Google candidate data:`, error)
+          }
+
+          if (candidates.length >= 20) break
         }
 
-        // Add delay to respect rate limits
-        await new Promise(resolve => setTimeout(resolve, 1000))
+        if (candidates.length >= 20) break
 
       } catch (error) {
-        console.error(`Error in Google search query: ${searchQuery}`, error)
+        console.error(`Google search error for query "${searchQuery}":`, error)
         continue
       }
     }
 
-    // Enhanced scoring and deduplication
-    const scoredCandidates = await enhanceGoogleCandidateScoring(candidates, enhancedQuery)
-    const deduplicatedCandidates = deduplicateGoogleCandidates(scoredCandidates)
-
-    const finalCandidates = deduplicatedCandidates
+    const sortedCandidates = candidates
       .sort((a, b) => b.overall_score - a.overall_score)
       .slice(0, 20)
 
-    console.log(`✅ Google Search completed: ${finalCandidates.length} enhanced candidates`)
+    console.log(`✅ Google Search completed: ${sortedCandidates.length} enhanced candidates`)
 
     return new Response(
       JSON.stringify({ 
-        candidates: finalCandidates,
-        total: finalCandidates.length,
+        candidates: sortedCandidates,
+        total: sortedCandidates.length,
         source: 'google',
         enhancement_stats: {
-          boolean_queries_used: queriesToSearch.length,
-          enhanced_google_discoveries: finalCandidates.length,
-          linkedin_profiles_found: finalCandidates.filter(c => c.linkedin_url).length,
-          portfolio_sites_found: finalCandidates.filter(c => c.portfolio_url).length,
-          github_profiles_found: finalCandidates.filter(c => c.github_url).length
+          boolean_queries_executed: searchQueries.length,
+          platforms_discovered: [...new Set(sortedCandidates.map(c => c.source_platform))].length,
+          avg_score: Math.round(sortedCandidates.reduce((sum, c) => sum + c.overall_score, 0) / sortedCandidates.length || 0)
         }
       }),
-      { 
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
-      }
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
 
   } catch (error) {
     console.error('Error in enhanced Google Search:', error)
     return new Response(
-      JSON.stringify({ error: 'Failed to perform enhanced Google Search' }),
+      JSON.stringify({ 
+        candidates: [], 
+        total: 0, 
+        source: 'google',
+        error: 'Google Search failed' 
+      }),
       { 
         status: 500, 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
@@ -157,388 +210,118 @@ serve(async (req) => {
   }
 })
 
-function buildFallbackQueries(query: string, location: string, enhancedQuery: any): string[] {
-  const queries = []
-  const skills = enhancedQuery?.skills || []
-  const roleTypes = enhancedQuery?.role_types || []
-
-  // LinkedIn profile searches
-  if (roleTypes.length > 0) {
-    const primaryRole = roleTypes[0]
-    const skillGroup = skills.slice(0, 3).map(skill => `"${skill}"`).join(' OR ')
-    queries.push(`site:linkedin.com/in "${primaryRole}" ${location ? `"${location}"` : ''} ${skillGroup} -job -hiring`)
-  }
-
-  // GitHub profile searches
-  if (skills.length > 0) {
-    queries.push(`site:github.com "${skills[0]}" ${location ? `"${location}"` : ''} developer`)
-  }
-
-  // Portfolio and resume searches
-  queries.push(`"portfolio" OR "resume" "${query}" developer filetype:pdf OR site:github.io`)
-
-  // Stack Overflow profiles
-  queries.push(`site:stackoverflow.com/users "${query}" developer`)
-
-  return queries.slice(0, 4)
-}
-
-async function extractEnhancedCandidateFromResult(item: any, enhancedQuery: any, searchQuery: string) {
-  try {
-    const title = item.title || ''
-    const snippet = item.snippet || ''
-    const url = item.link || ''
-
-    // Enhanced name extraction
-    const name = extractNameFromResult(title, snippet, url)
-    if (!name) return null
-
-    // Platform detection and URL extraction
-    const platformInfo = detectPlatformAndExtractInfo(url, title, snippet)
-    
-    // Enhanced skill extraction based on context
-    const skills = extractSkillsFromContent(title + ' ' + snippet, enhancedQuery?.skills || [])
-    
-    // Enhanced title inference
-    const candidateTitle = extractTitleFromContent(title, snippet) || 
-                          inferTitleFromSkills(skills) || 
-                          'Software Professional'
-
-    // Location extraction
-    const location = extractLocationFromContent(snippet) || enhancedQuery?.location_preferences?.[0] || ''
-
-    // Enhanced scoring
-    const skillMatchScore = calculateSkillMatchScore(skills, enhancedQuery?.skills || [])
-    const platformScore = calculatePlatformScore(platformInfo.platform)
-    const contentQualityScore = calculateContentQualityScore(title, snippet)
-
-    const candidate = {
-      name,
-      title: candidateTitle,
-      location,
-      summary: snippet.substring(0, 200),
-      skills,
-      experience_years: estimateExperienceFromContent(title, snippet),
-      last_active: new Date().toISOString(),
-      overall_score: Math.round((skillMatchScore + platformScore + contentQualityScore) / 3),
-      skill_match: skillMatchScore,
-      experience: calculateExperienceScore(title, snippet),
-      reputation: platformScore,
-      freshness: 75, // Google results are generally fresh
-      social_proof: calculateSocialProofScore(url, snippet),
-      risk_flags: calculateRiskFlags(title, snippet, url),
-      discovery_method: 'enhanced_google_boolean',
-      search_query_context: searchQuery,
-      boolean_search: true,
-      ...platformInfo.urls
-    }
-
-    return candidate
-  } catch (error) {
-    console.error('Error extracting candidate from Google result:', error)
-    return null
-  }
-}
-
-function detectPlatformAndExtractInfo(url: string, title: string, snippet: string) {
-  const platforms = {
-    platform: 'unknown',
-    urls: {}
-  }
-
-  if (url.includes('linkedin.com/in/')) {
-    platforms.platform = 'linkedin'
-    platforms.urls.linkedin_url = url
-  } else if (url.includes('github.com/') && !url.includes('/blob/') && !url.includes('/tree/')) {
-    platforms.platform = 'github'
-    platforms.urls.github_url = url
-    platforms.urls.github_username = extractGitHubUsername(url)
-  } else if (url.includes('stackoverflow.com/users/')) {
-    platforms.platform = 'stackoverflow'
-    platforms.urls.stackoverflow_url = url
-  } else if (url.includes('github.io') || url.includes('portfolio') || url.includes('personal')) {
-    platforms.platform = 'portfolio'
-    platforms.urls.portfolio_url = url
-  }
-
-  return platforms
-}
-
-function extractNameFromResult(title: string, snippet: string, url: string): string | null {
-  // LinkedIn name extraction
-  const linkedinMatch = title.match(/^([^-|]+)/)
-  if (linkedinMatch && url.includes('linkedin.com')) {
-    return linkedinMatch[1].trim()
-  }
-
-  // GitHub name extraction
-  const githubMatch = url.match(/github\.com\/([^\/]+)/)
-  if (githubMatch) {
-    return githubMatch[1].replace(/-/g, ' ').replace(/\d+/g, '').trim()
-  }
-
-  // Generic name extraction from title
-  const namePatterns = [
-    /^([A-Z][a-z]+ [A-Z][a-z]+)/,
-    /([A-Z][a-z]+ [A-Z]\. [A-Z][a-z]+)/,
-    /^([^-|,]+?)(?:\s*[-|,])/
+// Helper functions for enhanced candidate extraction
+function extractNameFromTitle(title: string): string {
+  // Extract name from LinkedIn profiles, GitHub profiles, etc.
+  const patterns = [
+    /^([^|•-]+)(?:[|•-])/,  // Name before separator
+    /(\w+\s+\w+)/,          // First and last name pattern
   ]
-
-  for (const pattern of namePatterns) {
+  
+  for (const pattern of patterns) {
     const match = title.match(pattern)
-    if (match && match[1].length > 3 && match[1].length < 50) {
-      return match[1].trim()
-    }
+    if (match) return match[1].trim()
   }
-
-  return null
+  
+  return title.split(' ').slice(0, 2).join(' ') || 'Professional'
 }
 
-function extractSkillsFromContent(content: string, enhancedSkills: string[]): string[] {
-  const skills = new Set<string>()
-  const contentLower = content.toLowerCase()
-
-  // Enhanced skill detection
-  const allTechSkills = [
-    'python', 'javascript', 'typescript', 'java', 'go', 'rust', 'php', 'ruby', 'c++', 'c#',
-    'react', 'vue', 'angular', 'svelte', 'node.js', 'django', 'flask', 'spring', 'laravel',
-    'aws', 'azure', 'gcp', 'docker', 'kubernetes', 'terraform', 'jenkins', 'gitlab',
-    'machine learning', 'ai', 'data science', 'devops', 'frontend', 'backend', 'full stack',
-    'sql', 'mongodb', 'postgresql', 'redis', 'elasticsearch', 'graphql', 'rest api'
+function extractTitleFromSnippet(snippet: string, roleType?: string): string {
+  const commonTitles = [
+    'Senior Software Engineer', 'Software Engineer', 'Full Stack Developer',
+    'Frontend Developer', 'Backend Developer', 'DevOps Engineer',
+    'Data Scientist', 'Product Manager', 'Tech Lead'
   ]
-
-  // Check for enhanced skills first (higher priority)
-  for (const skill of enhancedSkills) {
-    if (contentLower.includes(skill.toLowerCase())) {
-      skills.add(skill)
+  
+  for (const title of commonTitles) {
+    if (snippet.toLowerCase().includes(title.toLowerCase())) {
+      return title
     }
   }
-
-  // Check for all tech skills
-  for (const skill of allTechSkills) {
-    if (contentLower.includes(skill)) {
-      skills.add(skill)
-    }
-  }
-
-  return Array.from(skills).slice(0, 8)
+  
+  return roleType || 'Software Professional'
 }
 
-function extractTitleFromContent(title: string, snippet: string): string | null {
-  const titlePatterns = [
-    /(?:Senior|Lead|Principal|Staff)?\s*(?:Software|Full Stack|Backend|Frontend)?\s*(?:Engineer|Developer|Programmer)/i,
-    /(?:Data|Machine Learning|DevOps|Cloud)\s*(?:Engineer|Scientist|Architect)/i,
-    /(?:Technical|Software|Engineering)\s*(?:Lead|Manager|Director)/i
-  ]
-
-  const combinedText = title + ' ' + snippet
-
-  for (const pattern of titlePatterns) {
-    const match = combinedText.match(pattern)
-    if (match) return match[0]
-  }
-
-  return null
-}
-
-function extractLocationFromContent(content: string): string | null {
+function extractLocationFromSnippet(snippet: string): string {
   const locationPatterns = [
-    /(?:in|at|from)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*),?\s*(?:[A-Z]{2}|[A-Z][a-z]+)/i,
-    /([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*),\s*(?:CA|NY|TX|FL|WA|IL)/i,
-    /(San Francisco|New York|Los Angeles|Seattle|Boston|Austin|Chicago|Denver)/i
+    /(?:based in|located in|from)\s+([^.]+)/i,
+    /(San Francisco|New York|London|Toronto|Berlin|Bangalore|Hyderabad|Mumbai|Delhi)/i
   ]
-
+  
   for (const pattern of locationPatterns) {
-    const match = content.match(pattern)
-    if (match) return match[1] || match[0]
+    const match = snippet.match(pattern)
+    if (match) return match[1].trim()
   }
-
-  return null
+  
+  return ''
 }
 
-function isValidDeveloperCandidate(candidate: any, enhancedQuery: any): boolean {
-  // Must have a name
-  if (!candidate.name || candidate.name.length < 2) return false
-
-  // Must have at least one relevant skill
-  if (candidate.skills.length === 0) return false
-
-  // Check if the candidate matches the search intent
-  const titleLower = candidate.title.toLowerCase()
-  const roleTypes = enhancedQuery?.role_types || []
-  const hasRelevantTitle = roleTypes.some(role => 
-    titleLower.includes(role.toLowerCase()) || 
-    titleLower.includes('developer') || 
-    titleLower.includes('engineer')
-  )
-
-  if (!hasRelevantTitle && candidate.skills.length < 3) return false
-
-  return true
-}
-
-function calculateSkillMatchScore(candidateSkills: string[], requiredSkills: string[]): number {
-  if (requiredSkills.length === 0) return 60
-
-  const matches = requiredSkills.filter(skill =>
-    candidateSkills.some(candSkill =>
-      candSkill.toLowerCase().includes(skill.toLowerCase()) ||
-      skill.toLowerCase().includes(candSkill.toLowerCase())
-    )
-  )
-
-  return Math.min((matches.length / requiredSkills.length) * 100, 100)
-}
-
-function calculatePlatformScore(platform: string): number {
-  const platformScores = {
-    'linkedin': 85,
-    'github': 90,
-    'stackoverflow': 80,
-    'portfolio': 75,
-    'unknown': 50
-  }
-
-  return platformScores[platform] || 50
-}
-
-function calculateContentQualityScore(title: string, snippet: string): number {
-  let score = 50
-
-  // Length and completeness
-  if (title.length > 20) score += 10
-  if (snippet.length > 50) score += 10
-
-  // Professional keywords
-  const professionalKeywords = ['engineer', 'developer', 'senior', 'lead', 'architect', 'technical']
-  const keywordCount = professionalKeywords.filter(keyword =>
-    (title + snippet).toLowerCase().includes(keyword)
-  ).length
-  score += keywordCount * 5
-
-  return Math.min(score, 100)
-}
-
-function estimateExperienceFromContent(title: string, snippet: string): number {
-  const content = (title + ' ' + snippet).toLowerCase()
-
-  if (content.includes('senior') || content.includes('lead')) return 7
-  if (content.includes('principal') || content.includes('staff')) return 10
-  if (content.includes('junior') || content.includes('entry')) return 2
-  if (content.includes('mid') || content.includes('intermediate')) return 4
-
-  return 5 // Default
-}
-
-function calculateExperienceScore(title: string, snippet: string): number {
-  const years = estimateExperienceFromContent(title, snippet)
-  return Math.min(years * 8, 90)
-}
-
-function calculateSocialProofScore(url: string, snippet: string): number {
-  let score = 40
-
-  if (url.includes('linkedin.com')) score += 20
-  if (url.includes('github.com')) score += 25
-  if (snippet.includes('followers') || snippet.includes('connections')) score += 15
-
-  return Math.min(score, 100)
-}
-
-function calculateRiskFlags(title: string, snippet: string, url: string): string[] {
-  const flags = []
-
-  if (title.length < 10) flags.push('Short title')
-  if (snippet.length < 30) flags.push('Limited information')
-  if (!url.includes('linkedin.com') && !url.includes('github.com')) flags.push('Unverified platform')
-
-  return flags
-}
-
-function inferTitleFromSkills(skills: string[]): string | null {
-  if (skills.includes('react') || skills.includes('vue') || skills.includes('angular')) {
-    return 'Frontend Developer'
-  }
-  if (skills.includes('node.js') || skills.includes('django') || skills.includes('spring')) {
-    return 'Backend Developer'
-  }
-  if (skills.includes('devops') || skills.includes('kubernetes') || skills.includes('aws')) {
-    return 'DevOps Engineer'
-  }
-  if (skills.includes('machine learning') || skills.includes('data science')) {
-    return 'Data Scientist'
-  }
-
-  return null
-}
-
-function extractGitHubUsername(url: string): string | null {
-  const match = url.match(/github\.com\/([^\/]+)/)
+function extractEmailFromSnippet(snippet: string): string | null {
+  const emailPattern = /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/
+  const match = snippet.match(emailPattern)
   return match ? match[1] : null
 }
 
-async function enhanceGoogleCandidateScoring(candidates: any[], enhancedQuery: any): Promise<any[]> {
-  return candidates.map(candidate => {
-    // Boolean search bonus
-    if (candidate.boolean_search) {
-      candidate.overall_score += 10
-      candidate.search_relevance_bonus = 10
-    }
-
-    // Platform diversity bonus
-    const platformCount = [
-      candidate.linkedin_url,
-      candidate.github_url,
-      candidate.stackoverflow_url,
-      candidate.portfolio_url
-    ].filter(Boolean).length
-
-    candidate.platform_diversity_score = platformCount * 5
-    candidate.overall_score += candidate.platform_diversity_score
-
-    // Enhanced skill matching
-    if (enhancedQuery?.must_have_skills) {
-      const mustHaveMatches = enhancedQuery.must_have_skills.filter(skill =>
-        candidate.skills.some(candSkill =>
-          candSkill.toLowerCase().includes(skill.toLowerCase())
-        )
-      )
-      candidate.must_have_skill_match = (mustHaveMatches.length / enhancedQuery.must_have_skills.length) * 100
-      
-      if (candidate.must_have_skill_match >= 80) {
-        candidate.overall_score += 15
-      }
-    }
-
-    // Cap the score
-    candidate.overall_score = Math.min(candidate.overall_score, 100)
-
-    return candidate
-  })
+function extractExperienceFromSnippet(snippet: string): number {
+  const expPatterns = [
+    /(\d+)\+?\s*years?\s*(?:of\s*)?experience/i,
+    /(\d+)\+?\s*yrs/i,
+    /experience.*?(\d+)\+?\s*years?/i
+  ]
+  
+  for (const pattern of expPatterns) {
+    const match = snippet.match(pattern)
+    if (match) return parseInt(match[1])
+  }
+  
+  return 3 // Default experience
 }
 
-function deduplicateGoogleCandidates(candidates: any[]): any[] {
-  const seen = new Set()
-  const unique = []
-
-  for (const candidate of candidates) {
-    // Create a unique key based on name and primary URL
-    const primaryUrl = candidate.linkedin_url || candidate.github_url || candidate.portfolio_url || ''
-    const key = `${candidate.name.toLowerCase()}_${primaryUrl}`
-
-    if (!seen.has(key)) {
-      seen.add(key)
-      unique.push(candidate)
+function calculateGoogleScore(result: any, enhancedQuery: any): number {
+  let score = 50 // Base score
+  
+  // Platform-specific scoring
+  if (result.link.includes('linkedin.com')) score += 20
+  if (result.link.includes('github.com')) score += 15
+  if (result.link.includes('stackoverflow.com')) score += 10
+  
+  // Keyword relevance
+  const skills = enhancedQuery?.skills || []
+  for (const skill of skills) {
+    if (result.snippet.toLowerCase().includes(skill.toLowerCase())) {
+      score += 5
     }
   }
-
-  return unique
+  
+  // Title relevance
+  const roles = enhancedQuery?.role_types || []
+  for (const role of roles) {
+    if (result.title.toLowerCase().includes(role.toLowerCase())) {
+      score += 10
+    }
+  }
+  
+  return Math.min(score, 100)
 }
 
-function generateCandidateId(item: any): string {
-  // Generate a consistent ID for the candidate
-  const url = item.link || ''
-  const title = item.title || ''
+function calculateSkillMatch(snippet: string, skills: string[]): number {
+  if (!skills || skills.length === 0) return 50
   
-  return `google_${url.split('/').pop() || title.replace(/\s+/g, '_').toLowerCase()}`
+  let matchCount = 0
+  for (const skill of skills) {
+    if (snippet.toLowerCase().includes(skill.toLowerCase())) {
+      matchCount++
+    }
+  }
+  
+  return Math.round((matchCount / skills.length) * 100)
+}
+
+function detectPlatform(url: string): string {
+  if (url.includes('linkedin.com')) return 'linkedin'
+  if (url.includes('github.com')) return 'github'
+  if (url.includes('stackoverflow.com')) return 'stackoverflow'
+  if (url.includes('medium.com')) return 'medium'
+  if (url.includes('dev.to')) return 'devto'
+  return 'web'
 }

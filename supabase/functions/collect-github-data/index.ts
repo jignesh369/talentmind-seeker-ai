@@ -24,6 +24,10 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
+function generateUUID() {
+  return crypto.randomUUID();
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -142,7 +146,11 @@ serve(async (req) => {
             const skillMatchScore = calculateEnhancedSkillMatch(extractedSkills, enhancedQuery)
             const overallScore = Math.round((reputationScore + activityScore + skillMatchScore + languageScore) / 4)
 
+            // Generate proper UUID for candidate
+            const candidateId = generateUUID()
+
             const candidate = {
+              id: candidateId,
               name: userDetails.name || userDetails.login,
               title: extractEnhancedTitleFromBio(userDetails.bio) || inferTitleFromLanguages(repositories),
               location: userDetails.location || location || '',
@@ -167,12 +175,43 @@ serve(async (req) => {
 
             candidates.push(candidate)
 
-            // Save enhanced source data with error handling
+            // Save enhanced candidate to database with proper UUID
             try {
-              await supabase
+              const { error: candidateError } = await supabase
+                .from('candidates')
+                .upsert({
+                  id: candidateId,
+                  name: candidate.name,
+                  title: candidate.title,
+                  location: candidate.location,
+                  avatar_url: candidate.avatar_url,
+                  email: candidate.email,
+                  github_username: candidate.github_username,
+                  summary: candidate.summary,
+                  skills: candidate.skills,
+                  experience_years: candidate.experience_years,
+                  last_active: candidate.last_active,
+                  overall_score: candidate.overall_score,
+                  skill_match: candidate.skill_match,
+                  experience: candidate.experience,
+                  reputation: candidate.reputation,
+                  freshness: candidate.freshness,
+                  social_proof: candidate.social_proof,
+                  risk_flags: candidate.risk_flags
+                }, { 
+                  onConflict: 'github_username',
+                  ignoreDuplicates: false 
+                })
+
+              if (candidateError) {
+                console.error(`Error saving candidate ${userDetails.login}:`, candidateError)
+              }
+
+              // Save enhanced source data with error handling
+              const { error: sourceError } = await supabase
                 .from('candidate_sources')
                 .upsert({
-                  candidate_id: userDetails.login,
+                  candidate_id: candidateId,
                   platform: 'github',
                   platform_id: userDetails.login,
                   url: userDetails.html_url,
@@ -186,8 +225,13 @@ serve(async (req) => {
                   onConflict: 'platform,platform_id',
                   ignoreDuplicates: false 
                 })
+
+              if (sourceError) {
+                console.error(`Error saving source data for ${userDetails.login}:`, sourceError)
+              }
+
             } catch (error) {
-              console.error(`Error saving source data for ${userDetails.login}:`, error)
+              console.error(`Error saving data for ${userDetails.login}:`, error)
             }
 
           } catch (error) {
