@@ -128,39 +128,121 @@ serve(async (req) => {
 
           candidates.push(candidate)
 
-          // Fast database save without complex logic
+          // Improved database save with proper error handling
           try {
-            const { error: insertError } = await supabase
+            console.log(`💾 Saving candidate: ${candidate.name} (${user.login})`)
+            
+            // First, try to find existing candidate by github_username
+            const { data: existingCandidate, error: selectError } = await supabase
               .from('candidates')
-              .upsert({
-                id: candidateId,
-                name: candidate.name,
-                title: candidate.title,
-                location: candidate.location,
-                avatar_url: candidate.avatar_url,
-                email: candidate.email,
-                github_username: candidate.github_username,
-                summary: candidate.summary,
-                skills: candidate.skills,
-                experience_years: candidate.experience_years,
-                last_active: candidate.last_active,
-                overall_score: candidate.overall_score,
-                skill_match: candidate.skill_match,
-                experience: candidate.experience,
-                reputation: candidate.reputation,
-                freshness: candidate.freshness,
-                social_proof: candidate.social_proof,
-                risk_flags: candidate.risk_flags
-              }, {
-                onConflict: 'github_username'
-              })
+              .select('id')
+              .eq('github_username', user.login)
+              .maybeSingle()
 
-            if (!insertError) {
-              console.log(`✅ Saved candidate: ${candidate.name}`)
+            if (selectError) {
+              console.error(`❌ Error checking existing candidate for ${user.login}:`, selectError.message)
+              continue
+            }
+
+            if (existingCandidate) {
+              // Update existing candidate
+              const { error: updateError } = await supabase
+                .from('candidates')
+                .update({
+                  name: candidate.name,
+                  title: candidate.title,
+                  location: candidate.location,
+                  avatar_url: candidate.avatar_url,
+                  email: candidate.email,
+                  summary: candidate.summary,
+                  skills: candidate.skills,
+                  experience_years: candidate.experience_years,
+                  last_active: candidate.last_active,
+                  overall_score: candidate.overall_score,
+                  skill_match: candidate.skill_match,
+                  experience: candidate.experience,
+                  reputation: candidate.reputation,
+                  freshness: candidate.freshness,
+                  social_proof: candidate.social_proof,
+                  risk_flags: candidate.risk_flags,
+                  updated_at: new Date().toISOString()
+                })
+                .eq('id', existingCandidate.id)
+
+              if (updateError) {
+                console.error(`❌ Error updating candidate ${user.login}:`, updateError.message)
+                continue
+              }
+
+              console.log(`✅ Updated existing candidate: ${candidate.name}`)
+              candidate.id = existingCandidate.id
+            } else {
+              // Insert new candidate
+              const { error: insertError } = await supabase
+                .from('candidates')
+                .insert({
+                  id: candidateId,
+                  name: candidate.name,
+                  title: candidate.title,
+                  location: candidate.location,
+                  avatar_url: candidate.avatar_url,
+                  email: candidate.email,
+                  github_username: candidate.github_username,
+                  summary: candidate.summary,
+                  skills: candidate.skills,
+                  experience_years: candidate.experience_years,
+                  last_active: candidate.last_active,
+                  overall_score: candidate.overall_score,
+                  skill_match: candidate.skill_match,
+                  experience: candidate.experience,
+                  reputation: candidate.reputation,
+                  freshness: candidate.freshness,
+                  social_proof: candidate.social_proof,
+                  risk_flags: candidate.risk_flags
+                })
+
+              if (insertError) {
+                console.error(`❌ Error inserting candidate ${user.login}:`, insertError.message)
+                continue
+              }
+
+              console.log(`✅ Inserted new candidate: ${candidate.name}`)
+            }
+
+            // Add candidate source record
+            try {
+              const { error: sourceError } = await supabase
+                .from('candidate_sources')
+                .insert({
+                  candidate_id: candidate.id,
+                  platform: 'github',
+                  platform_id: user.login,
+                  url: userProfile.html_url,
+                  data: {
+                    profile: userProfile,
+                    enhanced_profile: enhancedProfile,
+                    scores: {
+                      repo_score: repoScore,
+                      contribution_score: contributionScore,
+                      skill_score: skillScore,
+                      activity_score: activityScore
+                    }
+                  }
+                })
+
+              if (sourceError) {
+                console.error(`⚠️ Failed to save source for ${user.login}:`, sourceError.message)
+                // Don't fail the whole operation, just log the error
+              } else {
+                console.log(`📝 Saved source record for ${user.login}`)
+              }
+            } catch (sourceErr) {
+              console.error(`⚠️ Exception saving source for ${user.login}:`, sourceErr)
             }
 
           } catch (error) {
-            console.log(`⚠️ Failed to save candidate ${user.login}, continuing...`)
+            console.error(`❌ Database operation failed for ${user.login}:`, error.message)
+            continue
           }
 
         } catch (error) {
