@@ -14,8 +14,8 @@ const corsHeaders = {
 
 interface DraftEmailRequest {
   candidate_id: string;
-  job_title: string;
-  company: string;
+  job_title?: string;
+  company?: string;
   job_description?: string;
   tone: 'professional' | 'friendly' | 'casual' | 'direct';
   template_id?: string;
@@ -30,10 +30,18 @@ serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
     const { candidate_id, job_title, company, job_description, tone, template_id }: DraftEmailRequest = await req.json();
 
-    // Get candidate details
+    // Get candidate details with sources
     const { data: candidate, error: candidateError } = await supabase
       .from('candidates')
-      .select('*')
+      .select(`
+        *,
+        candidate_sources (
+          platform,
+          platform_id,
+          url,
+          data
+        )
+      `)
       .eq('id', candidate_id)
       .single();
 
@@ -41,26 +49,7 @@ serve(async (req) => {
       throw new Error('Candidate not found');
     }
 
-    // Get email template
-    let systemPrompt = '';
-    if (template_id) {
-      const { data: template } = await supabase
-        .from('email_templates')
-        .select('system_prompt')
-        .eq('id', template_id)
-        .single();
-      systemPrompt = template?.system_prompt || '';
-    } else {
-      const { data: defaultTemplate } = await supabase
-        .from('email_templates')
-        .select('system_prompt')
-        .eq('tone', tone)
-        .eq('is_default', true)
-        .single();
-      systemPrompt = defaultTemplate?.system_prompt || 'You are a professional tech recruiter writing personalized outreach emails.';
-    }
-
-    // Prepare candidate context
+    // Prepare enriched candidate context
     const candidateContext = {
       name: candidate.name,
       title: candidate.title || 'Developer',
@@ -69,35 +58,60 @@ serve(async (req) => {
       summary: candidate.summary || '',
       experience_years: candidate.experience_years || 0,
       github_username: candidate.github_username,
-      overall_score: candidate.overall_score || 0
+      overall_score: candidate.overall_score || 0,
+      skill_match: candidate.skill_match || 0,
+      reputation: candidate.reputation || 0,
+      last_active: candidate.last_active,
+      sources: candidate.candidate_sources || []
     };
 
+    // Create enhanced system prompt for better personalization
+    const systemPrompt = `You are an expert tech recruiter specializing in AI-powered personalized outreach. Your goal is to create compelling, highly personalized recruitment emails that feel authentic and human.
+
+PERSONALIZATION GUIDELINES:
+- Reference specific skills that match the role
+- Mention relevant experience and projects when available
+- Use the candidate's background to create meaningful connections
+- Include subtle social proof elements (GitHub activity, scores, etc.)
+- Keep the tone professional but warm and engaging
+- Always include a clear call to action
+
+AVOID:
+- Generic templates or copy-paste content
+- Overly salesy language
+- Mentioning internal scoring systems directly
+- Being too pushy or aggressive`;
+
     const userPrompt = `
-Generate a personalized outreach email for the following candidate and job opportunity:
+Create a highly personalized outreach email for this candidate:
 
 CANDIDATE PROFILE:
 - Name: ${candidateContext.name}
 - Current Title: ${candidateContext.title}
 - Location: ${candidateContext.location}
 - Experience: ${candidateContext.experience_years} years
-- Key Skills: ${candidateContext.skills.slice(0, 5).join(', ')}
-- GitHub: ${candidateContext.github_username ? `@${candidateContext.github_username}` : 'Not provided'}
-- Profile Summary: ${candidateContext.summary.substring(0, 200)}...
-- Overall Score: ${candidateContext.overall_score}/100
+- Top Skills: ${candidateContext.skills.slice(0, 8).join(', ')}
+- GitHub: ${candidateContext.github_username ? `@${candidateContext.github_username}` : 'Not available'}
+- Profile Summary: ${candidateContext.summary ? candidateContext.summary.substring(0, 300) : 'No summary available'}
+- Last Active: ${candidateContext.last_active ? new Date(candidateContext.last_active).toLocaleDateString() : 'Recently active'}
+- Found on: ${candidateContext.sources.map(s => s.platform).join(', ') || 'Various platforms'}
 
 JOB OPPORTUNITY:
-- Position: ${job_title}
-- Company: ${company}
-- Description: ${job_description || 'Exciting opportunity in tech'}
+- Position: ${job_title || 'Exciting Tech Role'}
+- Company: ${company || 'Innovative Tech Company'}
+- Description: ${job_description || 'Join our innovative team working on cutting-edge AI/HR technology solutions. We\'re building the future of recruitment and need talented individuals like you.'}
 
-REQUIREMENTS:
-- Write a compelling subject line (max 60 characters)
-- Write an email body (max 800 characters)
-- Personalize based on the candidate's background
-- Include a clear call to action
-- Maintain the specified tone: ${tone}
+PERSONALIZATION REQUIREMENTS:
+1. Reference 2-3 specific skills that align with the role
+2. Mention their experience level appropriately
+3. If GitHub username exists, subtly reference their development work
+4. Use their location for any relevant context
+5. Create authentic connection between their background and our needs
+6. Keep subject line under 50 characters
+7. Keep email body under 200 words
+8. Tone: ${tone}
 
-Return your response as JSON with "subject" and "body" fields only.
+Return JSON with "subject" and "body" fields. Make it feel like a real human recruiter wrote this after researching the candidate.
 `;
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -113,7 +127,7 @@ Return your response as JSON with "subject" and "body" fields only.
           { role: 'user', content: userPrompt }
         ],
         response_format: { type: "json_object" },
-        max_tokens: 1000,
+        max_tokens: 800,
         temperature: 0.7,
       }),
     });
@@ -124,11 +138,6 @@ Return your response as JSON with "subject" and "body" fields only.
 
     const data = await response.json();
     const generatedContent = JSON.parse(data.choices[0].message.content);
-
-    // Validate content length
-    if (generatedContent.body.length > 1000) {
-      throw new Error('Generated email content too long');
-    }
 
     return new Response(JSON.stringify({
       subject: generatedContent.subject,

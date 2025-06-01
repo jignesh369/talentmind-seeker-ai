@@ -5,8 +5,8 @@ import { useToast } from '@/hooks/use-toast';
 
 interface DraftEmailRequest {
   candidate_id: string;
-  job_title: string;
-  company: string;
+  job_title?: string;
+  company?: string;
   job_description?: string;
   tone: 'professional' | 'friendly' | 'casual' | 'direct';
   template_id?: string;
@@ -28,10 +28,87 @@ interface EmailDraft {
   openai_response_id?: string;
 }
 
+interface UserProfile {
+  full_name: string;
+  email: string;
+  company: string;
+}
+
 export const useEmailOutreach = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [draft, setDraft] = useState<EmailDraft | null>(null);
   const { toast } = useToast();
+
+  const getUserProfile = async (): Promise<UserProfile | null> => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return null;
+
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('full_name, email, company')
+        .eq('id', session.user.id)
+        .single();
+
+      return profile || {
+        full_name: session.user.email?.split('@')[0] || 'Recruiter',
+        email: session.user.email || '',
+        company: 'AI-based HR Tech Company'
+      };
+    } catch (error) {
+      console.error('Error fetching user profile:', error);
+      return null;
+    }
+  };
+
+  const autoGenerateEmail = async (candidate: any, jobTitle?: string): Promise<EmailDraft | null> => {
+    setIsLoading(true);
+    try {
+      const userProfile = await getUserProfile();
+      if (!userProfile) {
+        throw new Error('Unable to fetch user profile');
+      }
+
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        throw new Error('Not authenticated');
+      }
+
+      // Auto-populate with intelligent defaults
+      const request: DraftEmailRequest = {
+        candidate_id: candidate.id,
+        job_title: jobTitle || `${candidate.title} - Exciting Opportunity`,
+        company: userProfile.company,
+        job_description: `Join our innovative ${userProfile.company} team and make a significant impact in the AI/HR tech space. We're looking for talented individuals like you to help shape the future of recruitment technology.`,
+        tone: 'professional'
+      };
+
+      const response = await supabase.functions.invoke('draft-email', {
+        body: request,
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      });
+
+      if (response.error) {
+        throw response.error;
+      }
+
+      const emailDraft = response.data as EmailDraft;
+      setDraft(emailDraft);
+      return emailDraft;
+    } catch (error: any) {
+      console.error('Error auto-generating email:', error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to generate email draft",
+        variant: "destructive"
+      });
+      return null;
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const draftEmail = async (request: DraftEmailRequest): Promise<EmailDraft | null> => {
     setIsLoading(true);
@@ -156,9 +233,11 @@ export const useEmailOutreach = () => {
     isLoading,
     draft,
     setDraft,
+    autoGenerateEmail,
     draftEmail,
     sendEmail,
     getEmailTemplates,
-    getQuotaStatus
+    getQuotaStatus,
+    getUserProfile
   };
 };

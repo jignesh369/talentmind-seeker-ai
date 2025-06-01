@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { MapPin, Calendar, ExternalLink, Github, Globe, AlertTriangle, Info, Star, Mail, Copy, Zap } from 'lucide-react';
 import { ScoreBreakdown } from './ScoreBreakdown';
-import { EmailOutreachModal } from './EmailOutreachModal';
+import { StreamlinedEmailModal } from './StreamlinedEmailModal';
 import { Candidate } from '../hooks/useCandidates';
 import { useToast } from '../hooks/use-toast';
 
@@ -211,7 +211,7 @@ export const CandidateCard: React.FC<CandidateCardProps> = ({ candidate }) => {
               onClick={handleContactClick}
               className={`px-4 py-2 rounded-lg transition-colors flex items-center space-x-2 ${
                 candidate.email 
-                  ? 'bg-blue-600 text-white hover:bg-blue-700' 
+                  ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white hover:from-blue-700 hover:to-purple-700 shadow-lg' 
                   : 'bg-gray-300 text-gray-500 cursor-not-allowed'
               }`}
               disabled={!candidate.email}
@@ -223,7 +223,7 @@ export const CandidateCard: React.FC<CandidateCardProps> = ({ candidate }) => {
         </div>
       </div>
 
-      <EmailOutreachModal
+      <StreamlinedEmailModal
         isOpen={showEmailModal}
         onClose={() => setShowEmailModal(false)}
         candidate={candidate}
