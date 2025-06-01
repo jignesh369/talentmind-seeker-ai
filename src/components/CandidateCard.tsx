@@ -4,12 +4,6 @@ import { MapPin, Calendar, ExternalLink, Github, Globe, AlertTriangle, Info, Sta
 import { ScoreBreakdown } from './ScoreBreakdown';
 import { Candidate } from '../hooks/useCandidates';
 
-interface Source {
-  platform: string;
-  url: string;
-  icon: string;
-}
-
 interface CandidateCardProps {
   candidate: Candidate;
 }
@@ -20,7 +14,6 @@ export const CandidateCard: React.FC<CandidateCardProps> = ({ candidate }) => {
   // Handle potential undefined/null values with fallbacks
   const riskFlags = candidate.risk_flags || [];
   const skills = candidate.skills || [];
-  const sources = candidate.sources || [];
   const overallScore = candidate.overall_score || 0;
   const skillMatch = candidate.skill_match || 0;
   const experience = candidate.experience || 0;
@@ -40,12 +33,22 @@ export const CandidateCard: React.FC<CandidateCardProps> = ({ candidate }) => {
     return 'bg-red-500';
   };
 
-  // Create mock sources if none exist
-  const mockSources = [
-    { platform: 'GitHub', url: `https://github.com/${candidate.github_username || 'unknown'}`, icon: 'github' },
-  ].filter(source => candidate.github_username);
-
-  const displaySources = sources.length > 0 ? sources : mockSources;
+  // Create mock sources based on available candidate data
+  const mockSources = [];
+  if (candidate.github_username) {
+    mockSources.push({ 
+      platform: 'GitHub', 
+      url: `https://github.com/${candidate.github_username}`, 
+      icon: 'github' 
+    });
+  }
+  if (candidate.stackoverflow_id) {
+    mockSources.push({ 
+      platform: 'StackOverflow', 
+      url: `https://stackoverflow.com/users/${candidate.stackoverflow_id}`, 
+      icon: 'stackoverflow' 
+    });
+  }
 
   return (
     <div className="bg-white rounded-xl shadow-lg border border-slate-200 p-6 hover:shadow-xl transition-all duration-300">
@@ -132,8 +135,6 @@ export const CandidateCard: React.FC<CandidateCardProps> = ({ candidate }) => {
         
         {showBreakdown && (
           <ScoreBreakdown candidate={{
-            ...candidate,
-            overallScore,
             skillMatch,
             experience,
             reputation,
@@ -148,7 +149,7 @@ export const CandidateCard: React.FC<CandidateCardProps> = ({ candidate }) => {
       <div className="flex items-center justify-between pt-4 border-t border-slate-200">
         <div className="flex items-center space-x-3">
           <span className="text-sm text-slate-600 font-medium">Found on:</span>
-          {displaySources.map((source, index) => (
+          {mockSources.map((source, index) => (
             <a
               key={index}
               href={source.url}
@@ -163,7 +164,7 @@ export const CandidateCard: React.FC<CandidateCardProps> = ({ candidate }) => {
               <ExternalLink className="w-3 h-3" />
             </a>
           ))}
-          {displaySources.length === 0 && (
+          {mockSources.length === 0 && (
             <span className="text-sm text-slate-500">No sources available</span>
           )}
         </div>
