@@ -27,9 +27,9 @@ export const CleanCandidateGrid: React.FC<CleanCandidateGridProps> = ({
     return (
       <div className="text-center py-20">
         <div className="relative w-20 h-20 mx-auto mb-6">
-          <div className="absolute inset-0 bg-gradient-to-r from-blue-600 to-purple-600 rounded-full animate-spin"></div>
+          <div className="absolute inset-0 bg-slate-300 rounded-full animate-spin"></div>
           <div className="absolute inset-2 bg-white rounded-full"></div>
-          <div className="absolute inset-4 bg-gradient-to-r from-blue-600 to-purple-600 rounded-full"></div>
+          <div className="absolute inset-4 bg-slate-600 rounded-full"></div>
         </div>
         <h3 className="text-2xl font-bold text-slate-900 mb-3">AI Talent Discovery in Progress</h3>
         <p className="text-slate-600 text-lg">Analyzing profiles and matching the perfect candidates...</p>
@@ -40,7 +40,7 @@ export const CleanCandidateGrid: React.FC<CleanCandidateGridProps> = ({
   if (candidates.length === 0) {
     return (
       <div className="text-center py-20">
-        <div className="w-24 h-24 bg-gradient-to-br from-slate-100 to-slate-200 rounded-full flex items-center justify-center mx-auto mb-8">
+        <div className="w-24 h-24 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-8">
           <Users className="w-12 h-12 text-slate-400" />
         </div>
         <h3 className="text-2xl font-bold text-slate-900 mb-3">
@@ -55,7 +55,7 @@ export const CleanCandidateGrid: React.FC<CleanCandidateGridProps> = ({
         {searchQuery && (
           <button
             onClick={() => onSearch('')}
-            className="px-8 py-4 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl hover:from-blue-700 hover:to-purple-700 transition-all font-semibold text-lg shadow-lg hover:shadow-xl"
+            className="px-8 py-4 bg-slate-900 text-white rounded-xl hover:bg-slate-800 transition-all font-semibold text-lg shadow-lg hover:shadow-xl"
           >
             Explore All Developers
           </button>
@@ -66,31 +66,31 @@ export const CleanCandidateGrid: React.FC<CleanCandidateGridProps> = ({
 
   return (
     <div>
-      {/* Enhanced Results Header */}
-      <div className="mb-10">
+      {/* Results Header */}
+      <div className="mb-8">
         <div className="text-center">
           <h2 className="text-3xl font-bold text-slate-900 mb-2">
-            {searchQuery ? 'AI-Powered Search Results' : 'Discovered Talent'}
+            {searchQuery ? 'Search Results' : 'Discovered Talent'}
           </h2>
           <p className="text-slate-600 text-lg">
-            Found <span className="font-bold text-blue-600">{candidates.length}</span> exceptional developer{candidates.length !== 1 ? 's' : ''}
+            Found <span className="font-bold text-slate-900">{candidates.length}</span> exceptional developer{candidates.length !== 1 ? 's' : ''}
             {searchQuery && (
               <span className="ml-2">
-                matching <span className="font-semibold text-purple-600">"{searchQuery}"</span>
+                matching <span className="font-semibold text-slate-700">"{searchQuery}"</span>
               </span>
             )}
           </p>
           {candidates.length > 0 && (
-            <div className="mt-4 inline-flex items-center px-4 py-2 bg-green-100 text-green-700 rounded-full text-sm font-medium">
-              <div className="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></div>
+            <div className="mt-4 inline-flex items-center px-4 py-2 bg-slate-100 text-slate-700 rounded-full text-sm font-medium">
+              <div className="w-2 h-2 bg-slate-500 rounded-full mr-2 animate-pulse"></div>
               AI-ranked by relevance and compatibility
             </div>
           )}
         </div>
       </div>
 
-      {/* Enhanced Candidate Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-8">
+      {/* Horizontal Candidate Cards - Single Column */}
+      <div className="space-y-4">
         {candidates.map((candidate) => (
           <EnhancedCandidateCard 
             key={candidate.id} 
