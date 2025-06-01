@@ -23,8 +23,11 @@ const Index = () => {
     searchResults, 
     isSearching, 
     searchMetadata, 
+    searchError,
+    retryCount,
     handleSearch, 
-    clearSearch 
+    clearSearch,
+    retrySearch
   } = useSearch();
   const { filters, setFilters, applyFilters } = useFilters();
   const { isFilterOpen, setIsFilterOpen, isDataCollectionOpen, setIsDataCollectionOpen } = useUIState();
@@ -66,6 +69,9 @@ const Index = () => {
               isSearching={isSearching}
               candidateCount={filteredCandidates.length}
               searchMetadata={searchMetadata}
+              searchError={searchError}
+              retryCount={retryCount}
+              onRetry={retrySearch}
             />
 
             {/* Filter Panel */}
