@@ -58,9 +58,9 @@ serve(async (req) => {
       )
     }
 
-    // Build enhanced search queries using the new strategy module
-    const searchQueries = buildEnhancedSearchQueries(enhancedQuery, location)
-    console.log('Enhanced GitHub search queries:', searchQueries)
+    // Build enhanced search queries with limited scope to prevent timeouts
+    const searchQueries = buildEnhancedSearchQueries(enhancedQuery, location).slice(0, 2) // Limit to 2 queries
+    console.log('GitHub search queries (limited for performance):', searchQueries)
 
     const candidates = []
     const seenUsers = new Set()
@@ -83,7 +83,8 @@ serve(async (req) => {
 
         console.log(`Found ${users.length} GitHub users for query: ${searchQuery}`)
 
-        for (const user of users.slice(0, 25)) {
+        // Process only 15 users per query to prevent timeouts
+        for (const user of users.slice(0, 15)) {
           if (seenUsers.has(user.login)) continue
           seenUsers.add(user.login)
 
@@ -97,8 +98,17 @@ serve(async (req) => {
 
             const repositories = await getUserRepositories(user.url, githubToken)
 
-            // Enhanced README crawling for email discovery
-            const emailFromReadme = await extractEmailFromReadmes(repositories, githubToken)
+            // Enhanced README crawling for email discovery (with timeout)
+            let emailFromReadme = null
+            try {
+              const emailPromise = extractEmailFromReadmes(repositories, githubToken)
+              const timeoutPromise = new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('README extraction timeout')), 5000)
+              )
+              emailFromReadme = await Promise.race([emailPromise, timeoutPromise])
+            } catch (error) {
+              console.log(`README email extraction failed for ${user.login}:`, error.message)
+            }
             
             // Enhanced skill extraction
             const extractedSkills = extractEnhancedSkillsFromGitHub(userDetails, repositories, enhancedQuery)
@@ -125,7 +135,7 @@ serve(async (req) => {
               title: extractEnhancedTitleFromBio(userDetails.bio) || inferTitleFromLanguages(repositories),
               location: userDetails.location || location || '',
               avatar_url: userDetails.avatar_url,
-              email: emailFromReadme || userDetails.email, // Prioritize README email
+              email: emailFromReadme || userDetails.email,
               github_username: userDetails.login,
               summary: createEnhancedSummaryFromGitHub(userDetails, repositories, extractedSkills),
               skills: extractedSkills,
@@ -144,21 +154,26 @@ serve(async (req) => {
 
             candidates.push(candidate)
 
-            // Save enhanced source data
-            await supabase
-              .from('candidate_sources')
-              .upsert({
-                candidate_id: userDetails.login,
-                platform: 'github',
-                platform_id: userDetails.login,
-                url: userDetails.html_url,
-                data: { 
-                  ...userDetails, 
-                  repositories: repositories.slice(0, 8),
-                  readme_email: emailFromReadme,
-                  language_stats: calculateLanguageStats(repositories)
-                }
-              }, { onConflict: 'platform,platform_id' })
+            // Save enhanced source data with better error handling
+            try {
+              await supabase
+                .from('candidate_sources')
+                .insert({
+                  candidate_id: userDetails.login,
+                  platform: 'github',
+                  platform_id: userDetails.login,
+                  url: userDetails.html_url,
+                  data: { 
+                    ...userDetails, 
+                    repositories: repositories.slice(0, 8),
+                    readme_email: emailFromReadme,
+                    language_stats: calculateLanguageStats(repositories)
+                  }
+                })
+            } catch (dbError) {
+              console.log(`Database insert failed for ${userDetails.login}:`, dbError.message)
+              // Continue processing other candidates even if one fails
+            }
 
           } catch (error) {
             console.error(`Error processing GitHub user ${user.login}:`, error)
@@ -175,7 +190,7 @@ serve(async (req) => {
     // Sort by overall score and language expertise
     const sortedCandidates = candidates
       .sort((a, b) => (b.overall_score + b.language_expertise) - (a.overall_score + a.language_expertise))
-      .slice(0, 30)
+      .slice(0, 20) // Reduced from 30 to 20 for better performance
 
     console.log(`Collected ${sortedCandidates.length} enhanced candidates from GitHub`)
 
@@ -187,7 +202,7 @@ serve(async (req) => {
         enhancement_stats: {
           emails_from_readme: sortedCandidates.filter(c => c.readme_email_found).length,
           language_based_searches: detectedLanguages.length,
-          avg_language_expertise: Math.round(sortedCandidates.reduce((sum, c) => sum + c.language_expertise, 0) / sortedCandidates.length)
+          avg_language_expertise: sortedCandidates.length > 0 ? Math.round(sortedCandidates.reduce((sum, c) => sum + c.language_expertise, 0) / sortedCandidates.length) : 0
         }
       }),
       { 
@@ -198,7 +213,7 @@ serve(async (req) => {
   } catch (error) {
     console.error('Error collecting enhanced GitHub data:', error)
     return new Response(
-      JSON.stringify({ error: 'Failed to collect enhanced GitHub data' }),
+      JSON.stringify({ error: 'Failed to collect enhanced GitHub data', details: error.message }),
       { 
         status: 500, 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
