@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { Search, Database, Github, Globe, Users, AlertCircle, CheckCircle, Loader2, X } from 'lucide-react';
+import { Search, Database, Github, Globe, Users, AlertCircle, CheckCircle, Loader2, X, Clock } from 'lucide-react';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription } from './ui/drawer';
 import { useEnhancedDataCollection } from '../hooks/useEnhancedDataCollection';
 
@@ -18,7 +18,7 @@ export const DataCollectionDrawer: React.FC<DataCollectionDrawerProps> = ({
   const [query, setQuery] = useState('');
   const [location, setLocation] = useState('');
   const [selectedSources, setSelectedSources] = useState(['github', 'stackoverflow', 'google']);
-  const { collectData, isCollecting, collectionResult } = useEnhancedDataCollection();
+  const { collectData, isCollecting, collectionResult, progress } = useEnhancedDataCollection();
 
   const handleCollectData = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -55,6 +55,7 @@ export const DataCollectionDrawer: React.FC<DataCollectionDrawerProps> = ({
             <button 
               onClick={onClose}
               className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              disabled={isCollecting}
             >
               <X className="w-5 h-5" />
             </button>
@@ -62,6 +63,19 @@ export const DataCollectionDrawer: React.FC<DataCollectionDrawerProps> = ({
         </DrawerHeader>
 
         <div className="px-6 pb-6 overflow-y-auto">
+          {/* Progress Indicator */}
+          {isCollecting && progress && (
+            <div className="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
+              <div className="flex items-center space-x-3">
+                <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
+                <div>
+                  <div className="text-sm font-medium text-blue-800">Processing...</div>
+                  <div className="text-xs text-blue-600">{progress}</div>
+                </div>
+              </div>
+            </div>
+          )}
+
           <form onSubmit={handleCollectData} className="space-y-6">
             <div>
               <label htmlFor="query" className="block text-sm font-medium text-slate-700 mb-2">
@@ -75,6 +89,7 @@ export const DataCollectionDrawer: React.FC<DataCollectionDrawerProps> = ({
                 placeholder="e.g., Senior Python machine learning engineer with TensorFlow experience"
                 className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
                 required
+                disabled={isCollecting}
               />
               <p className="text-xs text-slate-500 mt-1">
                 Be specific - AI will validate and enrich the results
@@ -92,6 +107,7 @@ export const DataCollectionDrawer: React.FC<DataCollectionDrawerProps> = ({
                 onChange={(e) => setLocation(e.target.value)}
                 placeholder="e.g., San Francisco, remote, United States"
                 className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                disabled={isCollecting}
               />
             </div>
 
@@ -113,6 +129,7 @@ export const DataCollectionDrawer: React.FC<DataCollectionDrawerProps> = ({
                           }
                         }}
                         className="w-4 h-4 text-green-600 focus:ring-green-500 border-slate-300 rounded"
+                        disabled={isCollecting}
                       />
                       <Icon className="w-5 h-5 text-slate-600" />
                       <div>
@@ -153,6 +170,9 @@ export const DataCollectionDrawer: React.FC<DataCollectionDrawerProps> = ({
                         <CheckCircle className="w-4 h-4 text-green-500" />
                       )}
                       <span className="text-sm font-medium capitalize">{source}</span>
+                      {result.error && (
+                        <span className="text-xs text-red-600 ml-2">({result.error})</span>
+                      )}
                     </div>
                     <div className="text-sm text-slate-600">
                       {result.error ? 'Failed' : `${result.validated || 0}/${result.total} validated`}
@@ -170,6 +190,17 @@ export const DataCollectionDrawer: React.FC<DataCollectionDrawerProps> = ({
               </div>
             </div>
           )}
+
+          {/* Tips */}
+          <div className="mt-6 p-4 bg-amber-50 rounded-lg border border-amber-200">
+            <h5 className="text-sm font-medium text-amber-800 mb-2">💡 Tips for better results:</h5>
+            <ul className="text-xs text-amber-700 space-y-1">
+              <li>• Use specific technical skills (e.g., "React", "Python", "TensorFlow")</li>
+              <li>• Include experience level (e.g., "Senior", "5+ years")</li>
+              <li>• Add location for targeted search</li>
+              <li>• The system uses AI to validate and enrich profiles automatically</li>
+            </ul>
+          </div>
         </div>
       </DrawerContent>
     </Drawer>

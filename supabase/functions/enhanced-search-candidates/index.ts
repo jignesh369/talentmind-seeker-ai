@@ -15,9 +15,9 @@ serve(async (req) => {
   try {
     const { query, user_id } = await req.json()
 
-    if (!query || !user_id) {
+    if (!query) {
       return new Response(
-        JSON.stringify({ error: 'Query and user_id are required' }),
+        JSON.stringify({ error: 'Query is required' }),
         { 
           status: 400, 
           headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
@@ -27,84 +27,144 @@ serve(async (req) => {
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-    const openaiApiKey = Deno.env.get('OPENAI_API_KEY')!
+    const openaiApiKey = Deno.env.get('OPENAI_API_KEY')
     const supabase = createClient(supabaseUrl, supabaseKey)
 
     console.log(`Enhanced search for query: ${query}`)
 
-    // Step 1: Parse query with OpenAI
-    const parsedCriteria = await parseSearchQuery(query, openaiApiKey)
-    console.log('Parsed criteria:', parsedCriteria)
+    // Parse query using AI if available
+    let searchParams = { skills: [], location: '', experience_min: 0 }
+    if (openaiApiKey) {
+      try {
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${openaiApiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'gpt-4o-mini',
+            messages: [
+              {
+                role: 'system',
+                content: 'Extract search parameters from the query. Return only valid JSON with: skills (array), location (string), experience_min (number).'
+              },
+              { role: 'user', content: query }
+            ],
+            temperature: 0.1
+          }),
+        })
 
-    // Step 2: Save search to database
-    const { data: searchData, error: searchError } = await supabase
-      .from('searches')
-      .insert({
-        user_id,
-        query,
-        parsed_criteria: parsedCriteria,
-        results_count: 0
-      })
-      .select()
-      .single()
-
-    if (searchError) {
-      console.error('Error saving search:', searchError)
-      throw searchError
+        const data = await response.json()
+        const content = data.choices[0].message.content
+        
+        try {
+          searchParams = JSON.parse(content.replace(/```json\s*|\s*```/g, ''))
+        } catch {
+          console.log('Failed to parse AI response, using fallback search')
+        }
+      } catch (error) {
+        console.error('AI query parsing error:', error)
+      }
     }
 
-    // Step 3: Build intelligent search query
-    let candidatesQuery = supabase
+    // Build database query
+    let dbQuery = supabase
       .from('candidates')
       .select('*')
 
-    // Apply enhanced filters
-    if (parsedCriteria.skills && parsedCriteria.skills.length > 0) {
-      candidatesQuery = candidatesQuery.overlaps('skills', parsedCriteria.skills)
+    // Add text search
+    const searchTerms = query.toLowerCase().split(' ').filter(term => term.length > 2)
+    if (searchTerms.length > 0) {
+      const searchConditions = searchTerms.map(term => 
+        `(name.ilike.%${term}% or title.ilike.%${term}% or summary.ilike.%${term}% or skills.cs.{"${term}"})`
+      ).join(' and ')
+      
+      dbQuery = dbQuery.or(searchConditions)
     }
 
-    if (parsedCriteria.location_preferences && parsedCriteria.location_preferences.length > 0) {
-      // Search for any of the preferred locations
-      const locationFilters = parsedCriteria.location_preferences.map(loc => 
-        `location.ilike.%${loc}%`
-      ).join(',')
-      candidatesQuery = candidatesQuery.or(locationFilters)
+    // Add location filter if specified
+    if (searchParams.location) {
+      dbQuery = dbQuery.ilike('location', `%${searchParams.location}%`)
     }
 
-    if (parsedCriteria.experience_min) {
-      candidatesQuery = candidatesQuery.gte('experience_years', parsedCriteria.experience_min)
+    // Add experience filter
+    if (searchParams.experience_min > 0) {
+      dbQuery = dbQuery.gte('experience_years', searchParams.experience_min)
     }
 
-    // Filter by minimum score to ensure quality
-    candidatesQuery = candidatesQuery.gte('overall_score', 60)
+    // Order by overall score and limit results
+    dbQuery = dbQuery
+      .order('overall_score', { ascending: false })
+      .limit(50)
 
-    // Order by relevance score
-    candidatesQuery = candidatesQuery.order('overall_score', { ascending: false })
+    const { data: candidates, error } = await dbQuery
 
-    const { data: candidates, error: candidatesError } = await candidatesQuery.limit(50)
-
-    if (candidatesError) {
-      console.error('Error fetching candidates:', candidatesError)
-      throw candidatesError
+    if (error) {
+      console.error('Database search error:', error)
+      throw error
     }
 
-    // Step 4: Re-rank candidates using AI
-    const rankedCandidates = await rankCandidatesWithAI(candidates || [], parsedCriteria, openaiApiKey)
+    console.log(`Found ${candidates?.length || 0} candidates`)
 
-    // Step 5: Update search results count
-    await supabase
-      .from('searches')
-      .update({ results_count: rankedCandidates.length })
-      .eq('id', searchData.id)
+    // Enhanced ranking using AI if available
+    let rankedCandidates = candidates || []
+    if (openaiApiKey && rankedCandidates.length > 0) {
+      try {
+        // Rank top candidates using AI
+        const topCandidates = rankedCandidates.slice(0, 20)
+        
+        const rankingResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${openaiApiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'gpt-4o-mini',
+            messages: [
+              {
+                role: 'system',
+                content: 'You are a talent scout. Rank these candidates by relevance to the search query. Return only a JSON array of candidate IDs in order of relevance.'
+              },
+              {
+                role: 'user',
+                content: `Query: ${query}\n\nCandidates: ${JSON.stringify(topCandidates.map(c => ({ id: c.id, name: c.name, title: c.title, skills: c.skills, summary: c.summary })))}`
+              }
+            ],
+            temperature: 0.1,
+            max_tokens: 500
+          }),
+        })
 
-    console.log(`Found ${rankedCandidates.length} enhanced candidates for query: ${query}`)
+        const rankingData = await rankingResponse.json()
+        const rankedIds = JSON.parse(rankingData.choices[0].message.content.replace(/```json\s*|\s*```/g, ''))
+        
+        // Reorder candidates based on AI ranking
+        const rankedTop = []
+        const remaining = [...topCandidates]
+        
+        rankedIds.forEach(id => {
+          const index = remaining.findIndex(c => c.id === id)
+          if (index !== -1) {
+            rankedTop.push(remaining.splice(index, 1)[0])
+          }
+        })
+        
+        rankedCandidates = [...rankedTop, ...remaining, ...rankedCandidates.slice(20)]
+        
+      } catch (error) {
+        console.error('AI ranking error:', error)
+        // Continue with original order if AI ranking fails
+      }
+    }
 
     return new Response(
       JSON.stringify({ 
         candidates: rankedCandidates,
-        search_id: searchData.id,
-        parsed_criteria: parsedCriteria,
-        total_results: rankedCandidates.length
+        total_results: rankedCandidates.length,
+        search_params: searchParams,
+        query
       }),
       { 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
@@ -114,7 +174,7 @@ serve(async (req) => {
   } catch (error) {
     console.error('Error in enhanced search:', error)
     return new Response(
-      JSON.stringify({ error: 'Failed to perform enhanced search' }),
+      JSON.stringify({ error: 'Failed to search candidates' }),
       { 
         status: 500, 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
@@ -122,110 +182,3 @@ serve(async (req) => {
     )
   }
 })
-
-async function parseSearchQuery(query: string, openaiApiKey: string) {
-  try {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${openaiApiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [
-          {
-            role: 'system',
-            content: `Parse this talent search query and extract structured criteria. Return JSON with:
-            - skills: array of technical skills/technologies
-            - experience_level: junior/mid/senior/lead
-            - experience_min: minimum years (number)
-            - location_preferences: array of locations mentioned
-            - role_types: array of job titles/roles
-            - remote_ok: boolean if remote work is mentioned
-            - company_preferences: array if specific companies mentioned`
-          },
-          { role: 'user', content: query }
-        ],
-        temperature: 0.3
-      }),
-    })
-
-    const data = await response.json()
-    return JSON.parse(data.choices[0].message.content)
-  } catch (error) {
-    console.error('Error parsing search query:', error)
-    return {
-      skills: [],
-      experience_level: 'any',
-      experience_min: 0,
-      location_preferences: [],
-      role_types: [],
-      remote_ok: false,
-      company_preferences: []
-    }
-  }
-}
-
-async function rankCandidatesWithAI(candidates: any[], criteria: any, openaiApiKey: string) {
-  try {
-    if (candidates.length === 0) return []
-
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${openaiApiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [
-          {
-            role: 'system',
-            content: `You are a technical recruiter. Rank these candidates by relevance to the search criteria.
-            Return an array of candidate IDs in order of best match to worst match.
-            Consider: skill relevance, experience level, location match, profile completeness, recent activity.`
-          },
-          {
-            role: 'user',
-            content: `Search criteria: ${JSON.stringify(criteria)}
-            
-            Candidates: ${JSON.stringify(candidates.map(c => ({
-              id: c.id,
-              name: c.name,
-              title: c.title,
-              skills: c.skills,
-              experience_years: c.experience_years,
-              location: c.location,
-              overall_score: c.overall_score,
-              summary: c.summary?.substring(0, 200)
-            })))}`
-          }
-        ],
-        temperature: 0.3
-      }),
-    })
-
-    const data = await response.json()
-    const rankedIds = JSON.parse(data.choices[0].message.content)
-    
-    // Reorder candidates based on AI ranking
-    const rankedCandidates = []
-    for (const id of rankedIds) {
-      const candidate = candidates.find(c => c.id === id)
-      if (candidate) rankedCandidates.push(candidate)
-    }
-    
-    // Add any candidates that weren't ranked
-    for (const candidate of candidates) {
-      if (!rankedCandidates.find(c => c.id === candidate.id)) {
-        rankedCandidates.push(candidate)
-      }
-    }
-    
-    return rankedCandidates
-  } catch (error) {
-    console.error('Error ranking candidates with AI:', error)
-    return candidates.sort((a, b) => (b.overall_score || 0) - (a.overall_score || 0))
-  }
-}

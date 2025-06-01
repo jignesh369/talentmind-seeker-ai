@@ -48,10 +48,16 @@ serve(async (req) => {
       try {
         console.log(`Collecting from ${source}...`)
         
-        // Collect raw data
-        const { data: rawData, error: collectError } = await supabase.functions.invoke(`collect-${source}-data`, {
-          body: { query: enhancedQuery.searchTerms.join(' '), location }
-        })
+        // Fix function name mapping
+        const functionName = source === 'google' ? 'collect-google-search-data' : `collect-${source}-data`
+        
+        // Collect raw data with timeout
+        const { data: rawData, error: collectError } = await Promise.race([
+          supabase.functions.invoke(functionName, {
+            body: { query: enhancedQuery.searchTerms.join(' '), location }
+          }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 30000))
+        ])
 
         if (collectError) throw collectError
 
@@ -60,25 +66,27 @@ serve(async (req) => {
 
         console.log(`Collected ${rawCandidates.length} raw candidates from ${source}`)
 
-        // Step 3: Validate and enrich candidates using LLMs
+        // Step 3: Validate and enrich candidates using LLMs (only if we have candidates)
         const validatedCandidates = []
         
-        for (const candidate of rawCandidates) {
-          try {
-            // Validate candidate using OpenAI
-            const isValid = await validateCandidate(candidate, enhancedQuery, openaiApiKey)
-            
-            if (isValid) {
-              // Enrich candidate profile using Perplexity
-              const enrichedCandidate = await enrichCandidateProfile(candidate, perplexityApiKey)
+        if (rawCandidates.length > 0) {
+          for (const candidate of rawCandidates.slice(0, 10)) { // Limit to first 10 for performance
+            try {
+              // Validate candidate using OpenAI
+              const isValid = await validateCandidate(candidate, enhancedQuery, openaiApiKey)
               
-              // Calculate enhanced scoring
-              const scoredCandidate = await calculateEnhancedScoring(enrichedCandidate, enhancedQuery, openaiApiKey)
-              
-              validatedCandidates.push(scoredCandidate)
+              if (isValid) {
+                // Enrich candidate profile using Perplexity
+                const enrichedCandidate = await enrichCandidateProfile(candidate, perplexityApiKey)
+                
+                // Calculate enhanced scoring
+                const scoredCandidate = await calculateEnhancedScoring(enrichedCandidate, enhancedQuery, openaiApiKey)
+                
+                validatedCandidates.push(scoredCandidate)
+              }
+            } catch (error) {
+              console.error(`Error processing candidate ${candidate.name}:`, error)
             }
-          } catch (error) {
-            console.error(`Error processing candidate ${candidate.name}:`, error)
           }
         }
 
@@ -127,7 +135,37 @@ serve(async (req) => {
   }
 })
 
-async function enhanceQuery(query: string, openaiApiKey: string) {
+function extractJSON(text) {
+  try {
+    // Try to parse directly first
+    return JSON.parse(text)
+  } catch {
+    // Remove markdown code blocks and try again
+    const cleanText = text
+      .replace(/```json\s*/g, '')
+      .replace(/```\s*/g, '')
+      .trim()
+    
+    try {
+      return JSON.parse(cleanText)
+    } catch {
+      // Extract content between first { and last }
+      const start = text.indexOf('{')
+      const end = text.lastIndexOf('}')
+      if (start !== -1 && end !== -1 && end > start) {
+        try {
+          return JSON.parse(text.substring(start, end + 1))
+        } catch {
+          console.error('Failed to parse JSON from text:', text)
+          return null
+        }
+      }
+      return null
+    }
+  }
+}
+
+async function enhanceQuery(query, openaiApiKey) {
   try {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -142,7 +180,7 @@ async function enhanceQuery(query: string, openaiApiKey: string) {
             role: 'system',
             content: `You are a talent acquisition expert. Parse the user's query and extract structured information for better candidate search.
             
-            Return a JSON object with:
+            Return ONLY a valid JSON object (no markdown, no explanation) with:
             - skills: array of technical skills mentioned
             - experience_level: junior/mid/senior/lead
             - experience_min: minimum years of experience
@@ -157,7 +195,17 @@ async function enhanceQuery(query: string, openaiApiKey: string) {
     })
 
     const data = await response.json()
-    return JSON.parse(data.choices[0].message.content)
+    const content = data.choices[0].message.content
+    const parsed = extractJSON(content)
+    
+    return parsed || {
+      skills: [],
+      experience_level: 'any',
+      experience_min: 0,
+      location_preferences: [],
+      searchTerms: [query],
+      role_types: []
+    }
   } catch (error) {
     console.error('Error enhancing query:', error)
     return {
@@ -171,7 +219,7 @@ async function enhanceQuery(query: string, openaiApiKey: string) {
   }
 }
 
-async function validateCandidate(candidate: any, enhancedQuery: any, openaiApiKey: string): Promise<boolean> {
+async function validateCandidate(candidate, enhancedQuery, openaiApiKey) {
   try {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -213,7 +261,7 @@ async function validateCandidate(candidate: any, enhancedQuery: any, openaiApiKe
   }
 }
 
-async function enrichCandidateProfile(candidate: any, perplexityApiKey: string) {
+async function enrichCandidateProfile(candidate, perplexityApiKey) {
   try {
     const searchQuery = `${candidate.name} ${candidate.github_username || ''} developer programmer engineer`
     
@@ -241,7 +289,8 @@ async function enrichCandidateProfile(candidate: any, perplexityApiKey: string) 
     })
 
     const data = await response.json()
-    const enrichmentData = JSON.parse(data.choices[0].message.content || '{}')
+    const content = data.choices[0].message.content || '{}'
+    const enrichmentData = extractJSON(content) || {}
     
     return {
       ...candidate,
@@ -257,7 +306,7 @@ async function enrichCandidateProfile(candidate: any, perplexityApiKey: string) 
   }
 }
 
-async function calculateEnhancedScoring(candidate: any, enhancedQuery: any, openaiApiKey: string) {
+async function calculateEnhancedScoring(candidate, enhancedQuery, openaiApiKey) {
   try {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -270,7 +319,7 @@ async function calculateEnhancedScoring(candidate: any, enhancedQuery: any, open
         messages: [
           {
             role: 'system',
-            content: `You are a technical recruiter scoring candidates. Return a JSON object with scores (0-100) for:
+            content: `You are a technical recruiter scoring candidates. Return ONLY a valid JSON object (no markdown) with scores (0-100) for:
             - overall_score: overall match quality
             - skill_match: how well skills match requirements
             - experience: experience level appropriateness
@@ -291,11 +340,18 @@ async function calculateEnhancedScoring(candidate: any, enhancedQuery: any, open
     })
 
     const data = await response.json()
-    const scores = JSON.parse(data.choices[0].message.content)
+    const content = data.choices[0].message.content
+    const scores = extractJSON(content) || {}
     
     return {
       ...candidate,
-      ...scores
+      overall_score: scores.overall_score || 50,
+      skill_match: scores.skill_match || 50,
+      experience: scores.experience || 50,
+      reputation: scores.reputation || 50,
+      freshness: scores.freshness || 50,
+      social_proof: scores.social_proof || 50,
+      risk_flags: scores.risk_flags || []
     }
   } catch (error) {
     console.error('Error calculating enhanced scoring:', error)
@@ -312,7 +368,7 @@ async function calculateEnhancedScoring(candidate: any, enhancedQuery: any, open
   }
 }
 
-async function storeCandidates(candidates: any[], supabase: any) {
+async function storeCandidates(candidates, supabase) {
   try {
     for (const candidate of candidates) {
       // Check if candidate already exists
@@ -321,7 +377,7 @@ async function storeCandidates(candidates: any[], supabase: any) {
         .select('id')
         .eq('name', candidate.name)
         .eq('github_username', candidate.github_username)
-        .single()
+        .maybeSingle()
 
       if (!existing) {
         // Insert new candidate

@@ -7,30 +7,13 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-interface StackOverflowUser {
-  user_id: number;
-  display_name: string;
-  reputation: number;
-  profile_image: string;
-  location: string;
-  website_url: string;
-  link: string;
-  badge_counts: {
-    bronze: number;
-    silver: number;
-    gold: number;
-  };
-  creation_date: number;
-  last_access_date: number;
-}
-
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
 
   try {
-    const { query, minReputation = 1000 } = await req.json()
+    const { query, location } = await req.json()
 
     if (!query) {
       return new Response(
@@ -42,102 +25,116 @@ serve(async (req) => {
       )
     }
 
-    // Initialize Supabase client
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     const supabase = createClient(supabaseUrl, supabaseKey)
 
-    // Search Stack Overflow users by tags (skills)
-    const tags = query.toLowerCase().split(' ').filter(tag => tag.length > 2)
-    console.log('Searching SO users for tags:', tags)
+    // Extract technical tags from query
+    const techTags = []
+    const commonTags = [
+      'python', 'javascript', 'typescript', 'java', 'c++', 'go', 'rust',
+      'react', 'vue', 'angular', 'node.js', 'django', 'flask', 'spring',
+      'machine-learning', 'tensorflow', 'pytorch', 'aws', 'docker', 'kubernetes'
+    ]
+
+    const queryLower = query.toLowerCase()
+    commonTags.forEach(tag => {
+      if (queryLower.includes(tag.replace('-', ' ')) || queryLower.includes(tag)) {
+        techTags.push(tag)
+      }
+    })
+
+    // Fallback to general programming tags if no specific tech found
+    if (techTags.length === 0) {
+      techTags.push('python', 'javascript', 'java')
+    }
+
+    console.log('Searching SO users for tags:', techTags.slice(0, 5))
 
     const candidates = []
 
-    for (const tag of tags.slice(0, 5)) { // Limit tags to prevent rate limiting
+    for (const tag of techTags.slice(0, 3)) { // Limit to 3 tags
       try {
         // Get top users for this tag
         const response = await fetch(
-          `https://api.stackexchange.com/2.3/tags/${encodeURIComponent(tag)}/top-answerers/all_time?site=stackoverflow&pagesize=20&filter=!9YdnSIN0C`
+          `https://api.stackexchange.com/2.3/tags/${tag}/top-answerers/all_time?site=stackoverflow&pagesize=20&key=your_key_here`
         )
 
-        if (!response.ok) continue
+        if (!response.ok) {
+          console.log(`Stack Overflow API error for tag ${tag}:`, response.status)
+          continue
+        }
 
         const data = await response.json()
-        const users = data.items || []
+        
+        if (data.quota_remaining < 10) {
+          console.log('Stack Overflow quota low, breaking')
+          break
+        }
 
-        // Get detailed user info
-        const userIds = users.map((u: any) => u.user.user_id).slice(0, 10)
-        if (userIds.length === 0) continue
+        for (const user of (data.items || []).slice(0, 10)) {
+          try {
+            // Get detailed user info
+            const userResponse = await fetch(
+              `https://api.stackexchange.com/2.3/users/${user.user_id}?site=stackoverflow&key=your_key_here`
+            )
 
-        const usersResponse = await fetch(
-          `https://api.stackexchange.com/2.3/users/${userIds.join(';')}?site=stackoverflow&filter=!9YdnSIN0C`
-        )
+            if (!userResponse.ok) continue
 
-        if (!usersResponse.ok) continue
+            const userData = await userResponse.json()
+            const userInfo = userData.items?.[0]
 
-        const usersData = await usersResponse.json()
-        const detailedUsers = usersData.items || []
+            if (!userInfo) continue
 
-        for (const user of detailedUsers) {
-          if (user.reputation < minReputation) continue
+            const candidate = {
+              name: userInfo.display_name,
+              title: 'Stack Overflow Contributor',
+              location: userInfo.location || location || '',
+              avatar_url: userInfo.profile_image,
+              stackoverflow_id: userInfo.user_id.toString(),
+              summary: `Active Stack Overflow contributor with ${userInfo.reputation} reputation`,
+              skills: [tag, ...techTags.slice(0, 3)],
+              experience_years: Math.min(Math.max(Math.floor((Date.now() - userInfo.creation_date * 1000) / (365 * 24 * 60 * 60 * 1000)), 1), 15),
+              last_active: new Date(userInfo.last_access_date * 1000).toISOString(),
+              overall_score: Math.min(50 + Math.log10(userInfo.reputation || 1) * 10, 100),
+              skill_match: techTags.length * 20,
+              experience: Math.min((userInfo.reputation || 0) / 100, 90),
+              reputation: Math.min((userInfo.reputation || 0) / 50, 100),
+              freshness: Math.max(100 - Math.floor((Date.now() - userInfo.last_access_date * 1000) / (7 * 24 * 60 * 60 * 1000)), 20),
+              social_proof: Math.min((userInfo.up_vote_count || 0) / 10, 100),
+              risk_flags: []
+            }
 
-          // Calculate scores
-          const reputationScore = Math.min(user.reputation / 10000 * 30, 30)
-          const badgeScore = (user.badge_counts.gold * 3 + user.badge_counts.silver * 2 + user.badge_counts.bronze) / 10
-          const experienceYears = Math.floor((Date.now() - user.creation_date * 1000) / (365 * 24 * 60 * 60 * 1000))
-          const experienceScore = Math.min(experienceYears * 3, 20)
-          
-          // Calculate freshness based on last access
-          const daysSinceLastAccess = Math.floor((Date.now() - user.last_access_date * 1000) / (24 * 60 * 60 * 1000))
-          const freshnessScore = Math.max(100 - daysSinceLastAccess, 10)
+            candidates.push(candidate)
 
-          const candidate = {
-            name: user.display_name,
-            title: `Stack Overflow Developer (${user.reputation.toLocaleString()} reputation)`,
-            location: user.location,
-            avatar_url: user.profile_image,
-            stackoverflow_id: user.user_id.toString(),
-            summary: `Stack Overflow contributor with ${user.reputation.toLocaleString()} reputation, ${user.badge_counts.gold} gold badges, expertise in ${tag}`,
-            skills: [tag, ...tags.filter(t => t !== tag)].slice(0, 5),
-            experience_years: experienceYears,
-            last_active: new Date(user.last_access_date * 1000).toISOString(),
-            overall_score: Math.round(reputationScore + badgeScore + experienceScore + 20),
-            skill_match: 80, // High since we're searching by skill tags
-            experience: experienceScore,
-            reputation: reputationScore,
-            freshness: Math.round(freshnessScore),
-            social_proof: Math.round(badgeScore),
-            risk_flags: daysSinceLastAccess > 365 ? ['inactive_for_over_year'] : []
+            // Save to database
+            const { error } = await supabase
+              .from('candidates')
+              .upsert(candidate, { onConflict: 'stackoverflow_id' })
+
+            if (error) {
+              console.error('Error saving SO candidate:', error)
+            }
+
+            // Save source data
+            await supabase
+              .from('candidate_sources')
+              .upsert({
+                candidate_id: userInfo.user_id.toString(),
+                platform: 'stackoverflow',
+                platform_id: userInfo.user_id.toString(),
+                url: userInfo.link,
+                data: userInfo
+              }, { onConflict: 'platform,platform_id' })
+
+          } catch (error) {
+            console.error(`Error processing SO user ${user.user_id}:`, error)
+            continue
           }
-
-          candidates.push(candidate)
-
-          // Save to database
-          const { error } = await supabase
-            .from('candidates')
-            .upsert(candidate, { 
-              onConflict: 'stackoverflow_id',
-              ignoreDuplicates: false 
-            })
-
-          if (error) {
-            console.error('Error saving SO candidate:', error)
-          }
-
-          // Save source data
-          await supabase
-            .from('candidate_sources')
-            .upsert({
-              candidate_id: candidate.stackoverflow_id,
-              platform: 'stackoverflow',
-              platform_id: user.user_id.toString(),
-              url: user.link,
-              data: user
-            }, { onConflict: 'platform,platform_id' })
         }
 
       } catch (error) {
-        console.error(`Error processing tag ${tag}:`, error)
+        console.error(`Error searching SO tag ${tag}:`, error)
         continue
       }
     }
