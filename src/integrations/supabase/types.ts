@@ -9,7 +9,236 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
-      [_ in never]: never
+      candidate_sources: {
+        Row: {
+          candidate_id: string
+          data: Json | null
+          id: string
+          last_updated: string
+          platform: string
+          platform_id: string
+          url: string
+        }
+        Insert: {
+          candidate_id: string
+          data?: Json | null
+          id?: string
+          last_updated?: string
+          platform: string
+          platform_id: string
+          url: string
+        }
+        Update: {
+          candidate_id?: string
+          data?: Json | null
+          id?: string
+          last_updated?: string
+          platform?: string
+          platform_id?: string
+          url?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "candidate_sources_candidate_id_fkey"
+            columns: ["candidate_id"]
+            isOneToOne: false
+            referencedRelation: "candidates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      candidates: {
+        Row: {
+          avatar_url: string | null
+          created_at: string
+          email: string | null
+          experience: number | null
+          experience_years: number | null
+          freshness: number | null
+          github_username: string | null
+          id: string
+          last_active: string | null
+          location: string | null
+          name: string
+          overall_score: number | null
+          reddit_username: string | null
+          reputation: number | null
+          risk_flags: string[] | null
+          skill_match: number | null
+          skills: string[] | null
+          social_proof: number | null
+          stackoverflow_id: string | null
+          summary: string | null
+          title: string | null
+          updated_at: string
+        }
+        Insert: {
+          avatar_url?: string | null
+          created_at?: string
+          email?: string | null
+          experience?: number | null
+          experience_years?: number | null
+          freshness?: number | null
+          github_username?: string | null
+          id?: string
+          last_active?: string | null
+          location?: string | null
+          name: string
+          overall_score?: number | null
+          reddit_username?: string | null
+          reputation?: number | null
+          risk_flags?: string[] | null
+          skill_match?: number | null
+          skills?: string[] | null
+          social_proof?: number | null
+          stackoverflow_id?: string | null
+          summary?: string | null
+          title?: string | null
+          updated_at?: string
+        }
+        Update: {
+          avatar_url?: string | null
+          created_at?: string
+          email?: string | null
+          experience?: number | null
+          experience_years?: number | null
+          freshness?: number | null
+          github_username?: string | null
+          id?: string
+          last_active?: string | null
+          location?: string | null
+          name?: string
+          overall_score?: number | null
+          reddit_username?: string | null
+          reputation?: number | null
+          risk_flags?: string[] | null
+          skill_match?: number | null
+          skills?: string[] | null
+          social_proof?: number | null
+          stackoverflow_id?: string | null
+          summary?: string | null
+          title?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          avatar_url: string | null
+          company: string | null
+          created_at: string
+          email: string
+          full_name: string | null
+          id: string
+          role: string | null
+          updated_at: string
+        }
+        Insert: {
+          avatar_url?: string | null
+          company?: string | null
+          created_at?: string
+          email: string
+          full_name?: string | null
+          id: string
+          role?: string | null
+          updated_at?: string
+        }
+        Update: {
+          avatar_url?: string | null
+          company?: string | null
+          created_at?: string
+          email?: string
+          full_name?: string | null
+          id?: string
+          role?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      scoring_history: {
+        Row: {
+          candidate_id: string
+          created_at: string
+          experience: number
+          freshness: number
+          id: string
+          overall_score: number
+          reputation: number
+          scoring_criteria: Json | null
+          search_id: string | null
+          skill_match: number
+          social_proof: number
+        }
+        Insert: {
+          candidate_id: string
+          created_at?: string
+          experience: number
+          freshness: number
+          id?: string
+          overall_score: number
+          reputation: number
+          scoring_criteria?: Json | null
+          search_id?: string | null
+          skill_match: number
+          social_proof: number
+        }
+        Update: {
+          candidate_id?: string
+          created_at?: string
+          experience?: number
+          freshness?: number
+          id?: string
+          overall_score?: number
+          reputation?: number
+          scoring_criteria?: Json | null
+          search_id?: string | null
+          skill_match?: number
+          social_proof?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scoring_history_candidate_id_fkey"
+            columns: ["candidate_id"]
+            isOneToOne: false
+            referencedRelation: "candidates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scoring_history_search_id_fkey"
+            columns: ["search_id"]
+            isOneToOne: false
+            referencedRelation: "searches"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      searches: {
+        Row: {
+          created_at: string
+          id: string
+          parsed_criteria: Json | null
+          query: string
+          results_count: number | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          parsed_criteria?: Json | null
+          query: string
+          results_count?: number | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          parsed_criteria?: Json | null
+          query?: string
+          results_count?: number | null
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

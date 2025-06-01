@@ -1,16 +1,23 @@
 
-import React, { useState } from 'react';
-import { Search, MessageCircle, Filter, Users, TrendingUp, Zap } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Search, MessageCircle, Filter, Users, TrendingUp, Zap, LogOut } from 'lucide-react';
 import { ChatInterface } from '../components/ChatInterface';
 import { CandidateCard } from '../components/CandidateCard';
 import { FilterPanel } from '../components/FilterPanel';
 import { StatsOverview } from '../components/StatsOverview';
-import { mockCandidates } from '../data/mockCandidates';
+import { useCandidates } from '../hooks/useCandidates';
+import { useAuth } from '../hooks/useAuth';
+import { supabase } from '@/integrations/supabase/client';
+import { useToast } from '@/hooks/use-toast';
 
 const Index = () => {
-  const [candidates, setCandidates] = useState(mockCandidates);
+  const { candidates, loading, refetch } = useCandidates();
+  const { user, signOut } = useAuth();
+  const { toast } = useToast();
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
   const [filters, setFilters] = useState({
     minScore: 0,
     maxScore: 100,
@@ -19,16 +26,53 @@ const Index = () => {
     skills: []
   });
 
-  const handleSearch = (query: string) => {
+  const handleSearch = async (query: string) => {
+    if (!user) return;
+    
     setSearchQuery(query);
-    // Simulate search with mock data
-    console.log('Searching for:', query);
+    setIsSearching(true);
+
+    try {
+      const { data, error } = await supabase.functions.invoke('search-candidates', {
+        body: { query, user_id: user.id }
+      });
+
+      if (error) throw error;
+
+      setSearchResults(data.candidates || []);
+      
+      toast({
+        title: "Search completed",
+        description: `Found ${data.total_results} candidates matching your criteria.`,
+      });
+
+    } catch (error: any) {
+      console.error('Search error:', error);
+      toast({
+        title: "Search failed",
+        description: error.message || "Failed to search candidates",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSearching(false);
+    }
   };
 
-  const filteredCandidates = candidates.filter(candidate => {
-    if (filters.minScore && candidate.overallScore < filters.minScore) return false;
-    if (filters.maxScore && candidate.overallScore > filters.maxScore) return false;
-    if (filters.location && !candidate.location.toLowerCase().includes(filters.location.toLowerCase())) return false;
+  const handleSignOut = async () => {
+    await signOut();
+    toast({
+      title: "Signed out",
+      description: "You have been successfully signed out.",
+    });
+  };
+
+  // Use search results if available, otherwise use all candidates
+  const displayCandidates = searchResults.length > 0 ? searchResults : candidates;
+
+  const filteredCandidates = displayCandidates.filter(candidate => {
+    if (filters.minScore && candidate.overall_score < filters.minScore) return false;
+    if (filters.maxScore && candidate.overall_score > filters.maxScore) return false;
+    if (filters.location && !candidate.location?.toLowerCase().includes(filters.location.toLowerCase())) return false;
     return true;
   });
 
@@ -54,7 +98,15 @@ const Index = () => {
                 <Filter className="w-4 h-4" />
                 <span>Filters</span>
               </button>
-              <div className="w-8 h-8 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full"></div>
+              <div className="flex items-center space-x-2">
+                <span className="text-sm text-slate-600">Welcome, {user?.email}</span>
+                <button
+                  onClick={handleSignOut}
+                  className="p-2 text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors"
+                >
+                  <LogOut className="w-4 h-4" />
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -62,7 +114,7 @@ const Index = () => {
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Stats Overview */}
-        <StatsOverview totalCandidates={candidates.length} />
+        <StatsOverview totalCandidates={displayCandidates.length} />
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mt-8">
           {/* Chat Interface */}
@@ -76,10 +128,15 @@ const Index = () => {
             <div className="flex justify-between items-center mb-6">
               <div>
                 <h2 className="text-xl font-semibold text-slate-900">
-                  Candidate Results
+                  {searchQuery ? 'Search Results' : 'All Candidates'}
                 </h2>
                 <p className="text-slate-600 mt-1">
-                  {filteredCandidates.length} candidates found
+                  {isSearching ? 'Searching...' : `${filteredCandidates.length} candidates found`}
+                  {searchQuery && (
+                    <span className="ml-2 text-blue-600">
+                      for "{searchQuery}"
+                    </span>
+                  )}
                 </p>
               </div>
               <select className="px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
@@ -96,12 +153,41 @@ const Index = () => {
               </div>
             )}
 
+            {/* Loading State */}
+            {(loading || isSearching) && (
+              <div className="text-center py-8">
+                <div className="w-8 h-8 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-full animate-spin mx-auto mb-4"></div>
+                <p className="text-slate-600">{isSearching ? 'Searching candidates...' : 'Loading candidates...'}</p>
+              </div>
+            )}
+
             {/* Candidate Grid */}
-            <div className="space-y-6">
-              {filteredCandidates.map((candidate) => (
-                <CandidateCard key={candidate.id} candidate={candidate} />
-              ))}
-            </div>
+            {!loading && !isSearching && (
+              <div className="space-y-6">
+                {filteredCandidates.length > 0 ? (
+                  filteredCandidates.map((candidate) => (
+                    <CandidateCard key={candidate.id} candidate={candidate} />
+                  ))
+                ) : (
+                  <div className="text-center py-8">
+                    <p className="text-slate-600">
+                      {searchQuery ? 'No candidates found matching your search criteria.' : 'No candidates available.'}
+                    </p>
+                    {searchQuery && (
+                      <button
+                        onClick={() => {
+                          setSearchQuery('');
+                          setSearchResults([]);
+                        }}
+                        className="mt-2 text-blue-600 hover:text-blue-700"
+                      >
+                        Show all candidates
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
