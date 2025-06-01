@@ -1,8 +1,9 @@
 
 import React, { useState } from 'react';
-import { MapPin, Calendar, ExternalLink, Github, Globe, AlertTriangle, Info, Star } from 'lucide-react';
+import { MapPin, Calendar, ExternalLink, Github, Globe, AlertTriangle, Info, Star, Mail, Copy } from 'lucide-react';
 import { ScoreBreakdown } from './ScoreBreakdown';
 import { Candidate } from '../hooks/useCandidates';
+import { useToast } from '../hooks/use-toast';
 
 interface CandidateCardProps {
   candidate: Candidate;
@@ -10,6 +11,7 @@ interface CandidateCardProps {
 
 export const CandidateCard: React.FC<CandidateCardProps> = ({ candidate }) => {
   const [showBreakdown, setShowBreakdown] = useState(false);
+  const { toast } = useToast();
 
   // Handle potential undefined/null values with fallbacks
   const riskFlags = candidate.risk_flags || [];
@@ -20,6 +22,7 @@ export const CandidateCard: React.FC<CandidateCardProps> = ({ candidate }) => {
   const reputation = candidate.reputation || 0;
   const freshness = candidate.freshness || 0;
   const socialProof = candidate.social_proof || 0;
+  const sources = candidate.candidate_sources || [];
 
   const getScoreColor = (score: number) => {
     if (score >= 80) return 'text-green-600 bg-green-100';
@@ -33,22 +36,41 @@ export const CandidateCard: React.FC<CandidateCardProps> = ({ candidate }) => {
     return 'bg-red-500';
   };
 
-  // Create mock sources based on available candidate data
-  const mockSources = [];
-  if (candidate.github_username) {
-    mockSources.push({ 
-      platform: 'GitHub', 
-      url: `https://github.com/${candidate.github_username}`, 
-      icon: 'github' 
-    });
-  }
-  if (candidate.stackoverflow_id) {
-    mockSources.push({ 
-      platform: 'StackOverflow', 
-      url: `https://stackoverflow.com/users/${candidate.stackoverflow_id}`, 
-      icon: 'stackoverflow' 
-    });
-  }
+  const getPlatformIcon = (platform: string) => {
+    switch (platform.toLowerCase()) {
+      case 'github':
+        return <Github className="w-4 h-4" />;
+      case 'stackoverflow':
+        return <Star className="w-4 h-4" />;
+      case 'linkedin':
+        return <Globe className="w-4 h-4" />;
+      default:
+        return <Globe className="w-4 h-4" />;
+    }
+  };
+
+  const handleContactClick = () => {
+    if (candidate.email) {
+      // Open email client
+      window.location.href = `mailto:${candidate.email}`;
+    } else {
+      toast({
+        title: "No email available",
+        description: "This candidate doesn't have a public email address.",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const handleCopyEmail = () => {
+    if (candidate.email) {
+      navigator.clipboard.writeText(candidate.email);
+      toast({
+        title: "Email copied",
+        description: "Email address copied to clipboard"
+      });
+    }
+  };
 
   return (
     <div className="bg-white rounded-xl shadow-lg border border-slate-200 p-6 hover:shadow-xl transition-all duration-300">
@@ -76,6 +98,12 @@ export const CandidateCard: React.FC<CandidateCardProps> = ({ candidate }) => {
                 <Calendar className="w-4 h-4" />
                 <span>{candidate.last_active ? new Date(candidate.last_active).toLocaleDateString() : 'Recently'}</span>
               </div>
+              {candidate.email && (
+                <div className="flex items-center space-x-1 text-blue-600">
+                  <Mail className="w-4 h-4" />
+                  <span className="text-sm">Contact available</span>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -149,31 +177,44 @@ export const CandidateCard: React.FC<CandidateCardProps> = ({ candidate }) => {
       <div className="flex items-center justify-between pt-4 border-t border-slate-200">
         <div className="flex items-center space-x-3">
           <span className="text-sm text-slate-600 font-medium">Found on:</span>
-          {mockSources.map((source, index) => (
-            <a
-              key={index}
-              href={source.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center space-x-1 text-slate-700 hover:text-blue-600 transition-colors"
-            >
-              {source.platform === 'GitHub' && <Github className="w-4 h-4" />}
-              {source.platform === 'Portfolio' && <Globe className="w-4 h-4" />}
-              {source.platform === 'StackOverflow' && <Star className="w-4 h-4" />}
-              <span className="text-sm">{source.platform}</span>
-              <ExternalLink className="w-3 h-3" />
-            </a>
-          ))}
-          {mockSources.length === 0 && (
+          {sources.length > 0 ? (
+            sources.map((source, index) => (
+              <a
+                key={index}
+                href={source.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center space-x-1 text-slate-700 hover:text-blue-600 transition-colors"
+              >
+                {getPlatformIcon(source.platform)}
+                <span className="text-sm capitalize">{source.platform}</span>
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            ))
+          ) : (
             <span className="text-sm text-slate-500">No sources available</span>
           )}
         </div>
 
         <div className="flex items-center space-x-2">
-          <button className="px-4 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors">
-            Save
-          </button>
-          <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+          {candidate.email && (
+            <button 
+              onClick={handleCopyEmail}
+              className="px-3 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors flex items-center space-x-1"
+            >
+              <Copy className="w-4 h-4" />
+              <span>Copy Email</span>
+            </button>
+          )}
+          <button 
+            onClick={handleContactClick}
+            className={`px-4 py-2 rounded-lg transition-colors ${
+              candidate.email 
+                ? 'bg-blue-600 text-white hover:bg-blue-700' 
+                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+            }`}
+            disabled={!candidate.email}
+          >
             Contact
           </button>
         </div>

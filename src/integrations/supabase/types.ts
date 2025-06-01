@@ -58,6 +58,7 @@ export type Database = {
           github_username: string | null
           id: string
           last_active: string | null
+          linkedin_url: string | null
           location: string | null
           name: string
           overall_score: number | null
@@ -82,6 +83,7 @@ export type Database = {
           github_username?: string | null
           id?: string
           last_active?: string | null
+          linkedin_url?: string | null
           location?: string | null
           name: string
           overall_score?: number | null
@@ -106,6 +108,7 @@ export type Database = {
           github_username?: string | null
           id?: string
           last_active?: string | null
+          linkedin_url?: string | null
           location?: string | null
           name?: string
           overall_score?: number | null

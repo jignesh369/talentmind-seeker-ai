@@ -6,11 +6,16 @@ import { useToast } from './use-toast';
 
 export interface DataCollectionResult {
   results: {
-    github: { candidates: any[], total: number, error: string | null };
-    stackoverflow: { candidates: any[], total: number, error: string | null };
-    google: { candidates: any[], total: number, error: string | null };
+    github: { candidates: any[], total: number, validated: number, error: string | null };
+    stackoverflow: { candidates: any[], total: number, validated: number, error: string | null };
+    google: { candidates: any[], total: number, validated: number, error: string | null };
+    linkedin: { candidates: any[], total: number, validated: number, error: string | null };
+    'linkedin-cross-platform': { candidates: any[], total: number, validated: number, error: string | null };
+    kaggle: { candidates: any[], total: number, validated: number, error: string | null };
+    devto: { candidates: any[], total: number, validated: number, error: string | null };
   };
   total_candidates: number;
+  total_validated: number;
   query: string;
   location?: string;
   timestamp: string;
@@ -22,7 +27,7 @@ export const useDataCollection = () => {
   const { user } = useAuth();
   const { toast } = useToast();
 
-  const collectData = async (query: string, location?: string, sources: string[] = ['github', 'stackoverflow', 'google']) => {
+  const collectData = async (query: string, location?: string, sources: string[] = ['github', 'stackoverflow', 'google', 'linkedin', 'kaggle', 'devto']) => {
     if (!user) {
       toast({
         title: "Authentication required",
@@ -36,7 +41,8 @@ export const useDataCollection = () => {
     setCollectionResult(null);
 
     try {
-      const { data, error } = await supabase.functions.invoke('orchestrate-data-collection', {
+      // Use the enhanced data collection function
+      const { data, error } = await supabase.functions.invoke('enhanced-data-collection', {
         body: { query, location, sources }
       });
 
@@ -45,16 +51,16 @@ export const useDataCollection = () => {
       setCollectionResult(data);
       
       toast({
-        title: "Data collection completed",
-        description: `Found ${data.total_candidates} candidates across ${sources.length} sources`,
+        title: "Enhanced data collection completed",
+        description: `Found ${data.total_validated} quality candidates across ${sources.length} sources`,
       });
 
       return data;
 
     } catch (error: any) {
-      console.error('Data collection error:', error);
+      console.error('Enhanced data collection error:', error);
       toast({
-        title: "Data collection failed",
+        title: "Data collection failed", 
         description: error.message || "Failed to collect candidate data",
         variant: "destructive",
       });

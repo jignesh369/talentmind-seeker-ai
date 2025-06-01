@@ -3,6 +3,14 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from './useAuth';
 
+export interface CandidateSource {
+  id: string;
+  platform: string;
+  platform_id: string;
+  url: string;
+  data: any;
+}
+
 export interface Candidate {
   id: string;
   name: string;
@@ -12,6 +20,7 @@ export interface Candidate {
   email?: string;
   github_username?: string;
   stackoverflow_id?: string;
+  linkedin_url?: string;
   reddit_username?: string;
   summary?: string;
   skills: string[];
@@ -26,6 +35,7 @@ export interface Candidate {
   risk_flags: string[];
   created_at: string;
   updated_at: string;
+  candidate_sources?: CandidateSource[];
 }
 
 export const useCandidates = () => {
@@ -41,7 +51,16 @@ export const useCandidates = () => {
       setLoading(true);
       const { data, error } = await supabase
         .from('candidates')
-        .select('*')
+        .select(`
+          *,
+          candidate_sources (
+            id,
+            platform,
+            platform_id,
+            url,
+            data
+          )
+        `)
         .order('overall_score', { ascending: false });
 
       if (error) throw error;
