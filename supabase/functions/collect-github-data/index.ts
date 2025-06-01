@@ -1,23 +1,14 @@
-
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { searchGitHubUsers, getUserDetails, getUserRepositories } from './github-api.ts'
-import { extractEmailFromReadmes } from './readme-extractor.ts'
-import { extractEnhancedSkillsFromGitHub, calculateLanguageStats } from './skill-extractor.ts'
+import { searchGitHubUsers, getGitHubUserProfile, getGitHubUserRepos } from './api-client.ts'
+import { buildEnhancedProfile } from './profile-builder.ts'
 import { 
-  calculateEnhancedActivityScore, 
-  calculateLanguageExpertiseScore, 
-  calculateEnhancedSkillMatch,
-  calculateFreshness,
-  calculateRiskFlags
-} from './scoring.ts'
-import { 
-  extractEnhancedTitleFromBio, 
-  inferTitleFromLanguages, 
-  createEnhancedSummaryFromGitHub,
-  isValidDeveloperProfile
-} from './profile-utils.ts'
-import { buildEnhancedSearchQueries } from './search-strategies.ts'
+  calculateRepoScore,
+  calculateContributionScore,
+  calculateSkillScore,
+  calculateActivityScore
+} from './scoring-engine.ts'
+import { validateGitHubUser } from './user-validator.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -48,154 +39,107 @@ serve(async (req) => {
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-    const githubToken = Deno.env.get('GITHUB_TOKEN')
     const supabase = createClient(supabaseUrl, supabaseKey)
 
-    if (!githubToken) {
-      console.error('GitHub token not configured')
-      return new Response(
-        JSON.stringify({ 
-          candidates: [], 
-          total: 0, 
-          source: 'github',
-          error: 'GitHub API token not configured' 
-        }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
-    }
-
     console.log('🚀 Starting enhanced GitHub candidate collection...')
-
-    // Build enhanced search queries
-    const searchQueries = buildEnhancedSearchQueries(enhancedQuery, location)
-    console.log('📊 Enhanced GitHub search queries:', searchQueries.slice(0, 3))
 
     const candidates = []
     const seenUsers = new Set()
     const enhancementStats = {
-      emails_from_readme: 0,
-      ai_enhanced_profiles: 0,
       total_processed: 0,
-      validation_passed: 0
+      validation_passed: 0,
+      ai_enhanced_profiles: 0,
+      high_star_repos: 0
     }
 
-    // Get detected languages for expertise scoring
-    const skills = enhancedQuery?.skills || []
-    const programmingLanguages = ['python', 'javascript', 'typescript', 'java', 'go', 'rust', 'php', 'ruby', 'c++']
-    const detectedLanguages = skills.filter(skill => 
-      programmingLanguages.includes(skill.toLowerCase())
-    )
+    const searchStrategies = [
+      {
+        name: 'Primary Skill Search',
+        query: `${query} in:login,name,email,location`,
+        sort: 'followers'
+      },
+      {
+        name: 'Location-Based Search',
+        query: `${query} location:${location || 'remote'}`,
+        sort: 'followers'
+      },
+      {
+        name: 'Skill-Based Search',
+        query: query,
+        sort: 'followers'
+      }
+    ]
 
-    // Enhanced search with better error handling
-    for (const searchQuery of searchQueries.slice(0, 3)) {
+    for (const strategy of searchStrategies) {
       try {
-        console.log(`🔍 Searching GitHub: ${searchQuery.slice(0, 80)}...`)
+        console.log(`🔍 GitHub search strategy: ${strategy.name}`)
         
-        const { rateLimitHit, users } = await searchGitHubUsers(searchQuery, githubToken)
+        const { users, hasMore } = await searchGitHubUsers(strategy.query, strategy.sort)
         
-        if (rateLimitHit) {
-          console.log('⚠️ GitHub rate limit hit, breaking...')
-          break
-        }
-
-        console.log(`📋 Found ${users.length} GitHub users for query`)
+        console.log(`📋 Found ${users.length} GitHub users for strategy: ${strategy.name}`)
         enhancementStats.total_processed += users.length
 
-        // Process users with enhanced validation
-        for (const user of users.slice(0, 15)) {
+        for (const user of users.slice(0, 20)) {
           if (seenUsers.has(user.login)) continue
           seenUsers.add(user.login)
 
-          if (candidates.length >= 20) {
+          if (candidates.length >= 25) {
             console.log('✅ Reached candidate limit, stopping collection')
             break
           }
 
           try {
-            // Get detailed user info with timeout protection
-            const userDetailsPromise = getUserDetails(user.url, githubToken)
-            const timeoutPromise = new Promise((_, reject) => 
-              setTimeout(() => reject(new Error('GitHub API timeout')), 15000)
-            )
-            
-            const userDetails = await Promise.race([userDetailsPromise, timeoutPromise])
-            if (!userDetails) {
-              console.log(`❌ Failed to get user details for ${user.login}`)
-              continue
-            }
-
-            const repositories = await getUserRepositories(user.url, githubToken)
-
-            // Enhanced README crawling for email discovery
-            let emailFromReadme = null
-            try {
-              const emailPromise = extractEmailFromReadmes(repositories, githubToken)
-              const emailTimeoutPromise = new Promise((_, reject) => 
-                setTimeout(() => reject(new Error('README extraction timeout')), 10000)
-              )
-              emailFromReadme = await Promise.race([emailPromise, emailTimeoutPromise])
-              
-              if (emailFromReadme) {
-                enhancementStats.emails_from_readme++
-                console.log(`📧 Found README email for ${user.login}: ${emailFromReadme}`)
-              }
-            } catch (error) {
-              console.log(`⚠️ README email extraction failed for ${user.login}`)
-            }
-            
-            // Enhanced skill extraction
-            const extractedSkills = extractEnhancedSkillsFromGitHub(userDetails, repositories, enhancedQuery)
-            
-            // Validate developer profile with stricter criteria
-            if (!isValidDeveloperProfile(userDetails, repositories, extractedSkills)) {
-              console.log(`❌ Skipping ${user.login} - not a valid developer profile`)
+            if (!validateGitHubUser(user)) {
+              console.log(`❌ User ${user.login} failed validation`)
               continue
             }
 
             enhancementStats.validation_passed++
 
-            // Calculate enhanced experience and activity
-            const accountAge = Math.floor((new Date().getFullYear() - new Date(userDetails.created_at).getFullYear()))
-            const estimatedExperience = Math.min(Math.max(accountAge, 1), 15)
-            const activityScore = calculateEnhancedActivityScore(userDetails, repositories)
-            const languageScore = calculateLanguageExpertiseScore(repositories, detectedLanguages)
+            const userProfile = await getGitHubUserProfile(user.login)
+            if (!userProfile) {
+              console.log(`❌ Failed to get profile for user ${user.login}`)
+              continue
+            }
 
-            // Enhanced scoring with language expertise
-            const reputationScore = Math.min((userDetails.followers || 0) * 3 + (userDetails.public_repos || 0) * 2, 100)
-            const skillMatchScore = calculateEnhancedSkillMatch(extractedSkills, enhancedQuery)
-            const overallScore = Math.round((reputationScore + activityScore + skillMatchScore + languageScore) / 4)
+            const repos = await getGitHubUserRepos(user.login)
+            if (!repos) {
+              console.log(`⚠️ No repos found for user ${user.login}`)
+            }
 
-            // Generate proper UUID for candidate
+            const enhancedProfile = buildEnhancedProfile(userProfile, repos)
+
+            // Calculate scores properly - ensure integers
+            const repoScore = Math.round(calculateRepoScore(repos))
+            const contributionScore = Math.round(calculateContributionScore(userProfile))
+            const skillScore = Math.round(calculateSkillScore(userProfile, repos, enhancedQuery?.skills || []))
+            const activityScore = Math.round(calculateActivityScore(userProfile, repos))
+            const overallScore = Math.round((repoScore + contributionScore + skillScore + activityScore) / 4)
+
             const candidateId = generateUUID()
 
             const candidate = {
               id: candidateId,
-              name: userDetails.name || userDetails.login,
-              title: extractEnhancedTitleFromBio(userDetails.bio) || inferTitleFromLanguages(repositories),
-              location: userDetails.location || location || '',
-              avatar_url: userDetails.avatar_url,
-              email: emailFromReadme || userDetails.email,
-              github_username: userDetails.login,
-              github_url: userDetails.html_url,
-              summary: createEnhancedSummaryFromGitHub(userDetails, repositories, extractedSkills),
-              skills: extractedSkills,
-              experience_years: estimatedExperience,
-              last_active: userDetails.updated_at,
-              overall_score: overallScore,
-              skill_match: skillMatchScore,
-              experience: Math.min(estimatedExperience * 6 + (userDetails.public_repos || 0), 90),
-              reputation: Math.min(reputationScore, 100),
-              freshness: calculateFreshness(userDetails.updated_at),
-              social_proof: Math.min((userDetails.followers || 0) * 3, 100),
-              risk_flags: calculateRiskFlags(userDetails, repositories),
-              language_expertise: languageScore,
-              readme_email_found: !!emailFromReadme,
-              github_followers: userDetails.followers || 0,
-              public_repos: userDetails.public_repos || 0,
+              name: userProfile.name || userProfile.login,
+              title: enhancedProfile.title,
+              location: userProfile.location || location || '',
+              avatar_url: userProfile.avatar_url,
+              email: enhancedProfile.email,
+              github_username: user.login,
+              summary: enhancedProfile.summary,
+              skills: enhancedProfile.skills,
+              experience_years: Math.round(enhancedProfile.estimatedExperience), // Ensure integer
+              last_active: userProfile.updated_at || new Date().toISOString(),
+              overall_score: Math.min(Math.max(overallScore, 0), 100), // Ensure 0-100 range
+              skill_match: Math.min(Math.max(skillScore, 0), 100),
+              experience: Math.min(Math.max(Math.round(enhancedProfile.estimatedExperience * 10), 0), 100),
+              reputation: Math.min(Math.max(repoScore, 0), 100),
+              freshness: Math.min(Math.max(activityScore, 0), 100),
+              social_proof: Math.min(Math.max(Math.round((userProfile.followers || 0) / 10), 0), 100),
+              risk_flags: enhancedProfile.riskFlags,
               platform: 'github'
             }
 
-            // Enhance profile with AI
             try {
               const enhanceResponse = await supabase.functions.invoke('enhance-candidate-profile', {
                 body: { candidate, platform: 'github' }
@@ -208,25 +152,25 @@ serve(async (req) => {
                 }
               }
             } catch (error) {
-              console.log(`⚠️ AI enhancement failed for ${user.login}, continuing with basic profile`)
+              console.log(`⚠️ AI enhancement failed for user ${user.login}, continuing with basic profile`)
             }
 
             candidates.push(candidate)
 
-            // Save enhanced candidate to database with proper error handling
+            // Save enhanced candidate to database with proper integer values
             try {
-              // Check for existing candidate by email or github_username
+              // Check for existing candidate by github_username
               const { data: existingCandidate } = await supabase
                 .from('candidates')
                 .select('id')
-                .or(`email.eq.${candidate.email},github_username.eq.${candidate.github_username}`)
+                .eq('github_username', candidate.github_username)
                 .limit(1)
                 .maybeSingle()
 
               let savedCandidateId = candidateId
 
               if (existingCandidate) {
-                // Update existing candidate
+                // Update existing candidate - ensure all numeric fields are integers
                 const { error: updateError } = await supabase
                   .from('candidates')
                   .update({
@@ -251,14 +195,14 @@ serve(async (req) => {
                   .eq('id', existingCandidate.id)
 
                 if (updateError) {
-                  console.error(`❌ Error updating candidate ${userDetails.login}:`, updateError)
+                  console.error(`❌ Error updating candidate ${user.login}:`, updateError)
                   continue
                 }
 
                 savedCandidateId = existingCandidate.id
                 console.log(`🔄 Updated existing candidate: ${candidate.name}`)
               } else {
-                // Insert new candidate
+                // Insert new candidate - ensure all numeric fields are integers
                 const { error: insertError } = await supabase
                   .from('candidates')
                   .insert({
@@ -283,26 +227,23 @@ serve(async (req) => {
                   })
 
                 if (insertError) {
-                  console.error(`❌ Error inserting candidate ${userDetails.login}:`, insertError)
+                  console.error(`❌ Error inserting candidate ${user.login}:`, insertError)
                   continue
                 }
 
                 console.log(`✅ Inserted new candidate: ${candidate.name} with ID: ${candidateId}`)
               }
 
-              // Save/update source data
               const { error: sourceError } = await supabase
                 .from('candidate_sources')
                 .upsert({
                   candidate_id: savedCandidateId,
                   platform: 'github',
-                  platform_id: userDetails.login,
-                  url: userDetails.html_url,
-                  data: { 
-                    ...userDetails, 
-                    repositories: repositories.slice(0, 8),
-                    readme_email: emailFromReadme,
-                    language_stats: calculateLanguageStats(repositories),
+                  platform_id: user.login,
+                  url: userProfile.html_url,
+                  data: {
+                    ...userProfile,
+                    repos: repos.slice(0, 5),
                     enhancement_timestamp: new Date().toISOString()
                   }
                 }, {
@@ -310,13 +251,13 @@ serve(async (req) => {
                 })
 
               if (sourceError) {
-                console.error(`❌ Error saving source data for ${userDetails.login}:`, sourceError)
+                console.error(`❌ Error saving source data for ${user.login}:`, sourceError)
               } else {
                 console.log(`✅ Saved source data for ${candidate.name}`)
               }
 
             } catch (error) {
-              console.error(`❌ Critical error saving data for ${userDetails.login}:`, error)
+              console.error(`❌ Critical error saving data for user ${user.login}:`, error)
             }
 
           } catch (error) {
@@ -325,32 +266,30 @@ serve(async (req) => {
           }
         }
 
-        if (candidates.length >= 20) break
+        if (candidates.length >= 25) break
+
+        // Rate limiting - wait between searches
+        await new Promise(resolve => setTimeout(resolve, 1000))
 
       } catch (error) {
-        console.error(`❌ GitHub search error for query "${searchQuery}":`, error)
+        console.error(`❌ GitHub search error for strategy "${strategy.name}":`, error)
         continue
       }
     }
 
-    // Sort by overall score and language expertise
     const sortedCandidates = candidates
-      .sort((a, b) => (b.overall_score + (b.language_expertise || 0)) - (a.overall_score + (a.language_expertise || 0)))
-      .slice(0, 25)
+      .sort((a, b) => (b.skill_match + b.reputation) - (a.skill_match + a.reputation))
+      .slice(0, 30)
 
     console.log(`✅ GitHub collection completed: ${sortedCandidates.length} enhanced candidates`)
-    console.log(`📊 Stats: ${enhancementStats.emails_from_readme} README emails, ${enhancementStats.ai_enhanced_profiles} AI enhanced, ${enhancementStats.validation_passed}/${enhancementStats.total_processed} passed validation`)
+    console.log(`📊 Stats: ${enhancementStats.high_star_repos} high star repos, ${enhancementStats.ai_enhanced_profiles} AI enhanced, ${enhancementStats.validation_passed}/${enhancementStats.total_processed} passed validation`)
 
     return new Response(
       JSON.stringify({ 
         candidates: sortedCandidates,
         total: sortedCandidates.length,
         source: 'github',
-        enhancement_stats: {
-          ...enhancementStats,
-          language_based_searches: detectedLanguages.length,
-          avg_language_expertise: Math.round(sortedCandidates.reduce((sum, c) => sum + (c.language_expertise || 0), 0) / sortedCandidates.length || 0)
-        }
+        enhancement_stats: enhancementStats
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
