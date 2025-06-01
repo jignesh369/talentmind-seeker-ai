@@ -52,7 +52,7 @@ serve(async (req) => {
             if (data.items && data.items.length > 0) {
               for (const item of data.items) {
                 if (item.link.includes('linkedin.com/in/')) {
-                  enrichedData.linkedinUrl = item.link
+                  enrichedData.linkedin_url = item.link
                   sources.push('Google Search - LinkedIn')
                   console.log(`Found LinkedIn profile: ${item.link}`)
                   break
@@ -61,15 +61,15 @@ serve(async (req) => {
             }
           }
           
-          if (enrichedData.linkedinUrl) break
-          await new Promise(resolve => setTimeout(resolve, 1000)) // Rate limiting
+          if (enrichedData.linkedin_url) break
+          await new Promise(resolve => setTimeout(resolve, 1000))
         }
       } catch (error) {
         console.error('Google search enrichment failed:', error)
       }
     }
 
-    // Step 2: Check Apollo.io rate limiting (only if not used in last 30 days)
+    // Step 2: Check Apollo.io rate limiting
     let canUseApollo = true
     if (apolloApiKey) {
       try {
@@ -86,7 +86,7 @@ serve(async (req) => {
           
           if (lastUpdate > thirtyDaysAgo) {
             canUseApollo = false
-            console.log(`Apollo.io rate limited for ${candidateName} - last used within 30 days`)
+            console.log(`Apollo.io rate limited for ${candidateName}`)
           }
         }
       } catch (error) {
@@ -94,7 +94,7 @@ serve(async (req) => {
       }
     }
 
-    // Step 3: Apollo.io enrichment (if email missing and rate limit allows)
+    // Step 3: Apollo.io enrichment
     if (apolloApiKey && !existingData.email && canUseApollo) {
       try {
         console.log(`Using Apollo.io to find email for ${candidateName}`)
@@ -132,17 +132,12 @@ serve(async (req) => {
             if (person.email) {
               enrichedData.email = person.email
               sources.push('Apollo.io')
-              console.log(`Found email via Apollo.io: ${person.email}`)
+              console.log(`Found email via Apollo.io`)
             }
 
-            if (person.linkedin_url && !enrichedData.linkedinUrl) {
-              enrichedData.linkedinUrl = person.linkedin_url
+            if (person.linkedin_url && !enrichedData.linkedin_url) {
+              enrichedData.linkedin_url = person.linkedin_url
               sources.push('Apollo.io - LinkedIn')
-            }
-
-            if (person.organization && !enrichedData.currentCompany) {
-              enrichedData.currentCompany = person.organization.name
-              sources.push('Apollo.io - Company')
             }
           }
         }
@@ -194,7 +189,7 @@ Example response: ["JavaScript", "React", "Node.js", "Python", "AWS"]`
               if (Array.isArray(suggestedSkills)) {
                 const currentSkills = existingData.skills || []
                 const newSkills = [...new Set([...currentSkills, ...suggestedSkills])]
-                enrichedData.skills = newSkills.slice(0, 15) // Limit to 15 skills
+                enrichedData.skills = newSkills.slice(0, 15)
                 sources.push('AI Skill Enhancement')
                 console.log(`Enhanced skills: ${newSkills.join(', ')}`)
               }
@@ -212,8 +207,7 @@ Example response: ["JavaScript", "React", "Node.js", "Python", "AWS"]`
     const updateData = {
       ...enrichedData,
       updated_at: new Date().toISOString(),
-      last_enriched: new Date().toISOString(),
-      enrichment_sources: sources
+      last_enriched: new Date().toISOString()
     }
 
     const { error: updateError } = await supabase
