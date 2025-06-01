@@ -22,6 +22,8 @@ export interface EnhancedDataCollectionResult {
     validation_rate: string;
     ai_enhanced: boolean;
     perplexity_enriched: boolean;
+    semantic_search: boolean;
+    tier_system: boolean;
   };
   timestamp: string;
 }
@@ -49,18 +51,18 @@ export const useEnhancedDataCollection = () => {
 
     setIsCollecting(true);
     setCollectionResult(null);
-    setProgress('Initializing Phase 3 AI-enhanced data collection...');
+    setProgress('Initializing Phase 4 intelligent data collection...');
 
     try {
-      setProgress('Processing query with advanced AI algorithms...');
+      setProgress('Building semantic understanding and embeddings...');
       
       const { data, error } = await supabase.functions.invoke('enhanced-data-collection', {
         body: { query, location, sources }
       });
 
       if (error) {
-        console.error('Phase 3 data collection error:', error);
-        throw new Error(error.message || 'Advanced data collection failed');
+        console.error('Phase 4 data collection error:', error);
+        throw new Error(error.message || 'Intelligent data collection failed');
       }
 
       setCollectionResult(data);
@@ -70,27 +72,31 @@ export const useEnhancedDataCollection = () => {
       const failedSources = sources.length - successfulSources;
       const validationRate = data.quality_metrics?.validation_rate || '0';
       
+      // Enhanced success message with tier information
+      const tierInfo = data.quality_metrics?.tier_system ? ' with Bronze/Silver/Gold tiers' : '';
+      const semanticInfo = data.quality_metrics?.semantic_search ? ' + semantic matching' : '';
+      
       toast({
-        title: "Phase 3 Enhanced Collection Completed",
-        description: `🎯 Found ${data.total_validated} high-quality candidates (${validationRate}% validation rate) from ${successfulSources} sources${data.quality_metrics?.perplexity_enriched ? ' with Perplexity enrichment' : ''}${failedSources > 0 ? ` (${failedSources} sources failed)` : ''}`,
+        title: "Phase 4 Intelligent Collection Completed",
+        description: `🎯 Found ${data.total_validated} quality candidates (${validationRate}% success rate)${tierInfo}${semanticInfo}${data.quality_metrics?.perplexity_enriched ? ' with real-time enrichment' : ''}${failedSources > 0 ? ` (${failedSources} sources failed)` : ''}`,
         variant: "default",
       });
 
       return data;
 
     } catch (error: any) {
-      console.error('Phase 3 data collection error:', error);
+      console.error('Phase 4 data collection error:', error);
       setProgress('');
       
-      let errorMessage = "Failed to collect and validate candidate data with advanced AI";
+      let errorMessage = "Failed to collect and validate candidates with Phase 4 intelligence";
       if (error.message?.includes('timeout')) {
-        errorMessage = "Request timed out. The AI validation process is thorough but takes time. Please try again with a more specific query.";
+        errorMessage = "Request timed out. The intelligent validation is thorough but takes time. Please try again with a more specific query.";
       } else if (error.message?.includes('API')) {
         errorMessage = "AI service temporarily unavailable. Please try again later.";
       }
       
       toast({
-        title: "Phase 3 Collection Failed",
+        title: "Phase 4 Collection Failed",
         description: errorMessage,
         variant: "destructive",
       });

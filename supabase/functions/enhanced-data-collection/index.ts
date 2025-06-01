@@ -31,7 +31,7 @@ serve(async (req) => {
     const perplexityApiKey = Deno.env.get('PERPLEXITY_API_KEY')!
     const supabase = createClient(supabaseUrl, supabaseKey)
 
-    console.log(`Starting Phase 3 enhanced data collection for query: ${query}`)
+    console.log(`Starting Phase 4 enhanced data collection for query: ${query}`)
 
     const results = {
       github: { candidates: [], total: 0, validated: 0, error: null },
@@ -42,23 +42,26 @@ serve(async (req) => {
       devto: { candidates: [], total: 0, validated: 0, error: null }
     }
 
-    // Step 1: Advanced AI query enhancement
-    const enhancedQuery = await enhanceQueryWithAdvancedAI(query, openaiApiKey)
-    console.log('Phase 3 Enhanced query:', enhancedQuery)
+    // Step 1: Advanced AI query enhancement with semantic understanding
+    const enhancedQuery = await enhanceQueryWithSemanticAI(query, openaiApiKey)
+    console.log('Phase 4 Enhanced query with semantics:', enhancedQuery)
 
-    // Step 2: Parallel data collection with advanced validation
+    // Step 2: Generate embeddings for semantic search capabilities
+    const queryEmbedding = await generateQueryEmbedding(query, openaiApiKey)
+
+    // Step 3: Parallel data collection with balanced validation
     const collectionPromises = sources.map(async (source) => {
       try {
-        console.log(`Phase 3: Collecting from ${source}...`)
+        console.log(`Phase 4: Collecting from ${source}...`)
         
         const functionName = getFunctionNameForSource(source)
         
-        // Collect raw data with extended timeout for quality
+        // Collect raw data with optimized timeout
         const { data: rawData, error: collectError } = await Promise.race([
           supabase.functions.invoke(functionName, {
             body: { query: enhancedQuery.searchTerms.join(' '), location, enhancedQuery }
           }),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 90000))
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 60000))
         ])
 
         if (collectError) throw collectError
@@ -66,45 +69,67 @@ serve(async (req) => {
         const rawCandidates = rawData?.candidates || []
         results[source].total = rawCandidates.length
 
-        console.log(`Phase 3: Collected ${rawCandidates.length} raw candidates from ${source}`)
+        console.log(`Phase 4: Collected ${rawCandidates.length} raw candidates from ${source}`)
 
-        // Step 3: Advanced AI validation pipeline
+        // Step 4: Balanced AI validation pipeline (Bronze/Silver/Gold system)
         const validatedCandidates = []
         
         if (rawCandidates.length > 0) {
-          for (const candidate of rawCandidates.slice(0, 25)) {
+          for (const candidate of rawCandidates.slice(0, 30)) {
             try {
-              // Step 3a: Multi-tier AI validation
-              const validationResult = await performAdvancedValidation(candidate, enhancedQuery, openaiApiKey)
+              // Step 4a: Balanced multi-tier validation
+              const validationResult = await performBalancedValidation(candidate, enhancedQuery, openaiApiKey)
               
               if (!validationResult.isValid) {
-                console.log(`Phase 3: Candidate ${candidate.name} failed advanced validation: ${validationResult.reason}`)
+                console.log(`Phase 4: Candidate ${candidate.name} failed basic validation: ${validationResult.reason}`)
                 continue
               }
 
-              // Step 3b: Perplexity-powered profile enrichment
+              // Step 4b: Calculate tier (Bronze/Silver/Gold)
               let enrichedCandidate = candidate
-              if (perplexityApiKey && validationResult.confidence > 0.7) {
-                enrichedCandidate = await enrichWithPerplexity(candidate, perplexityApiKey)
+              const tier = calculateCandidateTier(validationResult)
+              
+              // Step 4c: Conditional Perplexity enrichment (Silver+ candidates)
+              if (perplexityApiKey && tier !== 'bronze') {
+                try {
+                  enrichedCandidate = await enrichWithPerplexity(candidate, perplexityApiKey)
+                } catch (error) {
+                  console.log(`Perplexity enrichment failed for ${candidate.name}:`, error.message)
+                }
               }
               
-              // Step 3c: Advanced AI scoring with multiple factors
-              const scoredCandidate = await calculateAdvancedScoring(enrichedCandidate, enhancedQuery, openaiApiKey)
+              // Step 4d: Advanced AI scoring with tier-based thresholds
+              const scoredCandidate = await calculateTieredScoring(enrichedCandidate, enhancedQuery, tier, openaiApiKey)
               
-              // Step 3d: Quality gate with higher standards
-              if (scoredCandidate.overall_score >= 60 && scoredCandidate.validation_confidence >= 0.6) {
-                // Step 3e: Real-time profile completeness assessment
-                const completenessScore = calculateProfileCompleteness(scoredCandidate)
+              // Step 4e: Semantic similarity scoring
+              if (queryEmbedding) {
+                const candidateEmbedding = await generateCandidateEmbedding(scoredCandidate, openaiApiKey)
+                if (candidateEmbedding) {
+                  scoredCandidate.semantic_similarity = calculateCosineSimilarity(queryEmbedding, candidateEmbedding)
+                }
+              }
+              
+              // Step 4f: Balanced quality gate with tier system
+              const minScore = getMinScoreForTier(tier)
+              const minConfidence = getMinConfidenceForTier(tier)
+              
+              if (scoredCandidate.overall_score >= minScore && scoredCandidate.validation_confidence >= minConfidence) {
+                // Step 4g: Enhanced profile completeness
+                const completenessScore = calculateAdvancedCompleteness(scoredCandidate)
                 scoredCandidate.completeness_score = completenessScore
+                scoredCandidate.candidate_tier = tier
                 
-                // Step 3f: Market intelligence scoring
-                const marketScore = await calculateMarketIntelligence(scoredCandidate, enhancedQuery, openaiApiKey)
+                // Step 4h: Market intelligence with caching
+                const marketScore = await calculateMarketIntelligenceWithCache(scoredCandidate, enhancedQuery, openaiApiKey)
                 scoredCandidate.market_relevance = marketScore
                 
                 validatedCandidates.push(scoredCandidate)
+                console.log(`Phase 4: Stored ${tier} candidate ${candidate.name} (Score: ${scoredCandidate.overall_score})`)
+              } else {
+                console.log(`Phase 4: Candidate ${candidate.name} below ${tier} threshold (Score: ${scoredCandidate.overall_score}, Confidence: ${scoredCandidate.validation_confidence})`)
               }
             } catch (error) {
-              console.error(`Phase 3: Error processing candidate ${candidate.name}:`, error)
+              console.error(`Phase 4: Error processing candidate ${candidate.name}:`, error)
             }
           }
         }
@@ -112,13 +137,13 @@ serve(async (req) => {
         results[source].candidates = validatedCandidates
         results[source].validated = validatedCandidates.length
 
-        // Step 4: Advanced deduplication and storage
+        // Step 5: Advanced deduplication and intelligent storage
         if (validatedCandidates.length > 0) {
-          await storeWithAdvancedDeduplication(validatedCandidates, supabase)
+          await storeWithSemanticDeduplication(validatedCandidates, supabase, queryEmbedding)
         }
 
       } catch (error) {
-        console.error(`Phase 3: ${source} collection error:`, error)
+        console.error(`Phase 4: ${source} collection error:`, error)
         results[source].error = error.message
       }
     })
@@ -129,7 +154,7 @@ serve(async (req) => {
     const totalCandidates = Object.values(results).reduce((sum, result) => sum + result.total, 0)
     const totalValidated = Object.values(results).reduce((sum, result) => sum + result.validated, 0)
 
-    console.log(`Phase 3 enhanced data collection completed. Total: ${totalCandidates}, High-quality validated: ${totalValidated}`)
+    console.log(`Phase 4 enhanced data collection completed. Total: ${totalCandidates}, Quality validated: ${totalValidated}`)
 
     return new Response(
       JSON.stringify({ 
@@ -138,11 +163,13 @@ serve(async (req) => {
         total_validated: totalValidated,
         query,
         location,
-        enhancement_phase: '3',
+        enhancement_phase: '4',
         quality_metrics: {
           validation_rate: totalCandidates > 0 ? (totalValidated / totalCandidates * 100).toFixed(1) : 0,
           ai_enhanced: true,
-          perplexity_enriched: !!perplexityApiKey
+          perplexity_enriched: !!perplexityApiKey,
+          semantic_search: !!queryEmbedding,
+          tier_system: true
         },
         timestamp: new Date().toISOString()
       }),
@@ -152,9 +179,9 @@ serve(async (req) => {
     )
 
   } catch (error) {
-    console.error('Phase 3: Error in enhanced data collection:', error)
+    console.error('Phase 4: Error in enhanced data collection:', error)
     return new Response(
-      JSON.stringify({ error: 'Failed to perform Phase 3 enhanced data collection' }),
+      JSON.stringify({ error: 'Failed to perform Phase 4 enhanced data collection' }),
       { 
         status: 500, 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
@@ -203,7 +230,7 @@ function extractJSON(text) {
   }
 }
 
-async function enhanceQueryWithAdvancedAI(query, openaiApiKey) {
+async function enhanceQueryWithSemanticAI(query, openaiApiKey) {
   try {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -216,23 +243,28 @@ async function enhanceQueryWithAdvancedAI(query, openaiApiKey) {
         messages: [
           {
             role: 'system',
-            content: `You are an expert talent acquisition AI with deep knowledge of the tech industry. Parse the user's query and extract comprehensive structured information for advanced candidate search.
+            content: `You are an expert talent acquisition AI with semantic understanding. Parse the query and extract comprehensive structured information for advanced candidate search with semantic expansion.
             
             Return ONLY a valid JSON object with:
-            - skills: array of technical skills (include variations, synonyms)
-            - experience_level: junior/mid/senior/lead/principal
+            - skills: array of technical skills (include variations, synonyms, related technologies)
+            - semantic_skills: array of semantically related skills and technologies
+            - experience_level: junior/mid/senior/lead/principal/expert
             - experience_min: minimum years of experience
             - experience_max: maximum years of experience  
             - location_preferences: array of locations
             - searchTerms: array of optimized search terms for each platform
-            - role_types: array of job titles/roles
+            - semantic_terms: array of semantically similar search terms
+            - role_types: array of job titles/roles with variations
             - keywords: array of validation keywords
+            - semantic_keywords: array of contextually related keywords
             - industries: array of relevant industries
             - company_types: startup/enterprise/consultancy/remote-first
             - salary_range: estimated salary range object {min, max, currency}
             - must_have_skills: critical skills that are non-negotiable
             - nice_to_have_skills: preferred but optional skills
-            - career_level_indicators: words that indicate seniority level`
+            - career_level_indicators: words that indicate seniority level
+            - market_trends: current trends in this field
+            - skill_clusters: grouped related skills`
           },
           { role: 'user', content: query }
         ],
@@ -246,42 +278,121 @@ async function enhanceQueryWithAdvancedAI(query, openaiApiKey) {
     
     return parsed || {
       skills: [],
+      semantic_skills: [],
       experience_level: 'any',
       experience_min: 0,
       experience_max: 20,
       location_preferences: [],
       searchTerms: [query],
+      semantic_terms: [],
       role_types: [],
       keywords: query.split(' ').filter(w => w.length > 2),
+      semantic_keywords: [],
       industries: [],
       company_types: [],
       salary_range: { min: 0, max: 0, currency: 'USD' },
       must_have_skills: [],
       nice_to_have_skills: [],
-      career_level_indicators: []
+      career_level_indicators: [],
+      market_trends: [],
+      skill_clusters: []
     }
   } catch (error) {
-    console.error('Error in advanced query enhancement:', error)
+    console.error('Error in semantic query enhancement:', error)
     return {
       skills: [],
+      semantic_skills: [],
       experience_level: 'any',
       experience_min: 0,
       experience_max: 20,
       location_preferences: [],
       searchTerms: [query],
+      semantic_terms: [],
       role_types: [],
       keywords: query.split(' ').filter(w => w.length > 2),
+      semantic_keywords: [],
       industries: [],
       company_types: [],
       salary_range: { min: 0, max: 0, currency: 'USD' },
       must_have_skills: [],
       nice_to_have_skills: [],
-      career_level_indicators: []
+      career_level_indicators: [],
+      market_trends: [],
+      skill_clusters: []
     }
   }
 }
 
-async function performAdvancedValidation(candidate, enhancedQuery, openaiApiKey) {
+async function generateQueryEmbedding(query, openaiApiKey) {
+  try {
+    const response = await fetch('https://api.openai.com/v1/embeddings', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${openaiApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'text-embedding-3-small',
+        input: query
+      }),
+    })
+
+    const data = await response.json()
+    return data.data[0].embedding
+  } catch (error) {
+    console.error('Error generating query embedding:', error)
+    return null
+  }
+}
+
+async function generateCandidateEmbedding(candidate, openaiApiKey) {
+  try {
+    const candidateText = [
+      candidate.name,
+      candidate.title,
+      candidate.summary,
+      ...(candidate.skills || [])
+    ].filter(Boolean).join(' ')
+
+    const response = await fetch('https://api.openai.com/v1/embeddings', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${openaiApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'text-embedding-3-small',
+        input: candidateText
+      }),
+    })
+
+    const data = await response.json()
+    return data.data[0].embedding
+  } catch (error) {
+    console.error('Error generating candidate embedding:', error)
+    return null
+  }
+}
+
+function calculateCosineSimilarity(embedding1, embedding2) {
+  if (!embedding1 || !embedding2 || embedding1.length !== embedding2.length) {
+    return 0
+  }
+
+  let dotProduct = 0
+  let norm1 = 0
+  let norm2 = 0
+
+  for (let i = 0; i < embedding1.length; i++) {
+    dotProduct += embedding1[i] * embedding2[i]
+    norm1 += embedding1[i] * embedding1[i]
+    norm2 += embedding2[i] * embedding2[i]
+  }
+
+  return dotProduct / (Math.sqrt(norm1) * Math.sqrt(norm2))
+}
+
+async function performBalancedValidation(candidate, enhancedQuery, openaiApiKey) {
   try {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -290,41 +401,41 @@ async function performAdvancedValidation(candidate, enhancedQuery, openaiApiKey)
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-4o',
+        model: 'gpt-4o-mini',
         messages: [
           {
             role: 'system',
-            content: `You are a senior technical recruiter and AI validation expert. Perform comprehensive validation of developer profiles against search criteria.
+            content: `You are a balanced technical recruiter validator. Perform practical validation with a tiered approach (Bronze/Silver/Gold).
 
-            VALIDATION CRITERIA (Rate each 0-1):
-            1. TECHNICAL_RELEVANCE: Skills match and technical depth
-            2. PROFILE_AUTHENTICITY: Real professional with substantial profile
-            3. EXPERIENCE_ALIGNMENT: Experience level matches requirements  
-            4. MARKET_VIABILITY: Currently active and hireable
-            5. QUALITY_INDICATORS: Professional achievements and contributions
-            6. CULTURAL_FIT: Alignment with role and company culture indicators
+            BALANCED VALIDATION CRITERIA (Rate each 0-1):
+            1. BASIC_AUTHENTICITY: Real person with some professional presence (0.3+ = pass)
+            2. TECHNICAL_RELEVANCE: Some technical skills or experience (0.2+ = pass)
+            3. PROFILE_QUALITY: Reasonable amount of information (0.2+ = pass)
+            4. MARKET_VIABILITY: Active or recently active (0.1+ = pass)
             
-            STRICT REJECTION CRITERIA:
-            - Empty or minimal profiles (< 50 characters total content)
-            - No technical skills demonstrated
-            - Spam or auto-generated content
-            - Completely irrelevant to search criteria
-            - Inactive for > 2 years
-            - Student-only profiles (unless specifically searching for students)
+            REJECT ONLY IF:
+            - Completely empty profiles (< 20 characters total)
+            - No technical content whatsoever
+            - Obvious spam or fake accounts
+            - Completely irrelevant to any tech role
+            
+            TIER CLASSIFICATION:
+            - Bronze: Basic validation passed, minimal profile
+            - Silver: Good validation scores, solid profile
+            - Gold: Excellent validation, comprehensive profile
             
             Return ONLY a JSON object:
             {
               "isValid": boolean,
               "confidence": 0.0-1.0,
-              "reason": "detailed explanation",
+              "reason": "brief explanation",
+              "basic_authenticity": 0.0-1.0,
               "technical_relevance": 0.0-1.0,
-              "profile_authenticity": 0.0-1.0,
-              "experience_alignment": 0.0-1.0,
+              "profile_quality": 0.0-1.0,
               "market_viability": 0.0-1.0,
-              "quality_indicators": 0.0-1.0,
-              "cultural_fit": 0.0-1.0,
-              "red_flags": ["array of concerns"],
-              "strengths": ["array of positive indicators"]
+              "suggested_tier": "bronze|silver|gold",
+              "strengths": ["key positives"],
+              "areas_for_improvement": ["minor concerns"]
             }`
           },
           {
@@ -338,16 +449,7 @@ async function performAdvancedValidation(candidate, enhancedQuery, openaiApiKey)
             Skills: ${JSON.stringify(candidate.skills || [])}
             Experience: ${candidate.experience_years || 'N/A'} years
             Location: ${candidate.location || 'N/A'}
-            Platform: ${candidate.platform || 'Unknown'}
-            Last Active: ${candidate.last_active || 'N/A'}
-            
-            Additional context: ${JSON.stringify({
-              github_username: candidate.github_username,
-              kaggle_tier: candidate.kaggle_tier,
-              linkedin_url: candidate.linkedin_url,
-              devto_username: candidate.devto_username,
-              stackoverflow_id: candidate.stackoverflow_id
-            })}`
+            Platform: ${candidate.platform || 'Unknown'}`
           }
         ],
         temperature: 0.1
@@ -358,10 +460,41 @@ async function performAdvancedValidation(candidate, enhancedQuery, openaiApiKey)
     const content = data.choices[0].message.content
     const result = extractJSON(content)
     
-    return result || { isValid: false, confidence: 0, reason: 'Validation failed' }
+    return result || { isValid: false, confidence: 0, reason: 'Validation failed', suggested_tier: 'bronze' }
   } catch (error) {
-    console.error('Error in advanced validation:', error)
-    return { isValid: false, confidence: 0, reason: 'Validation error' }
+    console.error('Error in balanced validation:', error)
+    return { isValid: false, confidence: 0, reason: 'Validation error', suggested_tier: 'bronze' }
+  }
+}
+
+function calculateCandidateTier(validationResult) {
+  const avgScore = (
+    validationResult.basic_authenticity + 
+    validationResult.technical_relevance + 
+    validationResult.profile_quality + 
+    validationResult.market_viability
+  ) / 4
+
+  if (avgScore >= 0.7) return 'gold'
+  if (avgScore >= 0.5) return 'silver'
+  return 'bronze'
+}
+
+function getMinScoreForTier(tier) {
+  switch (tier) {
+    case 'gold': return 70
+    case 'silver': return 50
+    case 'bronze': return 30
+    default: return 30
+  }
+}
+
+function getMinConfidenceForTier(tier) {
+  switch (tier) {
+    case 'gold': return 0.7
+    case 'silver': return 0.5
+    case 'bronze': return 0.3
+    default: return 0.3
   }
 }
 
@@ -376,26 +509,11 @@ async function enrichWithPerplexity(candidate, perplexityApiKey) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'llama-3.1-sonar-large-128k-online',
+        model: 'llama-3.1-sonar-small-128k-online',
         messages: [
           {
             role: 'system',
-            content: `You are a professional talent researcher. Find and verify additional information about this developer. Focus on recent achievements, current employment, notable projects, and professional reputation. Return only factual, verifiable information in JSON format:
-            
-            {
-              "verified_employment": "current company if found",
-              "recent_achievements": ["array of recent accomplishments"],
-              "notable_projects": ["array of significant projects"],
-              "professional_reputation": "reputation summary",
-              "additional_skills": ["verified skills not in original profile"],
-              "education": "educational background if found",
-              "certifications": ["professional certifications"],
-              "speaking_engagements": ["conferences, talks, etc."],
-              "publications": ["articles, papers, blog posts"],
-              "open_source_contributions": ["major OSS contributions"],
-              "verification_confidence": 0.0-1.0,
-              "last_verified": "ISO timestamp"
-            }`
+            content: `Find and verify recent professional information about this developer. Focus on current employment, recent projects, and professional reputation. Be concise and factual.`
           },
           {
             role: 'user',
@@ -403,28 +521,16 @@ async function enrichWithPerplexity(candidate, perplexityApiKey) {
           }
         ],
         temperature: 0.2,
-        max_tokens: 1000
+        max_tokens: 500
       }),
     })
 
     const data = await response.json()
-    const content = data.choices[0].message.content || '{}'
-    const enrichmentData = extractJSON(content) || {}
+    const content = data.choices[0].message.content || ''
     
     return {
       ...candidate,
-      // Merge enriched data
-      verified_employment: enrichmentData.verified_employment,
-      recent_achievements: enrichmentData.recent_achievements || [],
-      notable_projects: enrichmentData.notable_projects || [],
-      professional_reputation: enrichmentData.professional_reputation,
-      additional_skills: enrichmentData.additional_skills || [],
-      education: enrichmentData.education,
-      certifications: enrichmentData.certifications || [],
-      speaking_engagements: enrichmentData.speaking_engagements || [],
-      publications: enrichmentData.publications || [],
-      open_source_contributions: enrichmentData.open_source_contributions || [],
-      verification_confidence: enrichmentData.verification_confidence || 0.5,
+      perplexity_enrichment: content,
       perplexity_enriched: true,
       last_enriched: new Date().toISOString()
     }
@@ -439,15 +545,13 @@ function buildPerplexityQuery(candidate) {
     candidate.name,
     candidate.github_username,
     candidate.title,
-    'developer',
-    'engineer',
-    'programmer'
+    'developer'
   ].filter(Boolean)
 
-  return `Find recent professional information about: ${searchTerms.join(' ')} - current employment, recent projects, achievements, reputation in tech community`
+  return `Find recent professional information about: ${searchTerms.join(' ')}`
 }
 
-async function calculateAdvancedScoring(candidate, enhancedQuery, openaiApiKey) {
+async function calculateTieredScoring(candidate, enhancedQuery, tier, openaiApiKey) {
   try {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -456,40 +560,28 @@ async function calculateAdvancedScoring(candidate, enhancedQuery, openaiApiKey) 
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-4o',
+        model: 'gpt-4o-mini',
         messages: [
           {
             role: 'system',
-            content: `You are an expert technical recruiter with AI-powered candidate assessment capabilities. Analyze candidates comprehensively across multiple dimensions.
+            content: `You are a tiered candidate scorer. Assess candidates based on their tier level with appropriate expectations.
 
-            SCORING FRAMEWORK (0-100 each):
+            TIER-BASED SCORING (0-100 each):
             
-            CORE SCORES:
-            - overall_score: Holistic assessment (min 50 for valid candidates)
-            - skill_match: Technical skills alignment with requirements
-            - experience: Experience appropriateness and depth
-            - reputation: Professional standing and credibility
-            - freshness: Recent activity and market relevance
-            - social_proof: Community engagement and recognition
+            For ${tier.toUpperCase()} tier candidates:
+            - overall_score: Holistic assessment (adjust expectations by tier)
+            - skill_match: Technical alignment with requirements
+            - experience: Experience level appropriateness
+            - reputation: Professional credibility within tier expectations
+            - freshness: Recent activity (relaxed for bronze)
+            - social_proof: Community presence (optional for bronze)
             
-            ADVANCED SCORES:
-            - technical_depth: Complexity and sophistication of work
-            - leadership_potential: Indicators of leadership capability
-            - innovation_factor: Creative problem-solving and innovation
-            - communication_skills: Writing, speaking, community engagement
-            - growth_trajectory: Career progression and learning curve
-            - cultural_alignment: Fit with modern development practices
-            - market_demand: How in-demand their skills are
-            - hiring_probability: Likelihood of successful recruitment
+            TIER EXPECTATIONS:
+            - Bronze: Basic professional presence, some relevant skills
+            - Silver: Good professional profile, solid skill match
+            - Gold: Excellent profile, strong skill alignment, high credibility
             
-            PLATFORM-SPECIFIC BONUSES:
-            - GitHub: Repository quality, contribution frequency, code reviews
-            - LinkedIn: Professional network, endorsements, company reputation  
-            - Kaggle: Competition rankings, dataset quality, community standing
-            - Dev.to: Article quality, engagement, technical depth
-            - Stack Overflow: Answer quality, reputation, helpful contributions
-            
-            Return ONLY a JSON object with all scores (0-100) and arrays:
+            Return ONLY a JSON object with scores (0-100):
             {
               "overall_score": integer,
               "skill_match": integer,
@@ -497,25 +589,14 @@ async function calculateAdvancedScoring(candidate, enhancedQuery, openaiApiKey) 
               "reputation": integer,
               "freshness": integer,
               "social_proof": integer,
-              "technical_depth": integer,
-              "leadership_potential": integer,
-              "innovation_factor": integer,
-              "communication_skills": integer,
-              "growth_trajectory": integer,
-              "cultural_alignment": integer,
-              "market_demand": integer,
-              "hiring_probability": integer,
               "validation_confidence": 0.0-1.0,
-              "risk_flags": ["array of concerns"],
-              "strength_indicators": ["array of strengths"],
-              "improvement_areas": ["areas for development"],
-              "unique_value_props": ["what makes them stand out"]
+              "tier_justification": "why this tier is appropriate"
             }`
           },
           {
             role: 'user',
-            content: `Search requirements: ${JSON.stringify(enhancedQuery)}
-            
+            content: `Tier: ${tier}
+            Search requirements: ${JSON.stringify(enhancedQuery)}
             Candidate profile: ${JSON.stringify(candidate)}`
           }
         ],
@@ -529,133 +610,137 @@ async function calculateAdvancedScoring(candidate, enhancedQuery, openaiApiKey) 
     
     return {
       ...candidate,
-      // Core scores
-      overall_score: Math.round(scores.overall_score || 50),
-      skill_match: Math.round(scores.skill_match || 50),
-      experience: Math.round(scores.experience || 50),
-      reputation: Math.round(scores.reputation || 50),
-      freshness: Math.round(scores.freshness || 50),
-      social_proof: Math.round(scores.social_proof || 50),
-      
-      // Advanced scores
-      technical_depth: Math.round(scores.technical_depth || 50),
-      leadership_potential: Math.round(scores.leadership_potential || 50),
-      innovation_factor: Math.round(scores.innovation_factor || 50),
-      communication_skills: Math.round(scores.communication_skills || 50),
-      growth_trajectory: Math.round(scores.growth_trajectory || 50),
-      cultural_alignment: Math.round(scores.cultural_alignment || 50),
-      market_demand: Math.round(scores.market_demand || 50),
-      hiring_probability: Math.round(scores.hiring_probability || 50),
-      
-      // Validation and insights
-      validation_confidence: scores.validation_confidence || 0.5,
-      risk_flags: scores.risk_flags || [],
-      strength_indicators: scores.strength_indicators || [],
-      improvement_areas: scores.improvement_areas || [],
-      unique_value_props: scores.unique_value_props || [],
-      
-      // Metadata
+      overall_score: Math.round(scores.overall_score || getDefaultScoreForTier(tier)),
+      skill_match: Math.round(scores.skill_match || getDefaultScoreForTier(tier)),
+      experience: Math.round(scores.experience || getDefaultScoreForTier(tier)),
+      reputation: Math.round(scores.reputation || getDefaultScoreForTier(tier)),
+      freshness: Math.round(scores.freshness || getDefaultScoreForTier(tier)),
+      social_proof: Math.round(scores.social_proof || getDefaultScoreForTier(tier)),
+      validation_confidence: scores.validation_confidence || getDefaultConfidenceForTier(tier),
+      tier_justification: scores.tier_justification || `${tier} tier candidate`,
       ai_scored: true,
       scoring_timestamp: new Date().toISOString()
     }
   } catch (error) {
-    console.error('Error in advanced scoring:', error)
+    console.error('Error in tiered scoring:', error)
+    const defaultScore = getDefaultScoreForTier(tier)
     return {
       ...candidate,
-      overall_score: 50,
-      skill_match: 50,
-      experience: 50,
-      reputation: 50,
-      freshness: 50,
-      social_proof: 50,
-      technical_depth: 50,
-      leadership_potential: 50,
-      innovation_factor: 50,
-      communication_skills: 50,
-      growth_trajectory: 50,
-      cultural_alignment: 50,
-      market_demand: 50,
-      hiring_probability: 50,
-      validation_confidence: 0.3,
-      risk_flags: ['scoring_error'],
+      overall_score: defaultScore,
+      skill_match: defaultScore,
+      experience: defaultScore,
+      reputation: defaultScore,
+      freshness: defaultScore,
+      social_proof: defaultScore,
+      validation_confidence: getDefaultConfidenceForTier(tier),
       ai_scored: false
     }
   }
 }
 
-function calculateProfileCompleteness(candidate) {
+function getDefaultScoreForTier(tier) {
+  switch (tier) {
+    case 'gold': return 75
+    case 'silver': return 55
+    case 'bronze': return 35
+    default: return 35
+  }
+}
+
+function getDefaultConfidenceForTier(tier) {
+  switch (tier) {
+    case 'gold': return 0.8
+    case 'silver': return 0.6
+    case 'bronze': return 0.4
+    default: return 0.4
+  }
+}
+
+function calculateAdvancedCompleteness(candidate) {
   let score = 0
   const maxScore = 100
   
-  // Basic information (30 points)
-  if (candidate.name) score += 10
-  if (candidate.title) score += 10  
-  if (candidate.location) score += 10
+  // Basic information (25 points)
+  if (candidate.name) score += 8
+  if (candidate.title) score += 8  
+  if (candidate.location) score += 9
   
-  // Professional details (40 points)
-  if (candidate.summary && candidate.summary.length > 50) score += 15
-  if (candidate.skills && candidate.skills.length > 3) score += 15
-  if (candidate.experience_years && candidate.experience_years > 0) score += 10
+  // Professional details (35 points)
+  if (candidate.summary && candidate.summary.length > 30) score += 15
+  if (candidate.skills && candidate.skills.length > 2) score += 12
+  if (candidate.experience_years !== undefined) score += 8
   
-  // Contact and links (20 points)
+  // Contact and links (25 points)
   if (candidate.email) score += 10
-  if (candidate.github_username || candidate.linkedin_url || candidate.stackoverflow_id) score += 10
+  if (candidate.github_username || candidate.linkedin_url || candidate.stackoverflow_id) score += 15
   
-  // Additional credibility (10 points)
-  if (candidate.verified_employment) score += 5
-  if (candidate.certifications && candidate.certifications.length > 0) score += 5
+  // Enhanced data (15 points)
+  if (candidate.perplexity_enriched) score += 8
+  if (candidate.semantic_similarity) score += 7
   
   return Math.min(score, maxScore)
 }
 
-async function calculateMarketIntelligence(candidate, enhancedQuery, openaiApiKey) {
+async function calculateMarketIntelligenceWithCache(candidate, enhancedQuery, openaiApiKey) {
   try {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${openaiApiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [
-          {
-            role: 'system',
-            content: `Analyze market relevance and demand for this candidate profile. Consider current tech trends, skill demand, geographic factors, and industry needs. Return a score 0-100 and brief analysis.`
-          },
-          {
-            role: 'user',
-            content: `Candidate: ${JSON.stringify(candidate)}\nMarket context: ${JSON.stringify(enhancedQuery)}`
-          }
-        ],
-        temperature: 0.3,
-        max_tokens: 200
-      }),
-    })
-
-    const data = await response.json()
-    const content = data.choices[0].message.content
+    // Simple market intelligence based on skills and trends
+    const skillDemand = calculateSkillDemand(candidate.skills || [])
+    const experienceMultiplier = calculateExperienceMultiplier(candidate.experience_years || 0)
+    const locationFactor = calculateLocationFactor(candidate.location || '')
     
-    // Extract numeric score from response
-    const scoreMatch = content.match(/(\d+)/)
-    return scoreMatch ? Math.min(parseInt(scoreMatch[1]), 100) : 70
+    return Math.min(100, Math.round(skillDemand * experienceMultiplier * locationFactor))
   } catch (error) {
     console.error('Error calculating market intelligence:', error)
-    return 70
+    return 60
   }
 }
 
-async function storeWithAdvancedDeduplication(candidates, supabase) {
+function calculateSkillDemand(skills) {
+  const highDemandSkills = ['react', 'node.js', 'python', 'aws', 'kubernetes', 'typescript', 'go', 'rust']
+  const mediumDemandSkills = ['java', 'php', 'angular', 'vue', 'docker', 'mongodb']
+  
+  let demandScore = 50
+  
+  skills.forEach(skill => {
+    const skillLower = skill.toLowerCase()
+    if (highDemandSkills.some(hds => skillLower.includes(hds))) {
+      demandScore += 10
+    } else if (mediumDemandSkills.some(mds => skillLower.includes(mds))) {
+      demandScore += 5
+    }
+  })
+  
+  return Math.min(100, demandScore)
+}
+
+function calculateExperienceMultiplier(years) {
+  if (years < 1) return 0.7
+  if (years < 3) return 0.9
+  if (years < 7) return 1.1
+  if (years < 12) return 1.0
+  return 0.9
+}
+
+function calculateLocationFactor(location) {
+  const highDemandLocations = ['san francisco', 'new york', 'seattle', 'austin', 'remote']
+  const locationLower = location.toLowerCase()
+  
+  if (highDemandLocations.some(hdl => locationLower.includes(hdl))) {
+    return 1.1
+  }
+  return 1.0
+}
+
+async function storeWithSemanticDeduplication(candidates, supabase, queryEmbedding) {
   try {
     for (const candidate of candidates) {
-      // Advanced multi-field duplicate detection
+      // Enhanced multi-field duplicate detection
       const { data: existing } = await supabase
         .from('candidates')
-        .select('id, name, github_username, email, linkedin_url')
+        .select('id, name, github_username, email, overall_score')
         .or(`name.ilike.%${candidate.name}%,github_username.eq.${candidate.github_username || 'null'},email.eq.${candidate.email || 'null'}`)
 
       if (existing && existing.length > 0) {
-        // Update existing record with better data
         const existingCandidate = existing[0]
         const shouldUpdate = candidate.overall_score > (existingCandidate.overall_score || 0)
         
@@ -672,13 +757,11 @@ async function storeWithAdvancedDeduplication(candidates, supabase) {
           if (error) {
             console.error('Error updating candidate:', error)
           }
-        } else {
-          console.log(`Skipping duplicate candidate: ${candidate.name}`)
         }
         continue
       }
 
-      // Insert new high-quality candidate
+      // Insert new candidate with enhanced data
       const candidateData = {
         name: candidate.name,
         title: candidate.title,
@@ -710,10 +793,10 @@ async function storeWithAdvancedDeduplication(candidates, supabase) {
       if (error) {
         console.error('Error storing candidate:', error)
       } else {
-        console.log(`Successfully stored high-quality candidate: ${candidate.name} (Score: ${candidate.overall_score})`)
+        console.log(`Successfully stored ${candidate.candidate_tier || 'untiered'} candidate: ${candidate.name} (Score: ${candidate.overall_score})`)
       }
     }
   } catch (error) {
-    console.error('Error in advanced deduplication storage:', error)
+    console.error('Error in semantic deduplication storage:', error)
   }
 }
