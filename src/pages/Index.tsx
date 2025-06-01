@@ -20,12 +20,14 @@ const Index = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  
+  // Properly typed filters state with all required properties
   const [filters, setFilters] = useState({
     minScore: 0,
     maxScore: 100,
     location: '',
     lastActive: '',
-    skills: []
+    skills: [] as string[]
   });
 
   const handleSearch = async (query: string) => {
@@ -140,7 +142,7 @@ const Index = () => {
             <div className="sticky top-24">
               <ChatInterface onSearch={handleSearch} />
               
-              {/* Filter Panel */}
+              {/* Filter Panel with properly typed filters */}
               {isFilterOpen && (
                 <div className="mt-6">
                   <FilterPanel filters={filters} setFilters={setFilters} />
