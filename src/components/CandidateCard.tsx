@@ -2,30 +2,12 @@
 import React, { useState } from 'react';
 import { MapPin, Calendar, ExternalLink, Github, Globe, AlertTriangle, Info, Star } from 'lucide-react';
 import { ScoreBreakdown } from './ScoreBreakdown';
+import { Candidate } from '../hooks/useCandidates';
 
 interface Source {
   platform: string;
   url: string;
   icon: string;
-}
-
-interface Candidate {
-  id: string;
-  name: string;
-  title: string;
-  location: string;
-  avatar: string;
-  overallScore: number;
-  skillMatch: number;
-  experience: number;
-  reputation: number;
-  freshness: number;
-  socialProof: number;
-  riskFlags: string[];
-  skills: string[];
-  sources: Source[];
-  lastActive: string;
-  summary: string;
 }
 
 interface CandidateCardProps {
@@ -34,6 +16,17 @@ interface CandidateCardProps {
 
 export const CandidateCard: React.FC<CandidateCardProps> = ({ candidate }) => {
   const [showBreakdown, setShowBreakdown] = useState(false);
+
+  // Handle potential undefined/null values with fallbacks
+  const riskFlags = candidate.risk_flags || [];
+  const skills = candidate.skills || [];
+  const sources = candidate.sources || [];
+  const overallScore = candidate.overall_score || 0;
+  const skillMatch = candidate.skill_match || 0;
+  const experience = candidate.experience || 0;
+  const reputation = candidate.reputation || 0;
+  const freshness = candidate.freshness || 0;
+  const socialProof = candidate.social_proof || 0;
 
   const getScoreColor = (score: number) => {
     if (score >= 80) return 'text-green-600 bg-green-100';
@@ -47,56 +40,63 @@ export const CandidateCard: React.FC<CandidateCardProps> = ({ candidate }) => {
     return 'bg-red-500';
   };
 
+  // Create mock sources if none exist
+  const mockSources = [
+    { platform: 'GitHub', url: `https://github.com/${candidate.github_username || 'unknown'}`, icon: 'github' },
+  ].filter(source => candidate.github_username);
+
+  const displaySources = sources.length > 0 ? sources : mockSources;
+
   return (
     <div className="bg-white rounded-xl shadow-lg border border-slate-200 p-6 hover:shadow-xl transition-all duration-300">
       <div className="flex items-start justify-between mb-4">
         <div className="flex items-start space-x-4">
           <div className="relative">
             <img
-              src={candidate.avatar}
+              src={candidate.avatar_url || '/placeholder.svg'}
               alt={candidate.name}
               className="w-16 h-16 rounded-full object-cover"
             />
-            <div className={`absolute -bottom-1 -right-1 w-6 h-6 ${getScoreBadgeColor(candidate.overallScore)} rounded-full flex items-center justify-center text-white text-xs font-bold`}>
-              {candidate.overallScore}
+            <div className={`absolute -bottom-1 -right-1 w-6 h-6 ${getScoreBadgeColor(overallScore)} rounded-full flex items-center justify-center text-white text-xs font-bold`}>
+              {overallScore}
             </div>
           </div>
           <div className="flex-1">
             <h3 className="text-xl font-semibold text-slate-900">{candidate.name}</h3>
-            <p className="text-slate-600 font-medium">{candidate.title}</p>
+            <p className="text-slate-600 font-medium">{candidate.title || 'Developer'}</p>
             <div className="flex items-center space-x-4 mt-2 text-sm text-slate-500">
               <div className="flex items-center space-x-1">
                 <MapPin className="w-4 h-4" />
-                <span>{candidate.location}</span>
+                <span>{candidate.location || 'Unknown'}</span>
               </div>
               <div className="flex items-center space-x-1">
                 <Calendar className="w-4 h-4" />
-                <span>{candidate.lastActive}</span>
+                <span>{candidate.last_active ? new Date(candidate.last_active).toLocaleDateString() : 'Recently'}</span>
               </div>
             </div>
           </div>
         </div>
 
         <div className="flex items-center space-x-3">
-          {candidate.riskFlags.length > 0 && (
+          {riskFlags.length > 0 && (
             <div className="flex items-center space-x-1 text-red-600 bg-red-50 px-2 py-1 rounded-lg">
               <AlertTriangle className="w-4 h-4" />
-              <span className="text-sm font-medium">{candidate.riskFlags.length} risk{candidate.riskFlags.length > 1 ? 's' : ''}</span>
+              <span className="text-sm font-medium">{riskFlags.length} risk{riskFlags.length > 1 ? 's' : ''}</span>
             </div>
           )}
-          <div className={`px-3 py-1 rounded-lg font-semibold ${getScoreColor(candidate.overallScore)}`}>
-            {candidate.overallScore}/100
+          <div className={`px-3 py-1 rounded-lg font-semibold ${getScoreColor(overallScore)}`}>
+            {overallScore}/100
           </div>
         </div>
       </div>
 
-      <p className="text-slate-700 mb-4 leading-relaxed">{candidate.summary}</p>
+      <p className="text-slate-700 mb-4 leading-relaxed">{candidate.summary || 'No summary available.'}</p>
 
       {/* Skills */}
       <div className="mb-4">
         <h4 className="text-sm font-semibold text-slate-900 mb-2">Key Skills</h4>
         <div className="flex flex-wrap gap-2">
-          {candidate.skills.slice(0, 8).map((skill, index) => (
+          {skills.slice(0, 8).map((skill, index) => (
             <span
               key={index}
               className="px-3 py-1 bg-blue-100 text-blue-800 text-sm rounded-full font-medium"
@@ -104,9 +104,14 @@ export const CandidateCard: React.FC<CandidateCardProps> = ({ candidate }) => {
               {skill}
             </span>
           ))}
-          {candidate.skills.length > 8 && (
+          {skills.length > 8 && (
             <span className="px-3 py-1 bg-slate-100 text-slate-600 text-sm rounded-full">
-              +{candidate.skills.length - 8} more
+              +{skills.length - 8} more
+            </span>
+          )}
+          {skills.length === 0 && (
+            <span className="px-3 py-1 bg-slate-100 text-slate-600 text-sm rounded-full">
+              No skills listed
             </span>
           )}
         </div>
@@ -126,7 +131,16 @@ export const CandidateCard: React.FC<CandidateCardProps> = ({ candidate }) => {
         </div>
         
         {showBreakdown && (
-          <ScoreBreakdown candidate={candidate} />
+          <ScoreBreakdown candidate={{
+            ...candidate,
+            overallScore,
+            skillMatch,
+            experience,
+            reputation,
+            freshness,
+            socialProof,
+            riskFlags
+          }} />
         )}
       </div>
 
@@ -134,7 +148,7 @@ export const CandidateCard: React.FC<CandidateCardProps> = ({ candidate }) => {
       <div className="flex items-center justify-between pt-4 border-t border-slate-200">
         <div className="flex items-center space-x-3">
           <span className="text-sm text-slate-600 font-medium">Found on:</span>
-          {candidate.sources.map((source, index) => (
+          {displaySources.map((source, index) => (
             <a
               key={index}
               href={source.url}
@@ -149,6 +163,9 @@ export const CandidateCard: React.FC<CandidateCardProps> = ({ candidate }) => {
               <ExternalLink className="w-3 h-3" />
             </a>
           ))}
+          {displaySources.length === 0 && (
+            <span className="text-sm text-slate-500">No sources available</span>
+          )}
         </div>
 
         <div className="flex items-center space-x-2">
