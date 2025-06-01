@@ -91,31 +91,42 @@ export const useEnhancedDataCollection = () => {
       
       console.log('Starting optimized data collection with:', { query, location, sources });
       
-      // Set up timeout for the entire collection process
-      const timeoutPromise = new Promise((_, reject) => {
+      // Create a timeout promise that rejects
+      const timeoutPromise = new Promise<never>((_, reject) => {
         setTimeout(() => reject(new Error('Data collection timeout')), 120000);
       });
       
+      // Create the collection promise with proper typing
       const collectionPromise = supabase.functions.invoke('enhanced-data-collection', {
         body: { query, location, sources }
       });
       
-      // Use Promise.race to handle potential timeouts
-      const { data, error } = await Promise.race([collectionPromise, timeoutPromise]);
+      // Use Promise.race with proper error handling
+      let response;
+      try {
+        response = await Promise.race([collectionPromise, timeoutPromise]);
+      } catch (error) {
+        clearInterval(progressInterval);
+        if (error instanceof Error && error.message === 'Data collection timeout') {
+          throw new Error('Collection timeout: Operation took too long');
+        }
+        throw error;
+      }
       
       clearInterval(progressInterval);
 
-      console.log('Enhanced data collection response:', { data, error });
+      console.log('Enhanced data collection response:', response);
 
-      if (error) {
-        console.error('Data collection error:', error);
-        throw new Error(error.message || 'Data collection failed');
+      if (response.error) {
+        console.error('Data collection error:', response.error);
+        throw new Error(response.error.message || 'Data collection failed');
       }
 
-      if (!data) {
+      if (!response.data) {
         throw new Error('No data returned from collection');
       }
 
+      const data = response.data;
       setCollectionResult(data);
       setProgress('');
       
