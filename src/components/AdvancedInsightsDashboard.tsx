@@ -17,27 +17,27 @@ export const AdvancedInsightsDashboard: React.FC<AdvancedInsightsDashboardProps>
     return lastActive > thirtyDaysAgo;
   }).length;
 
-  // Top skills analysis
-  const skillCounts = candidates.reduce((acc, candidate) => {
-    (candidate.skills || []).forEach(skill => {
+  // Top skills analysis with proper typing
+  const skillCounts: Record<string, number> = candidates.reduce((acc, candidate) => {
+    (candidate.skills || []).forEach((skill: string) => {
       acc[skill] = (acc[skill] || 0) + 1;
     });
     return acc;
-  }, {});
+  }, {} as Record<string, number>);
   
   const topSkills = Object.entries(skillCounts)
-    .sort(([,a], [,b]) => b - a)
+    .sort(([,a], [,b]) => (b as number) - (a as number))
     .slice(0, 6);
 
-  // Location distribution
-  const locationCounts = candidates.reduce((acc, candidate) => {
+  // Location distribution with proper typing
+  const locationCounts: Record<string, number> = candidates.reduce((acc, candidate) => {
     const location = candidate.location || 'Unknown';
     acc[location] = (acc[location] || 0) + 1;
     return acc;
-  }, {});
+  }, {} as Record<string, number>);
   
   const topLocations = Object.entries(locationCounts)
-    .sort(([,a], [,b]) => b - a)
+    .sort(([,a], [,b]) => (b as number) - (a as number))
     .slice(0, 4);
 
   const insights = [
@@ -102,20 +102,23 @@ export const AdvancedInsightsDashboard: React.FC<AdvancedInsightsDashboardProps>
             <h3 className="text-lg font-semibold text-slate-900">Top Skills in Talent Pool</h3>
           </div>
           <div className="space-y-3">
-            {topSkills.map(([skill, count], index) => (
-              <div key={skill} className="flex items-center justify-between">
-                <span className="text-sm font-medium text-slate-700">{skill}</span>
-                <div className="flex items-center space-x-2">
-                  <div className="w-24 h-2 bg-slate-200 rounded-full">
-                    <div 
-                      className="h-2 bg-blue-500 rounded-full"
-                      style={{ width: `${(count / totalCandidates) * 100}%` }}
-                    />
+            {topSkills.map(([skill, count], index) => {
+              const skillCount = count as number;
+              return (
+                <div key={skill} className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-slate-700">{skill}</span>
+                  <div className="flex items-center space-x-2">
+                    <div className="w-24 h-2 bg-slate-200 rounded-full">
+                      <div 
+                        className="h-2 bg-blue-500 rounded-full"
+                        style={{ width: `${(skillCount / totalCandidates) * 100}%` }}
+                      />
+                    </div>
+                    <span className="text-sm text-slate-600">{skillCount}</span>
                   </div>
-                  <span className="text-sm text-slate-600">{count}</span>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
@@ -126,20 +129,23 @@ export const AdvancedInsightsDashboard: React.FC<AdvancedInsightsDashboardProps>
             <h3 className="text-lg font-semibold text-slate-900">Talent Distribution</h3>
           </div>
           <div className="space-y-3">
-            {topLocations.map(([location, count], index) => (
-              <div key={location} className="flex items-center justify-between">
-                <span className="text-sm font-medium text-slate-700">{location}</span>
-                <div className="flex items-center space-x-2">
-                  <div className="w-24 h-2 bg-slate-200 rounded-full">
-                    <div 
-                      className="h-2 bg-green-500 rounded-full"
-                      style={{ width: `${(count / totalCandidates) * 100}%` }}
-                    />
+            {topLocations.map(([location, count], index) => {
+              const locationCount = count as number;
+              return (
+                <div key={location} className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-slate-700">{location}</span>
+                  <div className="flex items-center space-x-2">
+                    <div className="w-24 h-2 bg-slate-200 rounded-full">
+                      <div 
+                        className="h-2 bg-green-500 rounded-full"
+                        style={{ width: `${(locationCount / totalCandidates) * 100}%` }}
+                      />
+                    </div>
+                    <span className="text-sm text-slate-600">{locationCount}</span>
                   </div>
-                  <span className="text-sm text-slate-600">{count}</span>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </div>
