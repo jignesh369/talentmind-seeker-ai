@@ -106,6 +106,7 @@ PERSONALIZATION GUIDELINES:
 - Include subtle social proof elements (GitHub activity, scores, etc.)
 - Keep the tone professional but warm and engaging
 - Always include a clear call to action
+- ALWAYS end the email with the specific signature provided
 
 AVOID:
 - Generic templates or copy-paste content
@@ -141,6 +142,13 @@ PERSONALIZATION REQUIREMENTS:
 6. Keep subject line under 50 characters
 7. Keep email body under 200 words
 8. Tone: ${tone}
+9. MANDATORY: End the email with this exact signature format:
+
+Best regards,
+
+Parijat Chatterjee
+Co Founder
+TalentMind
 
 Return JSON with "subject" and "body" fields. Make it feel like a real human recruiter wrote this after researching the candidate.
 `;
