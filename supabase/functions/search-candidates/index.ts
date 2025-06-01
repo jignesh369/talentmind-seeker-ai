@@ -1,3 +1,4 @@
+
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
@@ -63,7 +64,7 @@ function validateUserId(user_id: any): { isValid: boolean; error?: string } {
 
 async function safeParseQuery(query: string, supabaseUrl: string, supabaseKey: string): Promise<any> {
   try {
-    console.log('🔍 Attempting to parse query with AI...')
+    console.log('🔍 Attempting enhanced query parsing...')
     const parseResponse = await fetch(`${supabaseUrl}/functions/v1/parse-query`, {
       method: 'POST',
       headers: {
@@ -71,20 +72,206 @@ async function safeParseQuery(query: string, supabaseUrl: string, supabaseKey: s
         'Authorization': `Bearer ${supabaseKey}`,
       },
       body: JSON.stringify({ query }),
-      signal: AbortSignal.timeout(5000) // 5 second timeout
+      signal: AbortSignal.timeout(8000) // Increased timeout for enhanced parsing
     })
     
     if (!parseResponse.ok) {
-      throw new Error(`Parse query failed with status: ${parseResponse.status}`)
+      throw new Error(`Enhanced parse query failed with status: ${parseResponse.status}`)
     }
     
     const parseResult = await parseResponse.json()
-    console.log('✅ Query parsed successfully')
+    console.log('✅ Enhanced query parsing successful:', parseResult.parsed_criteria)
     return parseResult.parsed_criteria
     
   } catch (error) {
-    console.warn('⚠️ Query parsing failed, using fallback:', error.message)
+    console.warn('⚠️ Enhanced query parsing failed, using basic fallback:', error.message)
     return null
+  }
+}
+
+async function executeSemanticSearch(supabase: any, criteria: any): Promise<{ data: any[], error?: string }> {
+  try {
+    console.log('🧠 Executing semantic search strategy')
+    
+    if (!criteria?.semantic_skills || !Array.isArray(criteria.semantic_skills) || criteria.semantic_skills.length === 0) {
+      return { data: [] }
+    }
+    
+    // Search using semantic skills
+    const semanticQuery = supabase
+      .from('candidates')
+      .select('*')
+      .overlaps('skills', criteria.semantic_skills)
+      .order('overall_score', { ascending: false })
+      .limit(25)
+    
+    const { data, error } = await semanticQuery
+    
+    if (error) {
+      throw new Error(`Semantic search failed: ${error.message}`)
+    }
+    
+    // Boost semantic matches
+    const enhancedData = (data || []).map(candidate => ({
+      ...candidate,
+      hybrid_score: (candidate.overall_score || 0) + 30, // Strong semantic boost
+      search_strategy: 'semantic'
+    }))
+    
+    console.log(`✅ Semantic search completed: ${enhancedData.length} results`)
+    return { data: enhancedData }
+    
+  } catch (error) {
+    console.error('❌ Semantic search error:', error.message)
+    return { data: [], error: error.message }
+  }
+}
+
+async function executeRoleBasedSearch(supabase: any, criteria: any): Promise<{ data: any[], error?: string }> {
+  try {
+    console.log('👔 Executing role-based search strategy')
+    
+    if (!criteria?.role_types || !Array.isArray(criteria.role_types) || criteria.role_types.length === 0) {
+      return { data: [] }
+    }
+    
+    // Build role search conditions
+    const roleConditions = criteria.role_types
+      .map(role => `title.ilike.%${role.replace(/[%_\\]/g, '\\$&')}%`)
+      .join(',')
+    
+    const roleQuery = supabase
+      .from('candidates')
+      .select('*')
+      .or(roleConditions)
+      .order('overall_score', { ascending: false })
+      .limit(20)
+    
+    const { data, error } = await roleQuery
+    
+    if (error) {
+      throw new Error(`Role-based search failed: ${error.message}`)
+    }
+    
+    // Add role match scoring
+    const enhancedData = (data || []).map(candidate => {
+      let roleBoost = 0
+      const candidateTitle = candidate.title?.toLowerCase() || ''
+      
+      // Calculate role relevance boost
+      criteria.role_types.forEach(role => {
+        if (candidateTitle.includes(role.toLowerCase())) {
+          roleBoost += 20
+        }
+      })
+      
+      return {
+        ...candidate,
+        hybrid_score: (candidate.overall_score || 0) + roleBoost,
+        search_strategy: 'role_based'
+      }
+    })
+    
+    console.log(`✅ Role-based search completed: ${enhancedData.length} results`)
+    return { data: enhancedData }
+    
+  } catch (error) {
+    console.error('❌ Role-based search error:', error.message)
+    return { data: [], error: error.message }
+  }
+}
+
+async function executeSenioritySearch(supabase: any, criteria: any): Promise<{ data: any[], error?: string }> {
+  try {
+    console.log('🎯 Executing seniority-based search strategy')
+    
+    if (!criteria?.seniority_level || criteria.seniority_level === 'any') {
+      return { data: [] }
+    }
+    
+    // Map seniority to experience range
+    const seniorityMap = {
+      'junior': { min: 0, max: 3 },
+      'mid': { min: 2, max: 6 },
+      'senior': { min: 5, max: 12 },
+      'lead': { min: 7, max: 15 },
+      'principal': { min: 10, max: 25 }
+    }
+    
+    const experienceRange = seniorityMap[criteria.seniority_level]
+    if (!experienceRange) {
+      return { data: [] }
+    }
+    
+    const seniorityQuery = supabase
+      .from('candidates')
+      .select('*')
+      .gte('experience_years', experienceRange.min)
+      .lte('experience_years', experienceRange.max)
+      .order('overall_score', { ascending: false })
+      .limit(20)
+    
+    const { data, error } = await seniorityQuery
+    
+    if (error) {
+      throw new Error(`Seniority search failed: ${error.message}`)
+    }
+    
+    const enhancedData = (data || []).map(candidate => ({
+      ...candidate,
+      hybrid_score: (candidate.overall_score || 0) + 18, // Seniority boost
+      search_strategy: 'seniority_based'
+    }))
+    
+    console.log(`✅ Seniority search completed: ${enhancedData.length} results`)
+    return { data: enhancedData }
+    
+  } catch (error) {
+    console.error('❌ Seniority search error:', error.message)
+    return { data: [], error: error.message }
+  }
+}
+
+async function executeIndustrySearch(supabase: any, criteria: any): Promise<{ data: any[], error?: string }> {
+  try {
+    console.log('🏢 Executing industry-based search strategy')
+    
+    if (!criteria?.industries || !Array.isArray(criteria.industries) || criteria.industries.length === 0) {
+      return { data: [] }
+    }
+    
+    // Search in summary and skills for industry keywords
+    const industryTerms = criteria.industries.join('|')
+    const industryConditions = [
+      `summary.ilike.%${industryTerms}%`,
+      `skills.cs.{${criteria.industries.join(',')}}`
+    ]
+    
+    const industryQuery = supabase
+      .from('candidates')
+      .select('*')
+      .or(industryConditions.join(','))
+      .order('overall_score', { ascending: false })
+      .limit(15)
+    
+    const { data, error } = await industryQuery
+    
+    if (error) {
+      throw new Error(`Industry search failed: ${error.message}`)
+    }
+    
+    const enhancedData = (data || []).map(candidate => ({
+      ...candidate,
+      hybrid_score: (candidate.overall_score || 0) + 12, // Industry boost
+      search_strategy: 'industry_based'
+    }))
+    
+    console.log(`✅ Industry search completed: ${enhancedData.length} results`)
+    return { data: enhancedData }
+    
+  } catch (error) {
+    console.error('❌ Industry search error:', error.message)
+    return { data: [], error: error.message }
   }
 }
 
@@ -178,7 +365,7 @@ serve(async (req) => {
     
     const supabase = createClient(supabaseUrl, supabaseKey)
 
-    // Step 1: Safe query parsing
+    // Step 1: Enhanced query parsing
     const parsed_criteria = await safeParseQuery(sanitizedQuery, supabaseUrl, supabaseKey)
 
     // Step 2: Safe search recording
@@ -204,12 +391,71 @@ serve(async (req) => {
       console.warn('⚠️ Search recording failed, continuing without it:', error.message)
     }
 
-    // Step 3: Execute search strategies with robust error handling
+    // Step 3: Execute enhanced search strategies
     const allResults = new Map()
     const searchResults = {}
-    const searchStrategies = []
 
-    // Strategy 1: Skills-based search
+    // Strategy 1: Semantic search (highest priority)
+    if (parsed_criteria?.semantic_skills) {
+      const semanticResult = await executeSemanticSearch(supabase, parsed_criteria)
+      searchResults['semantic_search'] = { 
+        count: semanticResult.data.length, 
+        error: semanticResult.error 
+      }
+      
+      semanticResult.data.forEach(candidate => {
+        if (!allResults.has(candidate.id)) {
+          allResults.set(candidate.id, candidate)
+        }
+      })
+    }
+
+    // Strategy 2: Role-based search
+    if (parsed_criteria?.role_types) {
+      const roleResult = await executeRoleBasedSearch(supabase, parsed_criteria)
+      searchResults['role_based_search'] = { 
+        count: roleResult.data.length, 
+        error: roleResult.error 
+      }
+      
+      roleResult.data.forEach(candidate => {
+        if (!allResults.has(candidate.id)) {
+          allResults.set(candidate.id, candidate)
+        }
+      })
+    }
+
+    // Strategy 3: Seniority-based search
+    if (parsed_criteria?.seniority_level) {
+      const seniorityResult = await executeSenioritySearch(supabase, parsed_criteria)
+      searchResults['seniority_search'] = { 
+        count: seniorityResult.data.length, 
+        error: seniorityResult.error 
+      }
+      
+      seniorityResult.data.forEach(candidate => {
+        if (!allResults.has(candidate.id)) {
+          allResults.set(candidate.id, candidate)
+        }
+      })
+    }
+
+    // Strategy 4: Industry-based search
+    if (parsed_criteria?.industries) {
+      const industryResult = await executeIndustrySearch(supabase, parsed_criteria)
+      searchResults['industry_search'] = { 
+        count: industryResult.data.length, 
+        error: industryResult.error 
+      }
+      
+      industryResult.data.forEach(candidate => {
+        if (!allResults.has(candidate.id)) {
+          allResults.set(candidate.id, candidate)
+        }
+      })
+    }
+
+    // Strategy 5: Skills-based search (traditional)
     if (parsed_criteria?.skills && Array.isArray(parsed_criteria.skills) && parsed_criteria.skills.length > 0) {
       try {
         const skillsQuery = supabase
@@ -239,20 +485,19 @@ serve(async (req) => {
       }
     }
 
-    // Strategy 2: Text-based search with robust term handling
+    // Strategy 6: Text-based search (fallback)
     try {
       const searchTerms = sanitizedQuery.toLowerCase()
         .split(/\s+/)
-        .filter(term => term.length > 2 && !/^[0-9]+$/.test(term)) // Filter out numbers and short terms
-        .slice(0, 5) // Limit terms to prevent query complexity
+        .filter(term => term.length > 2 && !/^[0-9]+$/.test(term))
+        .slice(0, 5)
 
       if (searchTerms.length > 0) {
         let textQuery = supabase.from('candidates').select('*')
         
-        // Build safe OR conditions
         const conditions = []
         searchTerms.forEach(term => {
-          const safeTerm = term.replace(/[%_\\]/g, '\\$&') // Escape SQL wildcards
+          const safeTerm = term.replace(/[%_\\]/g, '\\$&')
           conditions.push(`name.ilike.%${safeTerm}%`)
           conditions.push(`title.ilike.%${safeTerm}%`)
           conditions.push(`summary.ilike.%${safeTerm}%`)
@@ -275,7 +520,6 @@ serve(async (req) => {
               if (!allResults.has(candidate.id)) {
                 let relevanceScore = candidate.overall_score || 0
                 
-                // Calculate text match bonus
                 const nameMatch = searchTerms.some(term => 
                   candidate.name?.toLowerCase().includes(term)
                 ) ? 20 : 0
@@ -300,82 +544,21 @@ serve(async (req) => {
       searchResults['text_based'] = { count: 0, error: error.message }
     }
 
-    // Strategy 3: Location-based search
-    if (parsed_criteria?.location && typeof parsed_criteria.location === 'string') {
-      try {
-        const safeLocation = parsed_criteria.location.replace(/[%_\\]/g, '\\$&')
-        const locationQuery = supabase
-          .from('candidates')
-          .select('*')
-          .ilike('location', `%${safeLocation}%`)
-          .order('overall_score', { ascending: false })
-          .limit(20)
-        
-        const locationResult = await executeSearchStrategy('location_based', locationQuery)
-        searchResults['location_based'] = { 
-          count: locationResult.data.length, 
-          error: locationResult.error 
-        }
-        
-        if (locationResult.data.length > 0) {
-          locationResult.data.forEach(candidate => {
-            if (!allResults.has(candidate.id)) {
-              candidate.hybrid_score = (candidate.overall_score || 0) + 15 // Location boost
-              allResults.set(candidate.id, candidate)
-            }
-          })
-        }
-      } catch (error) {
-        console.error('❌ Location search strategy failed:', error.message)
-        searchResults['location_based'] = { count: 0, error: error.message }
-      }
-    }
-
-    // Strategy 4: Experience-based search
-    if (parsed_criteria?.experience_min && typeof parsed_criteria.experience_min === 'number' && parsed_criteria.experience_min > 0) {
-      try {
-        const experienceQuery = supabase
-          .from('candidates')
-          .select('*')
-          .gte('experience_years', Math.max(0, parsed_criteria.experience_min))
-          .order('overall_score', { ascending: false })
-          .limit(20)
-        
-        const experienceResult = await executeSearchStrategy('experience_based', experienceQuery)
-        searchResults['experience_based'] = { 
-          count: experienceResult.data.length, 
-          error: experienceResult.error 
-        }
-        
-        if (experienceResult.data.length > 0) {
-          experienceResult.data.forEach(candidate => {
-            if (!allResults.has(candidate.id)) {
-              candidate.hybrid_score = (candidate.overall_score || 0) + 10 // Experience boost
-              allResults.set(candidate.id, candidate)
-            }
-          })
-        }
-      } catch (error) {
-        console.error('❌ Experience search strategy failed:', error.message)
-        searchResults['experience_based'] = { count: 0, error: error.message }
-      }
-    }
-
     // Convert results and sort
     let candidates = Array.from(allResults.values())
       .sort((a, b) => (b.hybrid_score || 0) - (a.hybrid_score || 0))
 
-    // Robust fallback strategy
+    // Enhanced fallback strategy
     if (candidates.length === 0) {
-      console.log('🔄 No results from targeted search, using robust fallback')
+      console.log('🔄 No results from enhanced search, using intelligent fallback')
       
       try {
-        const fallbackResult = await executeSearchStrategy('fallback',
+        const fallbackResult = await executeSearchStrategy('smart_fallback',
           supabase
             .from('candidates')
             .select('*')
             .order('overall_score', { ascending: false })
-            .limit(15)
+            .limit(20)
         )
         
         if (fallbackResult.data.length > 0) {
@@ -384,15 +567,14 @@ serve(async (req) => {
             hybrid_score: candidate.overall_score || 0,
             fallback_result: true
           }))
-          searchResults['fallback'] = { count: candidates.length }
+          searchResults['smart_fallback'] = { count: candidates.length }
         } else {
-          // Ultimate fallback - return empty but valid response
-          console.warn('⚠️ Even fallback strategy returned no results')
-          searchResults['fallback'] = { count: 0, error: 'No candidates available' }
+          console.warn('⚠️ Even smart fallback strategy returned no results')
+          searchResults['smart_fallback'] = { count: 0, error: 'No candidates available' }
         }
       } catch (error) {
-        console.error('❌ Fallback strategy failed:', error.message)
-        searchResults['fallback'] = { count: 0, error: error.message }
+        console.error('❌ Smart fallback strategy failed:', error.message)
+        searchResults['smart_fallback'] = { count: 0, error: error.message }
       }
     }
 
@@ -411,8 +593,8 @@ serve(async (req) => {
       }
     }
 
-    console.log(`✅ Search completed: "${sanitizedQuery}" -> ${finalCandidates.length} candidates`)
-    console.log('📊 Search strategy results:', searchResults)
+    console.log(`✅ Enhanced search completed: "${sanitizedQuery}" -> ${finalCandidates.length} candidates`)
+    console.log('📊 Enhanced search strategy results:', searchResults)
 
     return new Response(
       JSON.stringify({ 
@@ -426,6 +608,12 @@ serve(async (req) => {
           original_query: query,
           sanitized_query: sanitizedQuery,
           validation_errors: queryValidation.errors
+        },
+        enhanced_features: {
+          semantic_search: !!parsed_criteria?.semantic_skills?.length,
+          role_matching: !!parsed_criteria?.role_types?.length,
+          seniority_filtering: parsed_criteria?.seniority_level !== 'any',
+          industry_targeting: !!parsed_criteria?.industries?.length
         }
       }),
       { 
@@ -434,12 +622,11 @@ serve(async (req) => {
     )
 
   } catch (error) {
-    console.error('❌ Critical search error:', error)
+    console.error('❌ Critical enhanced search error:', error)
     
-    // Return graceful error response
     return new Response(
       JSON.stringify({ 
-        error: 'Search service temporarily unavailable',
+        error: 'Enhanced search service temporarily unavailable',
         details: error.message,
         candidates: [],
         total_results: 0,

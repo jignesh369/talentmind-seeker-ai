@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { Badge } from '@/components/ui/badge';
-import { Info, AlertTriangle, RefreshCw } from 'lucide-react';
+import { Info, AlertTriangle, RefreshCw, Brain, Target, Award, Building } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 interface SearchResultsProps {
@@ -27,6 +27,51 @@ export const SearchResults = ({
   retryCount = 0,
   onRetry
 }: SearchResultsProps) => {
+  const getEnhancedSearchBadges = () => {
+    if (!searchMetadata?.enhanced_features) return null;
+    
+    const badges = [];
+    const features = searchMetadata.enhanced_features;
+    
+    if (features.semantic_search) {
+      badges.push(
+        <Badge key="semantic" variant="default" className="ml-2 bg-purple-500">
+          <Brain className="w-3 h-3 mr-1" />
+          Semantic Match
+        </Badge>
+      );
+    }
+    
+    if (features.role_matching) {
+      badges.push(
+        <Badge key="role" variant="default" className="ml-2 bg-blue-500">
+          <Target className="w-3 h-3 mr-1" />
+          Role Match
+        </Badge>
+      );
+    }
+    
+    if (features.seniority_filtering) {
+      badges.push(
+        <Badge key="seniority" variant="default" className="ml-2 bg-green-500">
+          <Award className="w-3 h-3 mr-1" />
+          Level Match
+        </Badge>
+      );
+    }
+    
+    if (features.industry_targeting) {
+      badges.push(
+        <Badge key="industry" variant="default" className="ml-2 bg-orange-500">
+          <Building className="w-3 h-3 mr-1" />
+          Industry Match
+        </Badge>
+      );
+    }
+    
+    return badges;
+  };
+
   const getSearchQualityBadge = () => {
     if (!searchMetadata) return null;
     
@@ -46,10 +91,12 @@ export const SearchResults = ({
         key => search_strategies[key].count > 0
       );
       
-      if (activeStrategies.length >= 3) {
-        return <Badge variant="default" className="ml-2 bg-green-500">High Precision</Badge>;
+      if (activeStrategies.length >= 4) {
+        return <Badge variant="default" className="ml-2 bg-green-500">Enhanced Precision</Badge>;
+      } else if (activeStrategies.length >= 3) {
+        return <Badge variant="default" className="ml-2 bg-blue-500">High Precision</Badge>;
       } else if (activeStrategies.length >= 2) {
-        return <Badge variant="default" className="ml-2 bg-blue-500">Good Match</Badge>;
+        return <Badge variant="default" className="ml-2 bg-indigo-500">Good Match</Badge>;
       } else if (activeStrategies.length === 1) {
         return <Badge variant="outline" className="ml-2">Single Strategy</Badge>;
       }
@@ -58,14 +105,14 @@ export const SearchResults = ({
     return null;
   };
 
-  const getSearchStrategyInfo = () => {
+  const getEnhancedStrategyInfo = () => {
     if (!searchMetadata?.search_strategies) return null;
     
     const strategies = searchMetadata.search_strategies;
     const activeStrategies = Object.entries(strategies)
       .filter(([_, data]: [string, any]) => data.count > 0)
       .map(([name, data]: [string, any]) => ({
-        name: name.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase()),
+        name: name.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
         count: data.count,
         error: data.error
       }));
@@ -73,17 +120,17 @@ export const SearchResults = ({
     const errorStrategies = Object.entries(strategies)
       .filter(([_, data]: [string, any]) => data.error && data.count === 0)
       .map(([name, data]: [string, any]) => ({
-        name: name.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase()),
+        name: name.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
         error: data.error
       }));
     
     return (
-      <div className="text-xs text-slate-600 mt-1 space-y-1">
+      <div className="text-xs text-slate-600 mt-2 space-y-1">
         {activeStrategies.length > 0 && (
           <div className="flex items-center gap-2">
             <Info className="w-3 h-3" />
             <span>
-              Matched via: {activeStrategies.map(s => `${s.name} (${s.count})`).join(', ')}
+              Active strategies: {activeStrategies.map(s => `${s.name} (${s.count})`).join(', ')}
             </span>
           </div>
         )}
@@ -94,6 +141,13 @@ export const SearchResults = ({
             <span>
               {errorStrategies.length} search strategies had issues but results were still found
             </span>
+          </div>
+        )}
+        
+        {searchMetadata.enhanced_features && (
+          <div className="flex items-center gap-2 text-blue-600">
+            <Brain className="w-3 h-3" />
+            <span>Enhanced with semantic understanding and intelligent matching</span>
           </div>
         )}
       </div>
@@ -133,7 +187,7 @@ export const SearchResults = ({
           <div className="flex items-start space-x-3">
             <AlertTriangle className="w-5 h-5 text-red-500 mt-0.5" />
             <div>
-              <h3 className="text-sm font-medium text-red-800">Search Error</h3>
+              <h3 className="text-sm font-medium text-red-800">Enhanced Search Error</h3>
               <p className="text-sm text-red-700 mt-1">{searchError.message}</p>
               {retryCount > 0 && (
                 <p className="text-xs text-red-600 mt-1">
@@ -166,11 +220,12 @@ export const SearchResults = ({
       
       <div className="flex justify-between items-start">
         <div className="flex-1">
-          <div className="flex items-center">
+          <div className="flex items-center flex-wrap">
             <h2 className="text-xl font-semibold text-slate-900">
-              {searchQuery ? 'Search Results' : 'All Candidates'}
+              {searchQuery ? 'Enhanced Search Results' : 'All Candidates'}
             </h2>
             {getSearchQualityBadge()}
+            {getEnhancedSearchBadges()}
           </div>
           
           <div className="mt-1">
@@ -178,7 +233,7 @@ export const SearchResults = ({
               {isSearching ? (
                 <span className="flex items-center">
                   <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                  Searching...
+                  Running enhanced search...
                   {retryCount > 0 && ` (retry ${retryCount})`}
                 </span>
               ) : (
@@ -191,13 +246,28 @@ export const SearchResults = ({
               )}
             </p>
             
-            {getSearchStrategyInfo()}
+            {getEnhancedStrategyInfo()}
             {getValidationInfo()}
             
             {searchMetadata?.fallback_used && !searchError && (
               <p className="text-xs text-amber-600 mt-1">
                 Showing top candidates - try more specific search terms for better matches
               </p>
+            )}
+            
+            {searchMetadata?.parsed_criteria && (
+              <div className="text-xs text-slate-500 mt-2">
+                <span>Parsed: </span>
+                {searchMetadata.parsed_criteria.skills?.length > 0 && (
+                  <span className="mr-2">Skills: {searchMetadata.parsed_criteria.skills.slice(0, 3).join(', ')}</span>
+                )}
+                {searchMetadata.parsed_criteria.location && (
+                  <span className="mr-2">Location: {searchMetadata.parsed_criteria.location}</span>
+                )}
+                {searchMetadata.parsed_criteria.seniority_level && searchMetadata.parsed_criteria.seniority_level !== 'any' && (
+                  <span className="mr-2">Level: {searchMetadata.parsed_criteria.seniority_level}</span>
+                )}
+              </div>
             )}
           </div>
         </div>
