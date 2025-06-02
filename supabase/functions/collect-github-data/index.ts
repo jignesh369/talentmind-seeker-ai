@@ -1,7 +1,8 @@
+
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { saveCandidateWithSource, sanitizeIntegerValue, sanitizeStringValue, generateValidUUID } from '../shared/database-operations.ts'
-import { EnhancedGitHubSearchStrategies } from './enhanced-search-strategies.ts';
+import { EnhancedGitHubSearchStrategies, ParsedQuery } from './enhanced-search-strategies.ts';
 
 // Enhanced candidate processor with proper data sanitization
 async function processGitHubCandidate(username: string, githubToken: string): Promise<any | null> {
@@ -44,7 +45,7 @@ async function processGitHubCandidate(username: string, githubToken: string): Pr
     
     // Generate enhanced candidate profile with proper data types
     const candidate = {
-      id: generateValidUUID(), // Use proper UUID
+      id: generateValidUUID(),
       name: sanitizeStringValue(user.name || user.login, 'Unknown'),
       title: sanitizeStringValue(user.bio, `${user.login} - Developer`),
       location: sanitizeStringValue(user.location, ''),
@@ -53,7 +54,7 @@ async function processGitHubCandidate(username: string, githubToken: string): Pr
       github_username: sanitizeStringValue(user.login),
       summary: sanitizeStringValue(user.bio, `GitHub developer with ${repos.length} repositories and ${user.followers} followers.`),
       skills: Array.from(languages).slice(0, 10),
-      experience_years: sanitizeIntegerValue(Math.min(accountAge, 20)), // Cap at 20 years
+      experience_years: sanitizeIntegerValue(Math.min(accountAge, 20)),
       last_active: user.updated_at || new Date().toISOString(),
       overall_score: sanitizeIntegerValue(Math.min((user.followers * 2 + totalStars + repos.length) / 10, 100)),
       skill_match: sanitizeIntegerValue(Math.min(languages.size * 10, 100)),
@@ -74,15 +75,7 @@ async function processGitHubCandidate(username: string, githubToken: string): Pr
   }
 }
 
-// Parse query interface for type safety
-interface ParsedQuery {
-  searchIntent: string;
-  enhancedSkills: string[];
-  normalizedLocation: string[];
-  confidence: number;
-}
-
-// Simple query parser for GitHub collection
+// Simple query parser for GitHub collection (self-contained)
 function parseQueryForGitHub(query: string, location?: string): ParsedQuery {
   const normalizedQuery = query.toLowerCase();
   
@@ -190,7 +183,7 @@ serve(async (req) => {
     let errorCount = 0;
 
     // Execute search strategies with enhanced targeting
-    for (const strategy of searchStrategies.slice(0, 3)) { // Limit to top 3 strategies
+    for (const strategy of searchStrategies.slice(0, 3)) {
       if (Date.now() - startTime > maxProcessingTime) {
         console.log(`⏱️ Time budget exceeded, stopping at ${candidates.length} candidates`);
         break;
@@ -217,7 +210,7 @@ serve(async (req) => {
         console.log(`📋 Strategy ${strategy.name} found ${users.length} users`);
 
         // Process users from this strategy
-        for (const user of users.slice(0, 5)) { // Limit per strategy
+        for (const user of users.slice(0, 5)) {
           if (Date.now() - startTime > maxProcessingTime) break;
 
           const candidate = await processGitHubCandidate(user.login, githubToken);

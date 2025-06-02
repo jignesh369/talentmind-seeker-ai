@@ -1,5 +1,13 @@
 
-import { ParsedQuery } from '../../../src/services/queryParsingService.ts';
+// Enhanced search strategies for GitHub data collection
+// Independent of src directory to work in edge function environment
+
+export interface ParsedQuery {
+  searchIntent: string;
+  enhancedSkills: string[];
+  normalizedLocation: string[];
+  confidence: number;
+}
 
 export interface GitHubSearchStrategy {
   name: string;
