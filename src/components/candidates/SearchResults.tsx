@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { SearchResultsHeader } from './SearchResultsHeader';
 import { SearchResultsBadges } from './SearchResultsBadges';
@@ -6,6 +5,7 @@ import { SearchResultsMetadata } from './SearchResultsMetadata';
 import { SearchResultsError } from './SearchResultsError';
 import { Button } from '@/components/ui/button';
 import { Search, Database } from 'lucide-react';
+import { QueryInterpretation } from '../search/QueryInterpretation';
 
 interface SearchResultsProps {
   searchQuery: string;
@@ -70,18 +70,33 @@ export const SearchResults = ({
             <SearchResultsBadges searchMetadata={searchMetadata} />
           </div>
           
+          {/* Enhanced Query Interpretation */}
+          {searchMetadata?.queryInterpretation && (
+            <div className="mt-3">
+              <QueryInterpretation 
+                interpretation={searchMetadata.queryInterpretation}
+                parsedQuery={searchMetadata.parsedQuery}
+              />
+            </div>
+          )}
+          
           <SearchResultsMetadata
             searchMetadata={searchMetadata}
             searchError={searchError}
           />
           
-          {searchMetadata?.searchType === 'database' && (
+          {searchMetadata?.searchType === 'enhanced_database' && (
             <div className="flex items-center gap-2 mt-2 text-sm text-slate-600">
               <Database className="h-4 w-4" />
-              <span>Fast search from existing candidates</span>
+              <span>Enhanced search with query parsing</span>
               {searchMetadata.processingTime && (
                 <span className="text-slate-400">
                   • {searchMetadata.processingTime}ms
+                </span>
+              )}
+              {searchMetadata.relevanceScoring && (
+                <span className="text-green-600">
+                  • Relevance scored
                 </span>
               )}
             </div>

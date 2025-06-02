@@ -1,12 +1,7 @@
-
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { saveCandidateWithSource, sanitizeIntegerValue, sanitizeStringValue, generateValidUUID } from '../shared/database-operations.ts'
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-}
+import { EnhancedGitHubSearchStrategies } from './enhanced-search-strategies.ts';
 
 // Enhanced candidate processor with proper data sanitization
 async function processGitHubCandidate(username: string, githubToken: string): Promise<any | null> {
@@ -79,6 +74,66 @@ async function processGitHubCandidate(username: string, githubToken: string): Pr
   }
 }
 
+// Parse query interface for type safety
+interface ParsedQuery {
+  searchIntent: string;
+  enhancedSkills: string[];
+  normalizedLocation: string[];
+  confidence: number;
+}
+
+// Simple query parser for GitHub collection
+function parseQueryForGitHub(query: string, location?: string): ParsedQuery {
+  const normalizedQuery = query.toLowerCase();
+  
+  // Detect search intent
+  let searchIntent = 'general_tech_search';
+  if (normalizedQuery.includes('unity') || normalizedQuery.includes('unreal') || normalizedQuery.includes('game')) {
+    searchIntent = 'game_development_search';
+  } else if (normalizedQuery.includes('react') || normalizedQuery.includes('frontend') || normalizedQuery.includes('javascript')) {
+    searchIntent = 'frontend_development_search';
+  } else if (normalizedQuery.includes('devops') || normalizedQuery.includes('kubernetes') || normalizedQuery.includes('aws')) {
+    searchIntent = 'devops_search';
+  }
+
+  // Extract enhanced skills based on intent
+  const enhancedSkills = [];
+  if (searchIntent === 'game_development_search') {
+    if (normalizedQuery.includes('unity')) enhancedSkills.push('Unity', 'C#', 'Game Development');
+    if (normalizedQuery.includes('unreal')) enhancedSkills.push('Unreal Engine', 'C++', 'Game Development');
+    if (normalizedQuery.includes('game')) enhancedSkills.push('Game Development');
+  } else if (searchIntent === 'frontend_development_search') {
+    if (normalizedQuery.includes('react')) enhancedSkills.push('React', 'JavaScript', 'Frontend');
+    if (normalizedQuery.includes('typescript')) enhancedSkills.push('TypeScript', 'JavaScript');
+  } else if (searchIntent === 'devops_search') {
+    if (normalizedQuery.includes('kubernetes')) enhancedSkills.push('Kubernetes', 'Docker', 'DevOps');
+    if (normalizedQuery.includes('aws')) enhancedSkills.push('AWS', 'Cloud Computing', 'DevOps');
+  }
+
+  // Normalize location
+  const normalizedLocation = [];
+  if (location) {
+    normalizedLocation.push(location);
+    // Add country if city is detected
+    const locationLower = location.toLowerCase();
+    if (['hyderabad', 'bangalore', 'mumbai', 'delhi', 'pune'].includes(locationLower)) {
+      normalizedLocation.push('India');
+    }
+  }
+
+  return {
+    searchIntent,
+    enhancedSkills,
+    normalizedLocation,
+    confidence: enhancedSkills.length > 0 ? 80 : 50
+  };
+}
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -119,76 +174,92 @@ serve(async (req) => {
     console.log(`Query: "${query}", Location: "${location || 'Not specified'}", Time Budget: ${time_budget}s`);
 
     const startTime = Date.now();
-    const maxProcessingTime = (time_budget - 2) * 1000; // Reserve 2 seconds
+    const maxProcessingTime = (time_budget - 2) * 1000;
 
-    // Build search query
-    let searchQuery = `"${query}" in:bio,name type:user repos:>=5 followers:>=10`;
-    if (location) {
-      searchQuery += ` location:"${location}"`;
-    }
+    // Parse query for enhanced search strategies
+    const parsedQuery = parseQueryForGitHub(query, location);
+    console.log('📊 Parsed query for GitHub:', parsedQuery);
 
-    console.log(`🔍 Searching GitHub users: ${searchQuery}`);
+    // Generate enhanced search strategies
+    const searchStrategies = EnhancedGitHubSearchStrategies.generateStrategiesFromParsedQuery(parsedQuery, location);
+    console.log(`🎯 Generated ${searchStrategies.length} enhanced search strategies`);
 
-    // Search for users
-    const searchResponse = await fetch(
-      `https://api.github.com/search/users?q=${encodeURIComponent(searchQuery)}&sort=followers&order=desc&per_page=15`,
-      {
-        headers: { 'Authorization': `token ${githubToken}` }
-      }
-    );
-
-    if (!searchResponse.ok) {
-      throw new Error(`GitHub search failed: ${searchResponse.status} - ${searchResponse.statusText}`);
-    }
-
-    const searchResult = await searchResponse.json();
-    const users = searchResult.items || [];
-
-    console.log(`📋 Found ${users.length} GitHub users`);
-
-    // Process candidates with time limit
     const candidates = [];
     const savedCandidates = [];
     let successCount = 0;
     let errorCount = 0;
-    
-    for (const user of users.slice(0, 10)) {
+
+    // Execute search strategies with enhanced targeting
+    for (const strategy of searchStrategies.slice(0, 3)) { // Limit to top 3 strategies
       if (Date.now() - startTime > maxProcessingTime) {
         console.log(`⏱️ Time budget exceeded, stopping at ${candidates.length} candidates`);
         break;
       }
 
-      const candidate = await processGitHubCandidate(user.login, githubToken);
-      if (candidate) {
-        candidates.push(candidate);
+      console.log(`🔍 Executing strategy: ${strategy.name} - ${strategy.query}`);
 
-        // Save to database with improved error handling
-        const sourceData = {
-          candidate_id: candidate.id, // Will be updated by save function
-          platform: 'github',
-          platform_id: candidate.github_username,
-          url: `https://github.com/${candidate.github_username}`,
-          data: { 
-            search_query: query,
-            user_data: user,
-            processed_at: new Date().toISOString()
+      try {
+        const searchResponse = await fetch(
+          `https://api.github.com/search/users?q=${encodeURIComponent(strategy.query)}&sort=followers&order=desc&per_page=10`,
+          {
+            headers: { 'Authorization': `token ${githubToken}` }
           }
-        };
+        );
 
-        const saveResult = await saveCandidateWithSource(supabase, candidate, sourceData);
-        if (saveResult.success) {
-          savedCandidates.push(candidate);
-          successCount++;
-          console.log(`✅ Successfully saved candidate: ${candidate.name}`);
-        } else {
-          errorCount++;
-          console.error(`❌ Failed to save candidate ${candidate.name}: ${saveResult.error}`);
+        if (!searchResponse.ok) {
+          console.log(`⚠️ Strategy ${strategy.name} failed: ${searchResponse.status}`);
+          continue;
         }
+
+        const searchResult = await searchResponse.json();
+        const users = searchResult.items || [];
+        
+        console.log(`📋 Strategy ${strategy.name} found ${users.length} users`);
+
+        // Process users from this strategy
+        for (const user of users.slice(0, 5)) { // Limit per strategy
+          if (Date.now() - startTime > maxProcessingTime) break;
+
+          const candidate = await processGitHubCandidate(user.login, githubToken);
+          if (candidate) {
+            // Add strategy context to candidate
+            candidate.search_strategy = strategy.name;
+            candidate.search_intent = parsedQuery.searchIntent;
+            
+            candidates.push(candidate);
+
+            const sourceData = {
+              candidate_id: candidate.id,
+              platform: 'github',
+              platform_id: candidate.github_username,
+              url: `https://github.com/${candidate.github_username}`,
+              data: { 
+                search_query: query,
+                search_strategy: strategy.name,
+                user_data: user,
+                processed_at: new Date().toISOString()
+              }
+            };
+
+            const saveResult = await saveCandidateWithSource(supabase, candidate, sourceData);
+            if (saveResult.success) {
+              savedCandidates.push(candidate);
+              successCount++;
+              console.log(`✅ Successfully saved candidate: ${candidate.name} (${strategy.name})`);
+            } else {
+              errorCount++;
+              console.error(`❌ Failed to save candidate ${candidate.name}: ${saveResult.error}`);
+            }
+          }
+        }
+      } catch (error) {
+        console.error(`❌ Strategy ${strategy.name} error:`, error.message);
+        errorCount++;
       }
     }
 
     const processingTime = Date.now() - startTime;
-    console.log(`✅ GitHub collection completed in ${processingTime}ms`);
+    console.log(`✅ Enhanced GitHub collection completed in ${processingTime}ms`);
     console.log(`📊 Results: ${successCount} saved, ${errorCount} errors, ${savedCandidates.length} total candidates`);
 
     return new Response(
@@ -197,22 +268,27 @@ serve(async (req) => {
         total: savedCandidates.length,
         source: 'github',
         processing_time_ms: processingTime,
-        search_query: searchQuery,
+        search_strategies_used: searchStrategies.map(s => s.name),
         success_count: successCount,
         error_count: errorCount,
-        candidates_found: candidates.length
+        candidates_found: candidates.length,
+        query_interpretation: {
+          search_intent: parsedQuery.searchIntent,
+          enhanced_skills: parsedQuery.enhancedSkills,
+          confidence: parsedQuery.confidence
+        }
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 
   } catch (error) {
-    console.error('❌ Error in GitHub collection:', error);
+    console.error('❌ Error in enhanced GitHub collection:', error);
     return new Response(
       JSON.stringify({ 
         candidates: [], 
         total: 0, 
         source: 'github',
-        error: 'GitHub collection failed',
+        error: 'Enhanced GitHub collection failed',
         error_details: error.message
       }),
       { 

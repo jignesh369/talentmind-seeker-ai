@@ -1,132 +1,160 @@
 
-export interface EnhancedSearchStrategy {
+import { ParsedQuery } from '../../../src/services/queryParsingService.ts';
+
+export interface GitHubSearchStrategy {
   name: string;
-  queries: string[];
+  query: string;
   priority: number;
   expectedResults: number;
 }
 
-export class GitHubSearchStrategies {
-  static generateMultiQueryStrategies(query: string, location?: string): EnhancedSearchStrategy[] {
-    const strategies: EnhancedSearchStrategy[] = [];
-    const queryLower = query.toLowerCase();
+export class EnhancedGitHubSearchStrategies {
+  static generateStrategiesFromParsedQuery(parsedQuery: ParsedQuery, location?: string): GitHubSearchStrategy[] {
+    const strategies: GitHubSearchStrategy[] = [];
     
-    // Extract skills and technologies from query
-    const techKeywords = this.extractTechKeywords(queryLower);
-    const roleKeywords = this.extractRoleKeywords(queryLower);
+    // Game Development Strategies
+    if (parsedQuery.searchIntent === 'game_development_search') {
+      strategies.push(...this.buildGameDevStrategies(parsedQuery, location));
+    }
     
-    // Strategy 1: Language-specific searches
-    if (techKeywords.languages.length > 0) {
-      const languageQueries = techKeywords.languages.map(lang => 
-        `language:${lang}${location ? ` location:"${location}"` : ''} repos:>=5 followers:>=10`
-      );
+    // Frontend Development Strategies
+    else if (parsedQuery.searchIntent === 'frontend_development_search') {
+      strategies.push(...this.buildFrontendStrategies(parsedQuery, location));
+    }
+    
+    // DevOps Strategies
+    else if (parsedQuery.searchIntent === 'devops_search') {
+      strategies.push(...this.buildDevOpsStrategies(parsedQuery, location));
+    }
+    
+    // General Tech Strategies
+    else {
+      strategies.push(...this.buildGeneralTechStrategies(parsedQuery, location));
+    }
+
+    // Sort by priority and return top strategies
+    return strategies
+      .sort((a, b) => b.priority - a.priority)
+      .slice(0, 5);
+  }
+
+  private static buildGameDevStrategies(parsedQuery: ParsedQuery, location?: string): GitHubSearchStrategy[] {
+    const strategies: GitHubSearchStrategy[] = [];
+    const locationQuery = location ? ` location:"${location}"` : '';
+
+    // Unity specific searches
+    if (parsedQuery.enhancedSkills.includes('Unity')) {
       strategies.push({
-        name: 'language_specific',
-        queries: languageQueries,
+        name: 'unity_csharp_game',
+        query: `language:c# unity game${locationQuery} repos:>=3 followers:>=5`,
         priority: 10,
         expectedResults: 15
       });
-    }
-
-    // Strategy 2: Technology stack combinations
-    if (techKeywords.frameworks.length > 0) {
-      const stackQueries = techKeywords.frameworks.map(framework => 
-        `${framework} in:bio,readme${location ? ` location:"${location}"` : ''} repos:>=3 followers:>=5`
-      );
+      
       strategies.push({
-        name: 'tech_stack',
-        queries: stackQueries,
+        name: 'unity_developer',
+        query: `"unity developer" in:bio${locationQuery} repos:>=5`,
         priority: 9,
         expectedResults: 12
       });
     }
 
-    // Strategy 3: Role-based searches with experience indicators
-    if (roleKeywords.length > 0) {
-      const roleQueries = roleKeywords.map(role => 
-        `"${role}" in:bio${location ? ` location:"${location}"` : ''} repos:>=5 followers:>=10`
-      );
+    // Unreal Engine specific searches
+    if (parsedQuery.enhancedSkills.includes('Unreal Engine')) {
       strategies.push({
-        name: 'role_based',
-        queries: roleQueries,
-        priority: 8,
-        expectedResults: 10
+        name: 'unreal_cpp_game',
+        query: `language:c++ unreal engine${locationQuery} repos:>=3 followers:>=5`,
+        priority: 10,
+        expectedResults: 15
+      });
+      
+      strategies.push({
+        name: 'unreal_developer',
+        query: `"unreal developer" in:bio${locationQuery} repos:>=5`,
+        priority: 9,
+        expectedResults: 12
       });
     }
 
-    // Strategy 4: Company and domain searches
-    const companyKeywords = this.extractCompanyKeywords(queryLower);
-    if (companyKeywords.length > 0) {
-      const companyQueries = companyKeywords.map(company => 
-        `company:"${company}"${location ? ` location:"${location}"` : ''} repos:>=3`
-      );
-      strategies.push({
-        name: 'company_based',
-        queries: companyQueries,
-        priority: 7,
-        expectedResults: 8
-      });
-    }
-
-    // Strategy 5: Skill combination searches
-    if (techKeywords.skills.length >= 2) {
-      const skillCombinations = this.generateSkillCombinations(techKeywords.skills);
-      const skillQueries = skillCombinations.map(combo => 
-        `${combo.join(' ')} in:bio,readme${location ? ` location:"${location}"` : ''} repos:>=3`
-      );
-      strategies.push({
-        name: 'skill_combinations',
-        queries: skillQueries.slice(0, 3), // Limit to top 3 combinations
-        priority: 6,
-        expectedResults: 10
-      });
-    }
-
-    // Fallback strategy: Broad search
+    // General game development
     strategies.push({
-      name: 'fallback_broad',
-      queries: [`${query} in:bio,name type:user repos:>=2${location ? ` location:"${location}"` : ''}`],
-      priority: 1,
+      name: 'game_developer_general',
+      query: `"game developer" in:bio${locationQuery} repos:>=3 followers:>=10`,
+      priority: 8,
       expectedResults: 20
     });
 
-    return strategies.sort((a, b) => b.priority - a.priority);
+    return strategies;
   }
 
-  private static extractTechKeywords(query: string) {
-    const languages = ['python', 'javascript', 'typescript', 'java', 'go', 'rust', 'php', 'ruby', 'c++', 'c#', 'swift', 'kotlin'];
-    const frameworks = ['react', 'angular', 'vue', 'django', 'flask', 'spring', 'laravel', 'rails', 'express', 'fastapi'];
-    const skills = ['api', 'rest', 'graphql', 'docker', 'kubernetes', 'aws', 'azure', 'gcp', 'mongodb', 'postgresql', 'redis'];
-    
-    return {
-      languages: languages.filter(lang => query.includes(lang)),
-      frameworks: frameworks.filter(fw => query.includes(fw)),
-      skills: skills.filter(skill => query.includes(skill))
-    };
-  }
+  private static buildFrontendStrategies(parsedQuery: ParsedQuery, location?: string): GitHubSearchStrategy[] {
+    const strategies: GitHubSearchStrategy[] = [];
+    const locationQuery = location ? ` location:"${location}"` : '';
 
-  private static extractRoleKeywords(query: string): string[] {
-    const roles = [
-      'software engineer', 'developer', 'backend developer', 'frontend developer', 
-      'full stack developer', 'data scientist', 'devops engineer', 'lead developer',
-      'senior developer', 'principal engineer', 'staff engineer', 'architect'
-    ];
-    
-    return roles.filter(role => query.includes(role));
-  }
-
-  private static extractCompanyKeywords(query: string): string[] {
-    const companies = ['google', 'microsoft', 'amazon', 'facebook', 'apple', 'netflix', 'uber', 'airbnb'];
-    return companies.filter(company => query.includes(company));
-  }
-
-  private static generateSkillCombinations(skills: string[]): string[][] {
-    const combinations: string[][] = [];
-    for (let i = 0; i < skills.length; i++) {
-      for (let j = i + 1; j < skills.length; j++) {
-        combinations.push([skills[i], skills[j]]);
-      }
+    // React specific
+    if (parsedQuery.enhancedSkills.includes('React')) {
+      strategies.push({
+        name: 'react_developer',
+        query: `language:javascript react${locationQuery} repos:>=5 followers:>=10`,
+        priority: 10,
+        expectedResults: 20
+      });
     }
-    return combinations.slice(0, 5); // Limit combinations
+
+    // TypeScript specific
+    if (parsedQuery.enhancedSkills.includes('TypeScript')) {
+      strategies.push({
+        name: 'typescript_developer',
+        query: `language:typescript${locationQuery} repos:>=5 followers:>=10`,
+        priority: 9,
+        expectedResults: 18
+      });
+    }
+
+    return strategies;
+  }
+
+  private static buildDevOpsStrategies(parsedQuery: ParsedQuery, location?: string): GitHubSearchStrategy[] {
+    const strategies: GitHubSearchStrategy[] = [];
+    const locationQuery = location ? ` location:"${location}"` : '';
+
+    // Kubernetes/Docker
+    if (parsedQuery.enhancedSkills.includes('Kubernetes')) {
+      strategies.push({
+        name: 'kubernetes_devops',
+        query: `kubernetes docker${locationQuery} repos:>=5 followers:>=10`,
+        priority: 10,
+        expectedResults: 15
+      });
+    }
+
+    // AWS
+    if (parsedQuery.enhancedSkills.includes('AWS')) {
+      strategies.push({
+        name: 'aws_devops',
+        query: `aws cloud${locationQuery} repos:>=5 followers:>=10`,
+        priority: 9,
+        expectedResults: 18
+      });
+    }
+
+    return strategies;
+  }
+
+  private static buildGeneralTechStrategies(parsedQuery: ParsedQuery, location?: string): GitHubSearchStrategy[] {
+    const strategies: GitHubSearchStrategy[] = [];
+    const locationQuery = location ? ` location:"${location}"` : '';
+
+    // Use enhanced skills for better targeting
+    parsedQuery.enhancedSkills.slice(0, 3).forEach((skill, index) => {
+      strategies.push({
+        name: `general_${skill.toLowerCase().replace(/\s+/g, '_')}`,
+        query: `${skill.toLowerCase()}${locationQuery} repos:>=5 followers:>=10`,
+        priority: 8 - index,
+        expectedResults: 15
+      });
+    });
+
+    return strategies;
   }
 }

@@ -1,10 +1,10 @@
-
 import { useState } from 'react';
 import { useAuth } from './useAuth';
 import { useToast } from './use-toast';
 import { Button } from '@/components/ui/button';
 import { DatabaseSearchService, DatabaseSearchOptions } from '@/services/databaseSearchService';
 import { DataCollectionService } from '@/services/dataCollectionService';
+import { EnhancedDatabaseSearchService } from '@/services/enhancedDatabaseSearchService';
 
 interface SearchError {
   type: 'validation' | 'network' | 'service' | 'unknown';
@@ -115,25 +115,28 @@ export const useSearch = () => {
     }
 
     try {
-      console.log('🔍 Starting fast database search with query:', query);
+      console.log('🔍 Starting enhanced database search with query:', query);
       
-      // Use database search service
-      const searchOptions: DatabaseSearchOptions = {
+      // Use enhanced database search service with query parsing
+      const searchResult = await EnhancedDatabaseSearchService.searchCandidates({
         query: query.trim(),
-        limit: 50
-      };
-
-      const searchResult = await DatabaseSearchService.hybridSearch(searchOptions);
+        limit: 50,
+        includeQueryParsing: true
+      });
       
       setSearchResults(searchResult.candidates);
       setSearchMetadata(searchResult.searchMetadata);
       
-      // Success feedback
+      // Enhanced success feedback with query interpretation
       const resultCount = searchResult.candidates.length;
       let toastDescription = `Found ${resultCount} candidates`;
       
-      if (searchResult.searchMetadata.fallbackUsed) {
-        toastDescription += " (showing existing candidates - try 'Find More' for comprehensive search)";
+      if (searchResult.searchMetadata.parsedQuery) {
+        toastDescription += ` matching your criteria (${searchResult.searchMetadata.parsedQuery.confidence}% confidence)`;
+      }
+      
+      if (resultCount < 5) {
+        toastDescription += " - try 'Find More' for comprehensive search";
       }
       
       toast({
@@ -141,10 +144,11 @@ export const useSearch = () => {
         description: toastDescription,
       });
 
-      console.log('✅ Database search completed successfully:', {
+      console.log('✅ Enhanced database search completed successfully:', {
         query,
         resultCount,
         processingTime: searchResult.searchMetadata.processingTime,
+        queryInterpretation: searchResult.searchMetadata.queryInterpretation,
         retryCount
       });
 
@@ -152,7 +156,7 @@ export const useSearch = () => {
       setRetryCount(0);
 
     } catch (error: any) {
-      console.error('❌ Search error:', error);
+      console.error('❌ Enhanced search error:', error);
       
       const categorizedError = categorizeError(error);
       setSearchError(categorizedError);
