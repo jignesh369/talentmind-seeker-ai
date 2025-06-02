@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { Card, CardContent } from "@/components/ui/card"
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar"
@@ -203,7 +204,7 @@ export const CandidateCard = ({ candidate }: CandidateCardProps) => {
           <Button variant="outline" size="sm" onClick={() => setIsExpanded(!isExpanded)}>
             {isExpanded ? 'Show Less' : 'Show More'}
           </Button>
-          <Button variant="primary" size="sm" disabled={isDrafting} onClick={handleAddToDraft}>
+          <Button variant="default" size="sm" disabled={isDrafting} onClick={handleAddToDraft}>
             {isDrafting ? 'Adding...' : 'Add to Draft'}
           </Button>
         </div>
