@@ -1,11 +1,8 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { searchGitHubUsers, getGitHubUserProfile, getGitHubUserRepos } from './api-client.ts'
-import { buildEnhancedProfile } from './profile-builder.ts'
-import { validateGitHubUser } from './user-validator.ts'
-import { saveCandidateWithSource, generateUUID } from '../shared/database-operations.ts'
-import { buildCandidate } from '../shared/candidate-builder.ts'
+import { saveCandidateWithSource } from '../shared/database-operations.ts'
+import { MultiQueryExecutor } from './multi-query-executor.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -18,7 +15,7 @@ serve(async (req) => {
   }
 
   try {
-    const { query, location } = await req.json()
+    const { query, location, time_budget = 20 } = await req.json()
 
     if (!query) {
       return new Response(
@@ -34,126 +31,88 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     const supabase = createClient(supabaseUrl, supabaseKey)
 
-    console.log('🚀 Starting optimized GitHub candidate collection...')
+    console.log('🚀 Starting enhanced multi-query GitHub collection...')
+    console.log(`Query: "${query}", Location: "${location}", Time Budget: ${time_budget}s`)
 
-    const candidates = []
-    const seenUsers = new Set()
     const startTime = Date.now()
-    const MAX_PROCESSING_TIME = 12000 // 12 seconds max
+    const maxProcessingTime = (time_budget - 2) * 1000 // Reserve 2 seconds for processing
+
+    // Execute enhanced multi-query search
+    const executor = new MultiQueryExecutor()
+    const searchResult = await executor.executeEnhancedSearch(
+      query, 
+      location, 
+      15, // Target 15 results
+      maxProcessingTime
+    )
+
+    const { candidates, strategiesUsed, resultDistribution } = searchResult
     
-    const searchStrategy = {
-      name: 'Fast Search',
-      query: query.split(' ').slice(0, 2).join(' '),
-      sort: 'followers'
-    }
+    console.log(`🎯 Enhanced search completed: ${candidates.length} candidates from ${strategiesUsed.length} strategies`)
+    console.log('📊 Strategy distribution:', resultDistribution)
 
-    try {
-      console.log(`🔍 GitHub search: ${searchStrategy.name}`)
-      
-      const { users } = await searchGitHubUsers(searchStrategy.query, searchStrategy.sort)
-      console.log(`📋 Found ${users.length} GitHub users`)
-
-      for (const user of users.slice(0, 8)) {
-        if (Date.now() - startTime > MAX_PROCESSING_TIME) {
-          console.log('⏰ Time limit reached, stopping processing')
-          break
+    // Save candidates to database
+    const savedCandidates = []
+    for (const candidate of candidates) {
+      try {
+        const sourceData = {
+          candidate_id: candidate.id,
+          platform: 'github',
+          platform_id: candidate.github_username,
+          url: `https://github.com/${candidate.github_username}`,
+          data: {
+            enhanced_profile: candidate.enhanced_profile,
+            search_strategies: strategiesUsed
+          }
         }
 
-        if (seenUsers.has(user.login)) continue
-        seenUsers.add(user.login)
-
-        if (candidates.length >= 8) {
-          console.log('✅ Reached candidate limit, stopping collection')
-          break
+        const saveResult = await saveCandidateWithSource(supabase, candidate, sourceData)
+        
+        if (saveResult.success) {
+          savedCandidates.push(candidate)
+          console.log(`💾 Saved enhanced candidate: ${candidate.name} (${candidate.github_username})`)
+        } else {
+          console.error(`❌ Failed to save candidate ${candidate.github_username}:`, saveResult.error)
         }
-
-        try {
-          if (!validateGitHubUser(user)) {
-            console.log(`❌ User ${user.login} failed validation`)
-            continue
-          }
-
-          const userProfile = await getGitHubUserProfile(user.login)
-          if (!userProfile) {
-            console.log(`❌ Failed to get profile for user ${user.login}`)
-            continue
-          }
-
-          const repos = []
-          const enhancedProfile = buildEnhancedProfile(userProfile, repos)
-
-          const candidate = buildCandidate({
-            name: userProfile.name || userProfile.login,
-            title: enhancedProfile.title,
-            location: userProfile.location || location || '',
-            avatar_url: userProfile.avatar_url,
-            email: enhancedProfile.email,
-            github_username: user.login,
-            summary: enhancedProfile.summary,
-            skills: enhancedProfile.skills,
-            experience_years: Math.round(Math.min(Math.max(enhancedProfile.estimatedExperience, 1), 20)),
-            last_active: userProfile.updated_at || new Date().toISOString(),
-            platform: 'github',
-            platformSpecificData: {
-              public_repos: userProfile.public_repos,
-              followers: userProfile.followers
-            }
-          })
-
-          const sourceData = {
-            candidate_id: candidate.id,
-            platform: 'github',
-            platform_id: user.login,
-            url: userProfile.html_url,
-            data: {
-              profile: userProfile,
-              enhanced_profile: enhancedProfile
-            }
-          }
-
-          const saveResult = await saveCandidateWithSource(supabase, candidate, sourceData)
-          
-          if (saveResult.success) {
-            candidates.push(candidate)
-            console.log(`💾 Saved candidate: ${candidate.name} (${user.login})`)
-          } else {
-            console.error(`❌ Failed to save candidate ${user.login}:`, saveResult.error)
-          }
-
-        } catch (error) {
-          console.log(`❌ Error processing GitHub user ${user.login}:`, error.message)
-          continue
-        }
+      } catch (error) {
+        console.error(`❌ Error saving candidate ${candidate.github_username}:`, error.message)
+        continue
       }
-
-    } catch (error) {
-      console.error(`❌ GitHub search error:`, error)
     }
 
-    const sortedCandidates = candidates
-      .sort((a, b) => (b.skill_match + b.reputation) - (a.skill_match + a.reputation))
+    // Sort by enhanced scoring
+    const sortedCandidates = savedCandidates
+      .sort((a, b) => (b.overall_score + b.skill_match + b.reputation) - (a.overall_score + a.skill_match + a.reputation))
 
     const processingTime = Date.now() - startTime
-    console.log(`✅ GitHub collection completed in ${processingTime}ms: ${sortedCandidates.length} candidates`)
+    console.log(`✅ Enhanced GitHub collection completed in ${processingTime}ms: ${sortedCandidates.length} high-quality candidates`)
 
     return new Response(
       JSON.stringify({ 
         candidates: sortedCandidates,
         total: sortedCandidates.length,
         source: 'github',
-        processing_time_ms: processingTime
+        processing_time_ms: processingTime,
+        enhancement_stats: {
+          strategies_used: strategiesUsed,
+          total_queries_executed: searchResult.totalQueriesExecuted,
+          result_distribution: resultDistribution,
+          target_achieved: sortedCandidates.length >= 10,
+          enhancement_level: 'comprehensive'
+        }
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
 
   } catch (error) {
-    console.error('❌ Error collecting GitHub data:', error)
+    console.error('❌ Error in enhanced GitHub collection:', error)
     return new Response(
       JSON.stringify({ 
         candidates: [], 
         total: 0, 
         source: 'github',
-        error: 'Failed to collect GitHub data' 
+        error: 'Enhanced GitHub collection failed',
+        error_details: error.message
       }),
       { 
         status: 500, 
