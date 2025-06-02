@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -30,6 +29,7 @@ import {
 import { EnhancedCandidate } from '../../types/candidate';
 import { useEmailOutreach } from '../../hooks/useEmailOutreach';
 import { useToast } from '../../hooks/use-toast';
+import { UnifiedEmailModal } from '../UnifiedEmailModal';
 
 interface EnhancedCandidateCardProps {
   candidate: EnhancedCandidate;
@@ -87,12 +87,7 @@ export const EnhancedCandidateCard = ({
       return;
     }
 
-    const jobTitle = `Senior ${candidate.title} Position`;
-    const emailDraft = await autoGenerateEmail(candidate, jobTitle);
-    
-    if (emailDraft) {
-      setShowEmailModal(true);
-    }
+    setShowEmailModal(true);
   };
 
   const handleCopyEmail = () => {
@@ -495,15 +490,22 @@ export const EnhancedCandidateCard = ({
             <Button 
               size="sm" 
               onClick={handleAIOutreach}
-              disabled={!candidate.email || isLoading}
+              disabled={!candidate.email}
               className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
             >
               <Zap className="h-4 w-4 mr-2" />
-              {isLoading ? 'Generating...' : 'AI Outreach'}
+              AI Outreach
             </Button>
           </div>
         </div>
       </CardContent>
+
+      {/* Unified Email Modal */}
+      <UnifiedEmailModal
+        isOpen={showEmailModal}
+        onClose={() => setShowEmailModal(false)}
+        candidate={candidate}
+      />
     </Card>
   );
 };

@@ -26,11 +26,12 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  console.log('=== Draft Email Function Started ===');
+  
   try {
-    // Validate OpenAI API key first
-    console.log('Checking OpenAI API key configuration...');
+    // Enhanced OpenAI API key validation
     if (!openAIApiKey) {
-      console.error('OpenAI API key is not configured in Supabase secrets');
+      console.error('❌ OpenAI API key is not configured in Supabase secrets');
       return new Response(JSON.stringify({ 
         error: 'OpenAI API key not configured. Please set the OPENAI_API_KEY in Supabase secrets.',
         code: 'API_KEY_MISSING'
@@ -40,8 +41,8 @@ serve(async (req) => {
       });
     }
 
-    if (openAIApiKey.length < 10) {
-      console.error('OpenAI API key appears to be invalid (too short)');
+    if (openAIApiKey.length < 20) {
+      console.error('❌ OpenAI API key appears to be invalid (too short)');
       return new Response(JSON.stringify({ 
         error: 'OpenAI API key appears to be invalid. Please verify the key in Supabase secrets.',
         code: 'API_KEY_INVALID'
@@ -51,14 +52,41 @@ serve(async (req) => {
       });
     }
 
-    console.log('OpenAI API key found, length:', openAIApiKey.length);
+    console.log('✅ OpenAI API key validated, length:', openAIApiKey.length);
+
+    // Parse and validate request body
+    let requestBody;
+    try {
+      requestBody = await req.json();
+    } catch (error) {
+      console.error('❌ Invalid JSON in request body:', error);
+      return new Response(JSON.stringify({ 
+        error: 'Invalid request format',
+        code: 'INVALID_REQUEST'
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const { candidate_id, job_title, company, job_description, tone, template_id }: DraftEmailRequest = requestBody;
+
+    if (!candidate_id) {
+      console.error('❌ Missing candidate_id in request');
+      return new Response(JSON.stringify({ 
+        error: 'Candidate ID is required',
+        code: 'MISSING_CANDIDATE_ID'
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    console.log('📋 Processing request for candidate:', candidate_id);
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
-    const { candidate_id, job_title, company, job_description, tone, template_id }: DraftEmailRequest = await req.json();
 
-    console.log('Processing request for candidate:', candidate_id);
-
-    // Get candidate details with sources
+    // Get candidate details with enhanced error handling
     const { data: candidate, error: candidateError } = await supabase
       .from('candidates')
       .select(`
@@ -73,12 +101,40 @@ serve(async (req) => {
       .eq('id', candidate_id)
       .single();
 
-    if (candidateError || !candidate) {
-      console.error('Candidate not found:', candidateError);
-      throw new Error('Candidate not found');
+    if (candidateError) {
+      console.error('❌ Database error fetching candidate:', candidateError);
+      return new Response(JSON.stringify({ 
+        error: 'Failed to fetch candidate data',
+        code: 'DATABASE_ERROR'
+      }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
-    console.log('Candidate data retrieved for:', candidate.name);
+    if (!candidate) {
+      console.error('❌ Candidate not found:', candidate_id);
+      return new Response(JSON.stringify({ 
+        error: 'Candidate not found',
+        code: 'CANDIDATE_NOT_FOUND'
+      }), {
+        status: 404,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    if (!candidate.email) {
+      console.error('❌ Candidate has no email address:', candidate_id);
+      return new Response(JSON.stringify({ 
+        error: 'Candidate does not have an email address',
+        code: 'NO_EMAIL_ADDRESS'
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    console.log('✅ Candidate data retrieved for:', candidate.name, 'Email:', candidate.email);
 
     // Prepare enriched candidate context
     const candidateContext = {
@@ -96,7 +152,7 @@ serve(async (req) => {
       sources: candidate.candidate_sources || []
     };
 
-    // Create enhanced system prompt for better personalization
+    // Enhanced system prompt
     const systemPrompt = `You are an expert tech recruiter specializing in AI-powered personalized outreach. Your goal is to create compelling, highly personalized recruitment emails that feel authentic and human.
 
 PERSONALIZATION GUIDELINES:
@@ -112,7 +168,10 @@ AVOID:
 - Generic templates or copy-paste content
 - Overly salesy language
 - Mentioning internal scoring systems directly
-- Being too pushy or aggressive`;
+- Being too pushy or aggressive
+
+RESPONSE FORMAT:
+Return ONLY valid JSON with "subject" and "body" fields.`;
 
     const userPrompt = `
 Create a highly personalized outreach email for this candidate:
@@ -130,7 +189,7 @@ CANDIDATE PROFILE:
 
 JOB OPPORTUNITY:
 - Position: ${job_title || 'Exciting Tech Role'}
-- Company: ${company || 'Innovative Tech Company'}
+- Company: ${company || 'TalentMind'}
 - Description: ${job_description || 'Join our innovative team working on cutting-edge AI/HR technology solutions. We\'re building the future of recruitment and need talented individuals like you.'}
 
 PERSONALIZATION REQUIREMENTS:
@@ -153,7 +212,7 @@ TalentMind
 Return JSON with "subject" and "body" fields. Make it feel like a real human recruiter wrote this after researching the candidate.
 `;
 
-    console.log('Making OpenAI API request...');
+    console.log('🤖 Making OpenAI API request...');
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -173,11 +232,11 @@ Return JSON with "subject" and "body" fields. Make it feel like a real human rec
       }),
     });
 
-    console.log('OpenAI API response status:', response.status);
+    console.log('📡 OpenAI API response status:', response.status);
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('OpenAI API error details:', errorText);
+      console.error('❌ OpenAI API error details:', errorText);
       
       if (response.status === 401) {
         return new Response(JSON.stringify({ 
@@ -190,13 +249,50 @@ Return JSON with "subject" and "body" fields. Make it feel like a real human rec
         });
       }
       
+      if (response.status === 429) {
+        return new Response(JSON.stringify({ 
+          error: 'OpenAI API rate limit exceeded. Please try again in a moment.',
+          code: 'RATE_LIMIT_EXCEEDED'
+        }), {
+          status: 429,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      
       throw new Error(`OpenAI API error: ${response.status} - ${errorText}`);
     }
 
     const data = await response.json();
-    console.log('OpenAI API response received successfully');
+    console.log('✅ OpenAI API response received successfully');
 
-    const generatedContent = JSON.parse(data.choices[0].message.content);
+    // Parse and validate the generated content
+    let generatedContent;
+    try {
+      generatedContent = JSON.parse(data.choices[0].message.content);
+    } catch (parseError) {
+      console.error('❌ Failed to parse AI-generated content:', data.choices[0].message.content);
+      return new Response(JSON.stringify({ 
+        error: 'Failed to parse AI response. Please try again.',
+        code: 'AI_PARSE_ERROR'
+      }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Validate generated content
+    if (!generatedContent.subject || !generatedContent.body) {
+      console.error('❌ AI generated incomplete content:', generatedContent);
+      return new Response(JSON.stringify({ 
+        error: 'AI generated incomplete email content. Please try again.',
+        code: 'INCOMPLETE_CONTENT'
+      }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    console.log('✅ Email draft generated successfully for:', candidate.name);
 
     return new Response(JSON.stringify({
       subject: generatedContent.subject,
@@ -207,9 +303,9 @@ Return JSON with "subject" and "body" fields. Make it feel like a real human rec
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   } catch (error) {
-    console.error('Error in draft-email function:', error);
+    console.error('❌ Error in draft-email function:', error);
     return new Response(JSON.stringify({ 
-      error: error.message,
+      error: error.message || 'An unexpected error occurred',
       code: 'FUNCTION_ERROR'
     }), {
       status: 500,
