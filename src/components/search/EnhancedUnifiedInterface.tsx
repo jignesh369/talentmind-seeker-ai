@@ -126,13 +126,14 @@ export const EnhancedUnifiedInterface = ({
     const result = await collectData(query, location || undefined, sources);
     
     if (result) {
-      // Apply quality validation to results
+      // Apply quality validation to results - fix: access correct properties
+      const candidatesData = result.results ? Object.values(result.results).flat() : [];
       const validatedCandidates = CandidateValidator.filterHighQualityCandidates(
-        result.candidates || [], 
+        candidatesData, 
         40 // Minimum quality score
       );
       
-      console.log(`✅ Collection completed: ${validatedCandidates.length} high-quality candidates from ${result.total} total`);
+      console.log(`✅ Collection completed: ${validatedCandidates.length} high-quality candidates from ${result.total_candidates} total`);
       
       await onDataCollected();
       setQuery("");
