@@ -22,6 +22,7 @@ export interface PluginSearchResult {
     totalFound: number;
     searchStrategy: string;
     confidence: number;
+    [key: string]: any; // Allow additional metadata properties
   };
 }
 
