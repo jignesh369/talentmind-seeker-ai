@@ -2,11 +2,10 @@
 import React from 'react';
 import { FilterPanel } from '../components/FilterPanel';
 import { StatsOverview } from '../components/StatsOverview';
-import { DataCollectionDrawer } from '../components/DataCollectionDrawer';
 import { Header } from '../components/layout/Header';
 import { SimplifiedSearchResults } from '../components/candidates/SimplifiedSearchResults';
 import { CandidatesList } from '../components/candidates/CandidatesList';
-import { UnifiedSearchInterface } from '../components/search/UnifiedSearchInterface';
+import { UnifiedSearchAndCollectionInterface } from '../components/search/UnifiedSearchAndCollectionInterface';
 import { useCandidates } from '../hooks/useCandidates';
 import { useAuth } from '../hooks/useAuth';
 import { useNewSearchEngine } from '../hooks/useNewSearchEngine';
@@ -30,7 +29,7 @@ const Index = () => {
     clearSearch
   } = useNewSearchEngine();
   const { filters, setFilters, applyFilters } = useFilters();
-  const { isFilterOpen, setIsFilterOpen, isDataCollectionOpen, setIsDataCollectionOpen } = useUIState();
+  const { isFilterOpen, setIsFilterOpen } = useUIState();
 
   const handleSignOut = async () => {
     await signOut();
@@ -84,18 +83,18 @@ const Index = () => {
         user={user}
         onSignOut={handleSignOut}
         onToggleFilters={() => setIsFilterOpen(!isFilterOpen)}
-        onOpenDataCollection={() => setIsDataCollectionOpen(true)}
       />
 
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <StatsOverview totalCandidates={displayCandidates.length} />
 
-        {/* Unified Search Interface */}
+        {/* Unified Search and Collection Interface */}
         <div className="mt-8 mb-6">
-          <UnifiedSearchInterface
+          <UnifiedSearchAndCollectionInterface
             onSearch={handleSearch}
             isSearching={isSearching}
             searchQuery={searchQuery}
+            onDataCollected={handleDataCollected}
           />
         </div>
 
@@ -126,15 +125,8 @@ const Index = () => {
           isSearching={isSearching}
           searchQuery={searchQuery}
           onClearSearch={clearSearch}
-          onOpenDataCollection={() => setIsDataCollectionOpen(true)}
         />
       </div>
-
-      <DataCollectionDrawer 
-        isOpen={isDataCollectionOpen} 
-        onClose={() => setIsDataCollectionOpen(false)}
-        onDataCollected={handleDataCollected}
-      />
     </div>
   );
 };
