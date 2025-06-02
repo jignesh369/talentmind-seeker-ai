@@ -2,160 +2,154 @@
 import { useState } from 'react';
 import { useAuth } from './useAuth';
 import { useToast } from './use-toast';
-import { useCollectionProgress } from './useCollectionProgress';
-import { useCollectionResults } from './useCollectionResults';
-import { useDeduplicationMonitor } from './useDeduplicationMonitor';
+import { Button } from '@/components/ui/button';
 import { DataCollectionService, DataCollectionResponse } from '@/services/dataCollectionService';
-import { NotificationService } from '@/services/notificationService';
 
 export type EnhancedDataCollectionResult = DataCollectionResponse;
 
+interface CollectionProgress {
+  message: string;
+  phase: string;
+  percentage: number;
+}
+
 export const useEnhancedDataCollection = () => {
   const [isCollecting, setIsCollecting] = useState(false);
+  const [result, setResult] = useState<DataCollectionResponse | null>(null);
+  const [progress, setProgress] = useState<CollectionProgress>({ message: '', phase: '', percentage: 0 });
   const { user } = useAuth();
   const { toast } = useToast();
-  const { progress, startProgress, resetProgress } = useCollectionProgress();
-  const { result, updateResult, clearResult } = useCollectionResults();
-  const { validateAndTrack, getEfficiency } = useDeduplicationMonitor();
+
+  const validateInputs = (query: string, sources: string[]) => {
+    if (!query || query.trim().length === 0) {
+      throw new Error('Please enter a valid search query');
+    }
+    
+    if (query.trim().length < 2) {
+      throw new Error('Search query must be at least 2 characters');
+    }
+    
+    if (query.trim().length > 200) {
+      throw new Error('Search query is too long (max 200 characters)');
+    }
+    
+    if (sources.length === 0) {
+      throw new Error('Please select at least one data source');
+    }
+
+    if (sources.length > 4) {
+      throw new Error('Maximum 4 sources allowed for optimal performance');
+    }
+  };
+
+  const startProgress = () => {
+    let step = 0;
+    const steps = [
+      { message: 'Initializing collection...', phase: 'Initialization', percentage: 10 },
+      { message: 'Connecting to data sources...', phase: 'Connection', percentage: 25 },
+      { message: 'Processing candidate data...', phase: 'Processing', percentage: 50 },
+      { message: 'Validating and saving results...', phase: 'Validation', percentage: 75 },
+      { message: 'Finalizing collection...', phase: 'Finalization', percentage: 90 }
+    ];
+
+    const progressInterval = setInterval(() => {
+      if (step < steps.length) {
+        setProgress(steps[step]);
+        step++;
+      }
+    }, 2000);
+
+    return () => {
+      clearInterval(progressInterval);
+      setProgress({ message: '', phase: '', percentage: 0 });
+    };
+  };
 
   const collectData = async (
     query: string, 
     location?: string, 
     sources: string[] = ['github', 'stackoverflow', 'linkedin', 'google']
-  ) => {
+  ): Promise<DataCollectionResponse | null> => {
     if (!user) {
       toast({
         title: "Authentication required",
         description: "Please sign in to collect candidate data",
         variant: "destructive",
       });
-      return;
+      return null;
     }
-
-    // Validate inputs
-    if (!query || query.trim().length === 0) {
-      toast({
-        title: "Invalid query",
-        description: "Please enter a valid search query",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setIsCollecting(true);
-    clearResult();
-    
-    const stopProgress = startProgress();
 
     try {
-      console.log('🚀 Starting enhanced collection with Phase 4.1 deduplication:', {
+      // Validate inputs
+      validateInputs(query, sources);
+      
+      setIsCollecting(true);
+      setResult(null);
+      
+      const stopProgress = startProgress();
+
+      console.log('🚀 Starting enhanced collection:', {
         query: query.trim(),
         location: location || 'Not specified',
         sources: sources.slice(0, 4),
         user: user.id
       });
 
-      // Extended timeout: backend has 80s + 20s buffer = 100s, frontend waits 120s
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error('Collection timed out after 120 seconds. Please try with fewer sources or a simpler query.')), 120000);
-      });
-      
-      // Add keepalive mechanism to prevent connection drops
-      const keepAliveInterval = setInterval(() => {
-        console.log('⏱️ Collection still in progress...');
-      }, 15000);
-      
-      const collectionPromise = DataCollectionService.collectCandidates({
+      // Call the enhanced data collection service
+      const data = await DataCollectionService.collectCandidates({
         query: query.trim(),
-        location: location && location !== 'undefined' && location.trim() !== '' ? location.trim() : undefined,
-        sources: sources.slice(0, 4), // Enforce max 4 sources
-        timeBudget: 85 // Increased backend budget slightly
-      }).finally(() => {
-        clearInterval(keepAliveInterval);
+        location: location?.trim(),
+        sources: sources.slice(0, 4),
+        timeBudget: 70 // 70 second timeout
       });
       
-      const data = await Promise.race([collectionPromise, timeoutPromise]);
+      stopProgress();
       
-      // Enhanced data validation with better error messages
+      // Validate response
       if (!data) {
-        throw new Error("No data returned from collection service. The service may be temporarily unavailable.");
+        throw new Error("No data returned from collection service");
       }
 
-      if (typeof data.total_candidates !== 'number') {
-        console.warn('⚠️ Invalid data structure received, attempting to fix...');
-        // Calculate total candidates from results object
-        const totalCandidates = Object.values(data.results || {}).reduce((sum, result: any) => {
-          return sum + (result.candidates?.length || 0);
-        }, 0);
-        data.total_candidates = totalCandidates;
-      }
-
-      // Validate deduplication metrics if present
-      const deduplicationStats = data.enhancement_stats?.deduplication_metrics;
-      if (deduplicationStats) {
-        const isValid = validateAndTrack({
-          originalCount: deduplicationStats.original_count,
-          deduplicatedCount: deduplicationStats.deduplicated_count,
-          duplicatesRemoved: deduplicationStats.duplicates_removed,
-          mergeDecisions: deduplicationStats.merge_decisions,
-          deduplicationRate: deduplicationStats.deduplication_rate,
-          processingTimeMs: data.performance_metrics?.total_time_ms || 0
-        });
-
-        if (!isValid) {
-          console.warn('⚠️ Deduplication metrics validation failed');
-        }
-
-        const efficiency = getEfficiency();
-        if (efficiency) {
-          console.log(`✨ Deduplication quality: ${efficiency.quality} (${efficiency.efficiency.toFixed(1)}% efficiency)`);
-        }
-      }
-
-      // Enhanced success detection with deduplication metrics
-      const hasGoodResults = data.total_candidates >= 5;
+      setResult(data);
       
-      // Early success detection - if we get good results quickly, that's success
-      const processingTime = data.performance_metrics?.total_time_ms;
+      // Generate success notification
+      const successCount = data.total_candidates;
+      const sourceCount = data.enhancement_stats.sources_successful;
+      const totalSources = sources.length;
       
-      if (hasGoodResults && processingTime && processingTime < 60000) {
-        console.log('🎉 Fast collection completed successfully!');
+      let description = '';
+      if (successCount === 0) {
+        description = "No candidates found. Try adjusting your search query or selecting different sources.";
+      } else if (successCount < 5) {
+        description = `Found ${successCount} candidates from ${sourceCount}/${totalSources} sources. Consider broadening your search.`;
+      } else {
+        description = `Successfully collected ${successCount} candidates from ${sourceCount}/${totalSources} sources.`;
       }
 
-      // Handle different result scenarios with more nuanced messaging
-      if (data.total_candidates === 0) {
-        const allSourcesFailed = data.errors && data.errors.length === sources.length;
-        
-        if (allSourcesFailed) {
-          const errorSummary = data.errors.slice(0, 2).map(e => e.source).join(', ');
-          throw new Error(`Collection failed for all sources (${errorSummary}). This may be due to API rate limits. Please try again in a few minutes.`);
-        } else {
-          toast({
-            title: "No candidates found",
-            description: "Try adjusting your search query, adding more specific skills, or selecting different data sources.",
-            variant: "destructive",
-          });
-          updateResult(data);
-          return data;
-        }
-      }
+      // Add retry option for failed sources
+      const failedSources = data.errors?.length || 0;
+      const retryAction = failedSources > 0 ? (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => collectData(query, location, sources)}
+        >
+          Retry Failed Sources
+        </Button>
+      ) : undefined;
 
-      updateResult(data);
-      
-      // Enhanced notification with deduplication info
-      const notification = NotificationService.generateSuccessNotification(data);
-      if (deduplicationStats && deduplicationStats.duplicates_removed > 0) {
-        notification.description += ` (${deduplicationStats.duplicates_removed} duplicates merged)`;
-      }
-      toast(notification);
+      toast({
+        title: successCount > 0 ? "Collection completed" : "Collection completed with no results",
+        description,
+        variant: successCount > 0 ? "default" : "destructive",
+        action: retryAction
+      });
 
-      console.log('✅ Enhanced collection with deduplication completed:', {
+      console.log('✅ Enhanced collection completed:', {
         candidates: data.total_candidates,
-        sources: Object.keys(data.results || {}),
-        processing_time: data.performance_metrics?.total_time_ms,
-        errors: data.errors?.length || 0,
-        duplicates_removed: deduplicationStats?.duplicates_removed || 0,
-        deduplication_rate: deduplicationStats?.deduplication_rate || 0
+        sources_successful: data.enhancement_stats.sources_successful,
+        processing_time: data.performance_metrics.total_time_ms,
+        errors: data.errors?.length || 0
       });
 
       return data;
@@ -163,36 +157,49 @@ export const useEnhancedDataCollection = () => {
     } catch (error: any) {
       console.error('Enhanced data collection error:', error);
       
-      let errorMessage = error.message || "Data collection failed unexpectedly";
+      // Enhanced error handling with user-friendly messages
+      let errorMessage = 'Data collection failed unexpectedly';
+      let shouldShowRetry = true;
       
-      // Enhanced error categorization with more specific guidance
-      if (error.message?.includes('120 seconds') || error.message?.includes('timeout')) {
-        errorMessage = "Collection is taking longer than expected. This usually means the AI processing is under heavy load. Try using fewer sources or a simpler query.";
-      } else if (error.message?.includes('Authentication') || error.message?.includes('auth')) {
-        errorMessage = "Authentication expired. Please sign in again.";
-      } else if (error.message?.includes('No data returned')) {
-        errorMessage = "The collection service is temporarily overloaded. Please try again in a few minutes.";
-      } else if (error.message?.includes('all sources')) {
-        errorMessage = error.message; // Keep detailed message for source failures
-      } else if (error.message?.includes('API key') || error.message?.includes('configuration')) {
-        errorMessage = "Service configuration issue detected. The AI processing may be temporarily unavailable.";
+      if (error.message?.includes('Authentication') || error.message?.includes('sign in')) {
+        errorMessage = 'Please sign in again to collect data';
+        shouldShowRetry = false;
+      } else if (error.message?.includes('timeout') || error.message?.includes('timed out')) {
+        errorMessage = 'Collection is taking longer than expected. Try using fewer sources or a simpler query.';
+      } else if (error.message?.includes('network') || error.message?.includes('connection')) {
+        errorMessage = 'Network connection issue. Please check your internet connection.';
       } else if (error.message?.includes('rate limit')) {
-        errorMessage = "API rate limits exceeded. Please wait a few minutes before trying again.";
-      } else if (error.message?.includes('network') || error.message?.includes('fetch')) {
-        errorMessage = "Network connectivity issue. Please check your connection and try again.";
+        errorMessage = 'API rate limits exceeded. Please wait a few minutes before trying again.';
+        shouldShowRetry = false;
+      } else if (error.message?.includes('query') || error.message?.includes('source')) {
+        errorMessage = error.message;
+        shouldShowRetry = false;
+      } else {
+        errorMessage = error.message || errorMessage;
       }
       
-      const notification = NotificationService.generateErrorNotification({
-        ...error,
-        message: errorMessage
+      // Add retry action if appropriate
+      const retryAction = shouldShowRetry ? (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => collectData(query, location, sources)}
+        >
+          Retry Collection
+        </Button>
+      ) : undefined;
+      
+      toast({
+        title: "Data collection failed",
+        description: errorMessage,
+        variant: "destructive",
+        action: retryAction
       });
-      toast(notification);
       
       return null;
     } finally {
-      stopProgress();
       setIsCollecting(false);
-      resetProgress();
+      setProgress({ message: '', phase: '', percentage: 0 });
     }
   };
 
@@ -200,7 +207,6 @@ export const useEnhancedDataCollection = () => {
     collectData,
     isCollecting,
     collectionResult: result,
-    progress: progress.message,
-    deduplicationEfficiency: getEfficiency()
+    progress: progress.message
   };
 };

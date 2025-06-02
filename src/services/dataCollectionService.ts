@@ -67,35 +67,50 @@ export interface CollectionParams {
 
 export class DataCollectionService {
   static async collectCandidates(params: CollectionParams): Promise<DataCollectionResponse> {
-    console.log('🚀 DataCollectionService: Starting collection', params);
+    console.log('🚀 DataCollectionService: Starting enhanced collection', params);
     
     const startTime = Date.now();
     
     try {
+      // Validate inputs
+      if (!params.query || params.query.trim().length === 0) {
+        throw new Error('Query cannot be empty');
+      }
+
+      if (params.sources.length === 0) {
+        throw new Error('At least one source must be specified');
+      }
+
+      // Prepare request data
+      const requestData = {
+        query: params.query.trim(),
+        location: params.location?.trim() || undefined,
+        sources: params.sources.slice(0, 4), // Limit to max 4 sources
+        time_budget: Math.min(Math.max(params.timeBudget, 30), 80) // Clamp between 30-80 seconds
+      };
+
+      console.log('📡 Invoking enhanced-data-collection function with:', requestData);
+
       // Add connection monitoring
       let connectionAlive = true;
       const heartbeat = setInterval(() => {
         if (!connectionAlive) {
-          console.warn('⚠️ Connection may have been lost');
+          console.warn('⚠️ Connection monitoring: heartbeat missed');
         }
         connectionAlive = false;
         setTimeout(() => { connectionAlive = true; }, 1000);
-      }, 30000);
+      }, 15000);
 
+      // Call the edge function with extended timeout
       const { data, error } = await supabase.functions.invoke('enhanced-data-collection', {
-        body: {
-          query: params.query,
-          location: params.location,
-          sources: params.sources,
-          time_budget: params.timeBudget
-        }
+        body: requestData
       });
 
       clearInterval(heartbeat);
 
       if (error) {
         console.error('❌ Supabase function error:', error);
-        throw new Error(`Collection service error: ${error.message || 'Unknown error'}`);
+        throw new Error(`Collection service error: ${error.message || error.toString()}`);
       }
 
       if (!data) {
@@ -109,7 +124,7 @@ export class DataCollectionService {
         total_validated: Number(data.total_validated) || 0,
         query: data.query || params.query,
         location: data.location,
-        enhancement_phase: data.enhancement_phase || 'Unknown',
+        enhancement_phase: data.enhancement_phase || 'Enhanced Collection v5.1',
         quality_metrics: {
           validation_rate: data.quality_metrics?.validation_rate || '0%',
           processing_time: data.quality_metrics?.processing_time || '0s',
@@ -158,14 +173,15 @@ export class DataCollectionService {
             deduplication_rate: Number(data.enhancement_stats.deduplication_metrics.deduplication_rate) || 0
           } : undefined
         },
-        errors: Array.isArray(data.errors) ? data.errors : undefined,
+        errors: Array.isArray(data.errors) ? data.errors : [],
         timestamp: data.timestamp || new Date().toISOString()
       };
 
       const processingTime = Date.now() - startTime;
-      console.log('✅ DataCollectionService: Collection completed', {
+      console.log('✅ DataCollectionService: Enhanced collection completed', {
         candidates: response.total_candidates,
         processing_time: processingTime,
+        success_rate: response.performance_metrics.success_rate,
         errors: response.errors?.length || 0
       });
 
@@ -175,57 +191,31 @@ export class DataCollectionService {
       const processingTime = Date.now() - startTime;
       console.error('❌ DataCollectionService error:', error);
       
-      // Return a partial response instead of throwing to provide better UX
-      const fallbackResponse: DataCollectionResponse = {
-        results: {},
-        total_candidates: 0,
-        total_validated: 0,
-        query: params.query,
-        location: params.location,
-        enhancement_phase: 'Error Recovery',
-        quality_metrics: {
-          validation_rate: '0%',
-          processing_time: `${Math.round(processingTime / 1000)}s`,
-          time_efficiency: 'Failed',
-          parallel_processing: false,
-          smart_limiting: false,
-          early_returns: false,
-          progressive_enhancement: false,
-          ai_processing: false,
-          completion_rate: '0%',
-          graceful_degradation: true
-        },
-        performance_metrics: {
-          total_time_ms: processingTime,
-          average_time_per_source: 0,
-          timeout_rate: 100,
-          success_rate: 0,
-          candidates_per_successful_source: 0
-        },
-        enhancement_stats: {
-          total_processed: 0,
-          unique_candidates: 0,
-          processing_time_ms: processingTime,
-          time_budget_used: 100,
-          sources_successful: 0,
-          parallel_processing: false,
-          progressive_enhancement: false,
-          recommended_next_sources: [],
-          completion_rate: 0,
-          smart_timeouts: false,
-          load_balancing: false,
-          ai_enhancements: 0,
-          apollo_enriched: 0,
-          perplexity_enriched: 0,
-          ai_summaries_generated: 0,
-          ai_scored_candidates: 0,
-          graceful_degradation_used: true
-        },
-        errors: [{ source: 'system', error: error.message || 'Unknown error' }],
-        timestamp: new Date().toISOString()
-      };
+      // Enhanced error categorization
+      let errorMessage = error.message || 'Unknown error occurred';
+      let shouldRetry = true;
+      
+      if (error.message?.includes('timeout') || error.message?.includes('AbortError')) {
+        errorMessage = 'Collection timed out. Try with fewer sources or a simpler query.';
+        shouldRetry = true;
+      } else if (error.message?.includes('auth') || error.message?.includes('Authentication')) {
+        errorMessage = 'Authentication failed. Please sign in again.';
+        shouldRetry = false;
+      } else if (error.message?.includes('network') || error.message?.includes('fetch')) {
+        errorMessage = 'Network error. Please check your connection and try again.';
+        shouldRetry = true;
+      } else if (error.message?.includes('rate limit')) {
+        errorMessage = 'API rate limit exceeded. Please wait a few minutes before trying again.';
+        shouldRetry = false;
+      }
 
-      throw error; // Still throw for proper error handling upstream
+      // Throw with enhanced error information
+      const enhancedError = new Error(errorMessage);
+      (enhancedError as any).shouldRetry = shouldRetry;
+      (enhancedError as any).originalError = error;
+      (enhancedError as any).processingTime = processingTime;
+      
+      throw enhancedError;
     }
   }
 }
