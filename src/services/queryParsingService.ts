@@ -1,3 +1,4 @@
+
 // Centralized Query Parsing Service
 export interface ParsedQuery {
   originalQuery: string;
@@ -13,47 +14,21 @@ export interface ParsedQuery {
 
 export class QueryParsingService {
   private static readonly SKILL_MAPPINGS = {
-    // Programming Languages
-    'python': ['Python', 'Django', 'Flask', 'FastAPI', 'Backend Development'],
-    'java': ['Java', 'Spring', 'Spring Boot', 'Backend Development'],
-    'javascript': ['JavaScript', 'TypeScript', 'Node.js', 'Frontend', 'Web Development'],
-    'typescript': ['TypeScript', 'JavaScript', 'Frontend', 'Web Development'],
-    'c#': ['C#', '.NET', 'ASP.NET', 'Backend Development'],
-    'cpp': ['C++', 'Systems Programming', 'Game Development'],
-    'go': ['Go', 'Backend Development', 'Systems Programming'],
-    'rust': ['Rust', 'Systems Programming', 'Backend Development'],
-    'php': ['PHP', 'Laravel', 'Web Development', 'Backend Development'],
-    'ruby': ['Ruby', 'Rails', 'Web Development', 'Backend Development'],
-    'swift': ['Swift', 'iOS Development', 'Mobile Development'],
-    'kotlin': ['Kotlin', 'Android Development', 'Mobile Development'],
-    
-    // Frameworks & Libraries
-    'react': ['React', 'JavaScript', 'TypeScript', 'Frontend', 'Web Development'],
-    'angular': ['Angular', 'TypeScript', 'Frontend', 'Web Development'],
-    'vue': ['Vue.js', 'JavaScript', 'Frontend', 'Web Development'],
-    'node.js': ['Node.js', 'JavaScript', 'Backend', 'Express', 'API Development'],
-    'django': ['Django', 'Python', 'Backend', 'Web Development'],
-    'flask': ['Flask', 'Python', 'Backend', 'Web Development'],
-    'spring': ['Spring', 'Java', 'Backend', 'Web Development'],
-    
     // Game Development
     'unity': ['Unity', 'C#', 'Game Development', '3D Graphics', 'Mobile Games'],
     'unreal': ['Unreal Engine', 'C++', 'Game Development', 'Blueprint', '3D Graphics'],
     'game developer': ['Unity', 'Unreal Engine', 'C#', 'C++', 'Game Development', 'Game Design'],
     'game development': ['Unity', 'Unreal Engine', 'C#', 'C++', 'Game Programming'],
     
+    // Web Development
+    'react': ['React', 'JavaScript', 'TypeScript', 'Frontend', 'Web Development'],
+    'node.js': ['Node.js', 'JavaScript', 'Backend', 'Express', 'API Development'],
+    'python': ['Python', 'Django', 'Flask', 'FastAPI', 'Backend Development'],
+    
     // DevOps & Cloud
     'aws': ['AWS', 'Cloud Computing', 'EC2', 'S3', 'Lambda', 'DevOps'],
-    'azure': ['Azure', 'Cloud Computing', 'DevOps'],
     'kubernetes': ['Kubernetes', 'Docker', 'DevOps', 'Container Orchestration'],
-    'docker': ['Docker', 'Containerization', 'DevOps', 'Kubernetes'],
-    'terraform': ['Terraform', 'Infrastructure as Code', 'DevOps'],
-    
-    // Data & AI
-    'machine learning': ['Machine Learning', 'Python', 'TensorFlow', 'PyTorch', 'Data Science'],
-    'data science': ['Data Science', 'Python', 'Machine Learning', 'Analytics'],
-    'tensorflow': ['TensorFlow', 'Machine Learning', 'Python', 'AI'],
-    'pytorch': ['PyTorch', 'Machine Learning', 'Python', 'AI']
+    'docker': ['Docker', 'Containerization', 'DevOps', 'Kubernetes']
   };
 
   private static readonly LOCATION_MAPPINGS = {
@@ -68,14 +43,11 @@ export class QueryParsingService {
   };
 
   private static readonly ROLE_MAPPINGS = {
-    'developer': ['Developer', 'Software Developer', 'Programmer', 'Software Engineer'],
-    'engineer': ['Engineer', 'Software Engineer', 'Developer', 'Programmer'],
     'game developer': ['Game Developer', 'Game Programmer', 'Unity Developer', 'Unreal Developer'],
     'software engineer': ['Software Engineer', 'Developer', 'Programmer', 'Software Developer'],
     'frontend developer': ['Frontend Developer', 'UI Developer', 'React Developer', 'Web Developer'],
     'backend developer': ['Backend Developer', 'API Developer', 'Server Developer'],
-    'devops engineer': ['DevOps Engineer', 'Site Reliability Engineer', 'Platform Engineer'],
-    'data scientist': ['Data Scientist', 'ML Engineer', 'Data Analyst', 'AI Engineer']
+    'devops engineer': ['DevOps Engineer', 'Site Reliability Engineer', 'Platform Engineer']
   };
 
   static parseQuery(query: string): ParsedQuery {
@@ -120,26 +92,13 @@ export class QueryParsingService {
       }
     });
 
-    // Check for technology keywords - extended list
-    const techKeywords = [
-      'react', 'angular', 'vue', 'python', 'java', 'javascript', 'typescript', 
-      'unity', 'unreal', 'c#', 'c++', 'go', 'rust', 'php', 'ruby', 'swift', 'kotlin',
-      'aws', 'azure', 'docker', 'kubernetes', 'terraform', 'node.js', 'django', 'flask',
-      'spring', 'machine learning', 'data science', 'tensorflow', 'pytorch'
-    ];
+    // Check for technology keywords
+    const techKeywords = ['react', 'angular', 'vue', 'python', 'java', 'javascript', 'typescript', 
+                         'unity', 'unreal', 'c#', 'c++', 'aws', 'azure', 'docker', 'kubernetes'];
     
     techKeywords.forEach(tech => {
       if (query.includes(tech)) {
         skills.add(tech);
-      }
-    });
-
-    // Extract individual words and check if they match common tech terms
-    const words = query.split(/\s+/);
-    words.forEach(word => {
-      const cleanWord = word.toLowerCase().replace(/[^\w]/g, '');
-      if (Object.keys(this.SKILL_MAPPINGS).includes(cleanWord)) {
-        skills.add(cleanWord);
       }
     });
 
@@ -198,16 +157,19 @@ export class QueryParsingService {
   private static extractRoleTypes(query: string): string[] {
     const roles = new Set<string>();
     
-    Object.entries(this.ROLE_MAPPINGS).forEach(([primaryRole, variations]) => {
-      if (query.includes(primaryRole)) {
-        variations.forEach(mapped => roles.add(mapped));
+    Object.keys(this.ROLE_MAPPINGS).forEach(role => {
+      if (query.includes(role)) {
+        const mappings = this.ROLE_MAPPINGS[role];
+        mappings.forEach(mapped => roles.add(mapped));
       }
-      
-      variations.forEach(variation => {
-        if (query.includes(variation.toLowerCase())) {
-          roles.add(primaryRole);
-        }
-      });
+    });
+
+    // Fallback role extraction
+    const roleKeywords = ['developer', 'engineer', 'programmer', 'architect', 'lead', 'senior'];
+    roleKeywords.forEach(keyword => {
+      if (query.includes(keyword)) {
+        roles.add(`${keyword.charAt(0).toUpperCase() + keyword.slice(1)}`);
+      }
     });
 
     return Array.from(roles);
@@ -222,9 +184,6 @@ export class QueryParsingService {
     }
     if (skills.some(skill => ['aws', 'kubernetes', 'docker'].includes(skill.toLowerCase()))) {
       return 'devops_search';
-    }
-    if (skills.some(skill => ['python', 'java', 'javascript'].includes(skill.toLowerCase()))) {
-      return 'backend_development_search';
     }
     return 'general_tech_search';
   }
@@ -246,51 +205,25 @@ export class QueryParsingService {
 
   static buildGitHubSearchQuery(parsedQuery: ParsedQuery): string[] {
     const queries = [];
-    const { enhancedSkills, normalizedLocation, searchIntent, skills } = parsedQuery;
-
-    // Always ensure we have some search terms
-    const searchSkills = enhancedSkills.length > 0 ? enhancedSkills : skills;
-    const location = normalizedLocation[0] || '';
+    const { enhancedSkills, normalizedLocation, searchIntent } = parsedQuery;
 
     if (searchIntent === 'game_development_search') {
       // Game development specific searches
-      if (searchSkills.includes('Unity') || skills.includes('unity')) {
+      if (enhancedSkills.includes('Unity')) {
+        const location = normalizedLocation[0] || '';
         queries.push(`language:c# unity game${location ? ` location:"${location}"` : ''} repos:>=3`);
       }
-      if (searchSkills.includes('Unreal Engine') || skills.includes('unreal')) {
+      if (enhancedSkills.includes('Unreal Engine')) {
+        const location = normalizedLocation[0] || '';
         queries.push(`language:c++ unreal game${location ? ` location:"${location}"` : ''} repos:>=3`);
       }
     } else {
-      // Programming language based searches
-      const languageMap = {
-        'Python': 'python',
-        'JavaScript': 'javascript', 
-        'TypeScript': 'typescript',
-        'Java': 'java',
-        'C#': 'csharp',
-        'C++': 'cpp',
-        'Go': 'go',
-        'Rust': 'rust',
-        'PHP': 'php',
-        'Ruby': 'ruby'
-      };
-
-      // Create language-based queries
-      searchSkills.slice(0, 3).forEach(skill => {
-        const language = languageMap[skill];
-        if (language) {
-          queries.push(`language:${language}${location ? ` location:"${location}"` : ''} repos:>=5 followers:>=10`);
-        } else {
-          // Generic skill search
-          queries.push(`${skill.toLowerCase()}${location ? ` location:"${location}"` : ''} repos:>=5 followers:>=10`);
-        }
+      // General tech searches
+      const primarySkills = enhancedSkills.slice(0, 3);
+      primarySkills.forEach(skill => {
+        const location = normalizedLocation[0] || '';
+        queries.push(`${skill.toLowerCase()}${location ? ` location:"${location}"` : ''} repos:>=5 followers:>=10`);
       });
-    }
-
-    // Fallback strategy if no specific queries generated
-    if (queries.length === 0) {
-      const queryTerms = parsedQuery.originalQuery.split(' ').slice(0, 2).join(' ');
-      queries.push(`${queryTerms} developer${location ? ` location:"${location}"` : ''} repos:>=2`);
     }
 
     return queries.slice(0, 5); // Limit to 5 queries
