@@ -49,8 +49,7 @@ export class LinkedInApifyPlugin extends DataSourcePlugin {
         metadata: {
           totalFound: candidates.length,
           searchStrategy: 'apify_real_linkedin_scraper',
-          confidence: 98, // Higher confidence for real data
-          dataSource: 'real_api'
+          confidence: 98 // Higher confidence for real data
         }
       };
 
