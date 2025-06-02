@@ -8,7 +8,6 @@ interface CandidatesListProps {
   isSearching: boolean;
   searchQuery: string;
   onClearSearch: () => void;
-  onOpenDataCollection: () => void;
 }
 
 export const CandidatesList = ({ 
@@ -16,8 +15,7 @@ export const CandidatesList = ({
   loading, 
   isSearching, 
   searchQuery, 
-  onClearSearch, 
-  onOpenDataCollection 
+  onClearSearch
 }: CandidatesListProps) => {
   // Loading State
   if (loading || isSearching) {
@@ -57,14 +55,8 @@ export const CandidatesList = ({
       {!searchQuery && candidates.length === 0 && (
         <div className="mt-4">
           <p className="text-sm text-slate-500 mb-4">
-            Get started by collecting candidate data from various sources.
+            Get started by collecting candidate data using the "Collect New Data" tab above.
           </p>
-          <button
-            onClick={onOpenDataCollection}
-            className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-          >
-            Start Collecting Data
-          </button>
         </div>
       )}
     </div>
