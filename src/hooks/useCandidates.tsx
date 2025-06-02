@@ -44,7 +44,7 @@ export const useCandidates = () => {
   const [error, setError] = useState<string | null>(null);
   const { user } = useAuth();
 
-  const fetchCandidates = async (limit: number = 100) => {
+  const fetchCandidates = async (limit: number = 100): Promise<void> => {
     if (!user) {
       setLoading(false);
       return;
@@ -102,7 +102,7 @@ export const useCandidates = () => {
   };
 
   // Search candidates with better error handling
-  const searchCandidates = async (query: string) => {
+  const searchCandidates = async (query: string): Promise<void> => {
     if (!user || !query.trim()) {
       return;
     }
@@ -140,8 +140,8 @@ export const useCandidates = () => {
     candidates,
     loading,
     error,
-    refetch: () => fetchCandidates(),
+    refetch: (): Promise<void> => fetchCandidates(),
     searchCandidates,
-    fetchMore: (limit: number) => fetchCandidates(limit)
+    fetchMore: (limit: number): Promise<void> => fetchCandidates(limit)
   };
 };

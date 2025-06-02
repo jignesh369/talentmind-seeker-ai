@@ -73,7 +73,7 @@ export const useSearch = () => {
     };
   };
 
-  const handleSearch = async (query: string, isRetry: boolean = false) => {
+  const handleSearch = async (query: string, isRetry: boolean = false): Promise<void> => {
     // Authentication check
     if (!user) {
       toast({
@@ -198,7 +198,7 @@ export const useSearch = () => {
     }
   };
 
-  const findMoreCandidates = async () => {
+  const findMoreCandidates = async (): Promise<void> => {
     if (!searchQuery || !user) return;
 
     setIsSearching(true);
@@ -245,10 +245,11 @@ export const useSearch = () => {
     setRetryCount(0);
   };
 
-  const retrySearch = () => {
+  const retrySearch = (): Promise<void> => {
     if (searchQuery && searchError?.retryable) {
-      handleSearch(searchQuery, true);
+      return handleSearch(searchQuery, true);
     }
+    return Promise.resolve();
   };
 
   return {

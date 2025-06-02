@@ -45,11 +45,20 @@ const Index = () => {
   const displayCandidates = searchResults.length > 0 ? searchResults : candidates;
   const filteredCandidates = applyFilters(displayCandidates);
 
-  const handleDataCollected = async () => {
-    await refetch();
-    // If we have an active search, refresh the search results
-    if (searchQuery) {
-      await handleSearch(searchQuery);
+  const handleDataCollected = async (): Promise<void> => {
+    try {
+      await refetch();
+      // If we have an active search, refresh the search results
+      if (searchQuery) {
+        await handleSearch(searchQuery);
+      }
+    } catch (error) {
+      console.error('Error refreshing data after collection:', error);
+      toast({
+        title: "Error",
+        description: "Failed to refresh data. Please try again.",
+        variant: "destructive",
+      });
     }
   };
 
