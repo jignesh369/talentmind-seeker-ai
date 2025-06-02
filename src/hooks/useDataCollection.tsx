@@ -17,7 +17,7 @@ export const useDataCollection = () => {
   const collectData = async (
     query: string, 
     location?: string, 
-    sources: string[] = ['github', 'stackoverflow', 'google', 'linkedin', 'kaggle', 'devto']
+    sources: string[] = ['github', 'stackoverflow', 'google', 'linkedin']
   ) => {
     if (!user) {
       toast({

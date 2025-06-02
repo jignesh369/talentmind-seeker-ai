@@ -96,24 +96,26 @@ export class SourceHealthMonitor {
   }
 
   private static async checkGoogleHealth(): Promise<boolean> {
-    // This would check Google Custom Search API availability
-    return true; // Simplified for now
+    // For Google Custom Search, we'll assume it's available
+    // Real implementation would check API quota
+    return true;
   }
 
   private static async checkLinkedInHealth(): Promise<boolean> {
-    // This would check Apify LinkedIn scraper availability
-    return true; // Simplified for now
+    // For Apify LinkedIn scraper, we'll assume it's available
+    // Real implementation would check Apify API status
+    return true;
   }
 
-  static getAvailableSources(): Promise<string[]> {
+  static async getAvailableSources(): Promise<string[]> {
     const sources = ['github', 'stackoverflow', 'google', 'linkedin'];
-    return Promise.all(
+    const healthResults = await Promise.all(
       sources.map(source => this.checkSourceHealth(source))
-    ).then(healthResults => 
-      healthResults
-        .filter(health => health.isAvailable)
-        .map(health => health.name)
     );
+    
+    return healthResults
+      .filter(health => health.isAvailable)
+      .map(health => health.name);
   }
 
   static async getSourceRecommendations(query: string): Promise<string[]> {

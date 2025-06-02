@@ -67,7 +67,7 @@ export interface CollectionParams {
 
 export class DataCollectionService {
   static async collectCandidates(params: CollectionParams): Promise<DataCollectionResponse> {
-    console.log('🚀 DataCollectionService: Starting enhanced collection', params);
+    console.log('🚀 DataCollectionService: Starting collection', params);
     
     const startTime = Date.now();
     
@@ -81,7 +81,7 @@ export class DataCollectionService {
         throw new Error('At least one source must be specified');
       }
 
-      // Prepare request data
+      // Prepare request data for enhanced-data-collection function
       const requestData = {
         query: params.query.trim(),
         location: params.location?.trim() || undefined,
@@ -89,27 +89,15 @@ export class DataCollectionService {
         time_budget: Math.min(Math.max(params.timeBudget, 30), 80) // Clamp between 30-80 seconds
       };
 
-      console.log('📡 Invoking enhanced-data-collection function with:', requestData);
+      console.log('📡 Calling enhanced-data-collection function with:', requestData);
 
-      // Add connection monitoring
-      let connectionAlive = true;
-      const heartbeat = setInterval(() => {
-        if (!connectionAlive) {
-          console.warn('⚠️ Connection monitoring: heartbeat missed');
-        }
-        connectionAlive = false;
-        setTimeout(() => { connectionAlive = true; }, 1000);
-      }, 15000);
-
-      // Call the edge function with extended timeout
+      // Call the enhanced-data-collection edge function
       const { data, error } = await supabase.functions.invoke('enhanced-data-collection', {
         body: requestData
       });
 
-      clearInterval(heartbeat);
-
       if (error) {
-        console.error('❌ Supabase function error:', error);
+        console.error('❌ Enhanced data collection error:', error);
         throw new Error(`Collection service error: ${error.message || error.toString()}`);
       }
 
@@ -117,7 +105,7 @@ export class DataCollectionService {
         throw new Error('No data returned from collection service');
       }
 
-      // Validate and sanitize response data
+      // Process and validate response
       const response: DataCollectionResponse = {
         results: data.results || {},
         total_candidates: Number(data.total_candidates) || 0,
@@ -178,7 +166,7 @@ export class DataCollectionService {
       };
 
       const processingTime = Date.now() - startTime;
-      console.log('✅ DataCollectionService: Enhanced collection completed', {
+      console.log('✅ DataCollectionService: Collection completed', {
         candidates: response.total_candidates,
         processing_time: processingTime,
         success_rate: response.performance_metrics.success_rate,
@@ -193,29 +181,18 @@ export class DataCollectionService {
       
       // Enhanced error categorization
       let errorMessage = error.message || 'Unknown error occurred';
-      let shouldRetry = true;
       
       if (error.message?.includes('timeout') || error.message?.includes('AbortError')) {
         errorMessage = 'Collection timed out. Try with fewer sources or a simpler query.';
-        shouldRetry = true;
       } else if (error.message?.includes('auth') || error.message?.includes('Authentication')) {
         errorMessage = 'Authentication failed. Please sign in again.';
-        shouldRetry = false;
       } else if (error.message?.includes('network') || error.message?.includes('fetch')) {
         errorMessage = 'Network error. Please check your connection and try again.';
-        shouldRetry = true;
       } else if (error.message?.includes('rate limit')) {
         errorMessage = 'API rate limit exceeded. Please wait a few minutes before trying again.';
-        shouldRetry = false;
       }
 
-      // Throw with enhanced error information
-      const enhancedError = new Error(errorMessage);
-      (enhancedError as any).shouldRetry = shouldRetry;
-      (enhancedError as any).originalError = error;
-      (enhancedError as any).processingTime = processingTime;
-      
-      throw enhancedError;
+      throw new Error(errorMessage);
     }
   }
 }

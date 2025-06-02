@@ -2,7 +2,6 @@
 import { useState } from 'react';
 import { useAuth } from './useAuth';
 import { useToast } from './use-toast';
-import { Button } from '@/components/ui/button';
 import { DataCollectionService, DataCollectionResponse } from '@/services/dataCollectionService';
 
 export type EnhancedDataCollectionResult = DataCollectionResponse;
@@ -126,23 +125,10 @@ export const useEnhancedDataCollection = () => {
         description = `Successfully collected ${successCount} candidates from ${sourceCount}/${totalSources} sources.`;
       }
 
-      // Add retry option for failed sources
-      const failedSources = data.errors?.length || 0;
-      const retryAction = failedSources > 0 ? (
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => collectData(query, location, sources)}
-        >
-          Retry Failed Sources
-        </Button>
-      ) : undefined;
-
       toast({
         title: successCount > 0 ? "Collection completed" : "Collection completed with no results",
         description,
         variant: successCount > 0 ? "default" : "destructive",
-        action: retryAction
       });
 
       console.log('✅ Enhanced collection completed:', {
@@ -159,41 +145,25 @@ export const useEnhancedDataCollection = () => {
       
       // Enhanced error handling with user-friendly messages
       let errorMessage = 'Data collection failed unexpectedly';
-      let shouldShowRetry = true;
       
       if (error.message?.includes('Authentication') || error.message?.includes('sign in')) {
         errorMessage = 'Please sign in again to collect data';
-        shouldShowRetry = false;
       } else if (error.message?.includes('timeout') || error.message?.includes('timed out')) {
         errorMessage = 'Collection is taking longer than expected. Try using fewer sources or a simpler query.';
       } else if (error.message?.includes('network') || error.message?.includes('connection')) {
         errorMessage = 'Network connection issue. Please check your internet connection.';
       } else if (error.message?.includes('rate limit')) {
         errorMessage = 'API rate limits exceeded. Please wait a few minutes before trying again.';
-        shouldShowRetry = false;
       } else if (error.message?.includes('query') || error.message?.includes('source')) {
         errorMessage = error.message;
-        shouldShowRetry = false;
       } else {
         errorMessage = error.message || errorMessage;
       }
-      
-      // Add retry action if appropriate
-      const retryAction = shouldShowRetry ? (
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => collectData(query, location, sources)}
-        >
-          Retry Collection
-        </Button>
-      ) : undefined;
       
       toast({
         title: "Data collection failed",
         description: errorMessage,
         variant: "destructive",
-        action: retryAction
       });
       
       return null;
