@@ -45,11 +45,11 @@ const Index = () => {
   const displayCandidates = searchResults.length > 0 ? searchResults : candidates;
   const filteredCandidates = applyFilters(displayCandidates);
 
-  const handleDataCollected = () => {
-    refetch();
+  const handleDataCollected = async () => {
+    await refetch();
     // If we have an active search, refresh the search results
     if (searchQuery) {
-      handleSearch(searchQuery);
+      await handleSearch(searchQuery);
     }
   };
 
