@@ -1,16 +1,17 @@
 
 import React from 'react';
 import { FilterPanel } from '../components/FilterPanel';
-import { StatsOverview } from '../components/StatsOverview';
 import { Header } from '../components/layout/Header';
-import { SimplifiedSearchResults } from '../components/candidates/SimplifiedSearchResults';
 import { CandidatesList } from '../components/candidates/CandidatesList';
 import { ModernSearchInterface } from '../components/search/ModernSearchInterface';
+import { LatestDataIndicator } from '../components/candidates/LatestDataIndicator';
+import { EnhancedResultsHeader } from '../components/candidates/EnhancedResultsHeader';
 import { useCandidates } from '../hooks/useCandidates';
 import { useAuth } from '../hooks/useAuth';
 import { useNewSearchEngine } from '../hooks/useNewSearchEngine';
 import { useFilters } from '../hooks/useFilters';
 import { useUIState } from '../hooks/useUIState';
+import { useSorting, SortOption } from '../hooks/useSorting';
 import { useToast } from '@/hooks/use-toast';
 
 const Index = () => {
@@ -30,6 +31,7 @@ const Index = () => {
   } = useNewSearchEngine();
   const { filters, setFilters, applyFilters } = useFilters();
   const { isFilterOpen, setIsFilterOpen } = useUIState();
+  const { sortBy, setSortBy, sortCandidates } = useSorting();
 
   const handleSignOut = async () => {
     await signOut();
@@ -41,6 +43,7 @@ const Index = () => {
 
   const displayCandidates = searchResults.length > 0 ? searchResults : candidates;
   const filteredCandidates = applyFilters(displayCandidates);
+  const sortedCandidates = sortCandidates(filteredCandidates);
 
   const handleDataCollected = async (): Promise<void> => {
     try {
@@ -82,6 +85,36 @@ const Index = () => {
     }
   };
 
+  const handleClearFilter = (filterType: string) => {
+    const newFilters = { ...filters };
+    switch (filterType) {
+      case 'score':
+        newFilters.minScore = 0;
+        newFilters.maxScore = 100;
+        break;
+      case 'location':
+        newFilters.location = '';
+        break;
+      case 'skills':
+        newFilters.skills = [];
+        break;
+      case 'lastActive':
+        newFilters.lastActive = '';
+        break;
+    }
+    setFilters(newFilters);
+  };
+
+  const handleClearAllFilters = () => {
+    setFilters({
+      minScore: 0,
+      maxScore: 100,
+      location: '',
+      lastActive: '',
+      skills: []
+    });
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100">
       <Header 
@@ -91,10 +124,8 @@ const Index = () => {
       />
 
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <StatsOverview totalCandidates={displayCandidates.length} />
-
-        {/* Modern Hero Search Interface */}
-        <div className="mt-8 mb-6">
+        {/* Modern Hero Search Interface with aligned stats */}
+        <div className="mb-6">
           <ModernSearchInterface
             onSearch={handleSearch}
             isSearching={isSearching}
@@ -103,6 +134,13 @@ const Index = () => {
           />
         </div>
 
+        {/* Latest Data Indicator - prominently displayed */}
+        <LatestDataIndicator
+          searchMetadata={searchMetadata}
+          aiStats={aiStats}
+          isSearching={isSearching}
+        />
+
         {/* Simplified Filter Panel */}
         {isFilterOpen && (
           <div className="mb-6">
@@ -110,27 +148,31 @@ const Index = () => {
           </div>
         )}
 
-        {/* Enhanced Search Results */}
-        <SimplifiedSearchResults 
+        {/* Enhanced Results Header */}
+        <EnhancedResultsHeader
           searchQuery={searchQuery}
+          candidateCount={sortedCandidates.length}
           isSearching={isSearching}
-          candidateCount={filteredCandidates.length}
           searchMetadata={searchMetadata}
-          searchError={searchError}
-          onRetry={() => handleSearch(searchQuery)}
-          onFindMore={handleFindMore}
           enhancedQuery={enhancedQuery}
-          aiStats={aiStats}
+          filters={filters}
+          onClearFilter={handleClearFilter}
+          onClearAllFilters={handleClearAllFilters}
+          onClearSearch={clearSearch}
+          onFindMore={handleFindMore}
+          onSortChange={setSortBy}
+          currentSort={sortBy}
         />
 
         {/* Candidates List */}
-        <CandidatesList 
-          candidates={filteredCandidates}
-          loading={loading}
-          isSearching={isSearching}
-          searchQuery={searchQuery}
-          onClearSearch={clearSearch}
-        />
+        <div className="mt-6">
+          <CandidatesList 
+            candidates={sortedCandidates}
+            loading={loading}
+            searchQuery={searchQuery}
+            currentSort={sortBy}
+          />
+        </div>
       </div>
     </div>
   );
