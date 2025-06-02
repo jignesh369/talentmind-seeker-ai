@@ -26,7 +26,7 @@ serve(async (req) => {
   }
 
   try {
-    const { query, location, sources = ['github', 'stackoverflow', 'google'], qualityThreshold = 50 }: CollectionRequest = await req.json()
+    const { query, location, sources = ['github', 'google'], qualityThreshold = 50 }: CollectionRequest = await req.json()
 
     if (!query) {
       return new Response(
@@ -45,7 +45,6 @@ serve(async (req) => {
     const startTime = Date.now()
     const collectionResults = {
       github: { candidates: [], total: 0, error: null },
-      stackoverflow: { candidates: [], total: 0, error: null },
       google: { candidates: [], total: 0, error: null },
       linkedin: { candidates: [], total: 0, error: null }
     }
