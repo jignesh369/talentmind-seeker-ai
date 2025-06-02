@@ -147,7 +147,7 @@ export const AIInsightsDashboard = ({
                         tier === 'B' ? 'text-blue-600' :
                         tier === 'C' ? 'text-yellow-600' : 'text-red-600'
                       }`}>
-                        {count}
+                        {String(count)}
                       </div>
                       <div className="text-xs text-gray-600">Tier {tier}</div>
                     </div>

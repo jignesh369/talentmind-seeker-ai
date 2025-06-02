@@ -97,7 +97,6 @@ export const SearchResults = ({
               <QueryInterpretation 
                 interpretation={searchMetadata.queryInterpretation}
                 parsedQuery={searchMetadata.parsedQuery}
-                isAIEnhanced={searchMetadata.aiEnhanced}
               />
             </div>
           )}

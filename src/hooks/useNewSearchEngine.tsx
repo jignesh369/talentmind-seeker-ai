@@ -86,8 +86,8 @@ export const useNewSearchEngine = () => {
       console.log('🔍 Executing enhanced data collection...');
       const response = await newDataCollectionService.searchCandidates(searchRequest);
       
-      if (!response.success) {
-        throw new Error(response.error || 'Search failed');
+      if (!response || !response.candidates) {
+        throw new Error('Invalid response from search service');
       }
 
       console.log('📊 Raw search results:', response.candidates.length);
@@ -166,13 +166,13 @@ export const useNewSearchEngine = () => {
       console.error('❌ AI-enhanced search failed:', error);
       setSearchError({
         type: 'service',
-        message: error.message || 'Search failed unexpectedly',
+        message: error instanceof Error ? error.message : 'Search failed unexpectedly',
         retryable: true
       });
       
       toast({
         title: "Search failed",
-        description: error.message || 'An unexpected error occurred',
+        description: error instanceof Error ? error.message : 'An unexpected error occurred',
         variant: "destructive",
       });
     } finally {

@@ -77,7 +77,7 @@ export const CandidateCard = ({ candidate }: CandidateCardProps) => {
                 {displayScore}%
               </div>
               {isAIEnhanced && (
-                <Brain className="h-4 w-4 text-indigo-600" title="AI Enhanced" />
+                <Brain className="h-4 w-4 text-indigo-600" />
               )}
             </div>
             

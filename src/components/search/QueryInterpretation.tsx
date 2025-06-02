@@ -32,7 +32,7 @@ export const QueryInterpretation = ({
       </div>
       
       <div className="flex flex-wrap gap-2">
-        {parsedQuery.roleTypes.length > 0 && (
+        {parsedQuery.roleTypes && parsedQuery.roleTypes.length > 0 && (
           <div className="flex items-center gap-1">
             <Briefcase className="h-3 w-3 text-blue-600" />
             <span className="text-xs text-slate-600">Roles:</span>
@@ -44,7 +44,7 @@ export const QueryInterpretation = ({
           </div>
         )}
 
-        {parsedQuery.enhancedSkills.length > 0 && (
+        {parsedQuery.enhancedSkills && parsedQuery.enhancedSkills.length > 0 && (
           <div className="flex items-center gap-1">
             <Code className="h-3 w-3 text-green-600" />
             <span className="text-xs text-slate-600">Skills:</span>
@@ -56,7 +56,7 @@ export const QueryInterpretation = ({
           </div>
         )}
 
-        {parsedQuery.normalizedLocation.length > 0 && (
+        {parsedQuery.normalizedLocation && parsedQuery.normalizedLocation.length > 0 && (
           <div className="flex items-center gap-1">
             <MapPin className="h-3 w-3 text-purple-600" />
             <span className="text-xs text-slate-600">Location:</span>
