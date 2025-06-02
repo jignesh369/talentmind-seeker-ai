@@ -1,11 +1,12 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import { SearchResultsHeader } from './SearchResultsHeader';
 import { SearchResultsBadges } from './SearchResultsBadges';
 import { SearchResultsMetadata } from './SearchResultsMetadata';
 import { SearchResultsError } from './SearchResultsError';
+import { AIInsightsDashboard } from '../ai/AIInsightsDashboard';
 import { Button } from '@/components/ui/button';
-import { Search, Database, Zap, Shield } from 'lucide-react';
+import { Search, Database, Zap, Shield, Brain, BarChart3 } from 'lucide-react';
 import { QueryInterpretation } from '../search/QueryInterpretation';
 
 interface SearchResultsProps {
@@ -21,6 +22,8 @@ interface SearchResultsProps {
   retryCount?: number;
   onRetry?: () => void;
   onFindMore?: () => void;
+  enhancedQuery?: any;
+  aiStats?: any;
 }
 
 export const SearchResults = ({ 
@@ -31,9 +34,13 @@ export const SearchResults = ({
   searchError,
   retryCount = 0,
   onRetry,
-  onFindMore
+  onFindMore,
+  enhancedQuery,
+  aiStats
 }: SearchResultsProps) => {
+  const [showAIInsights, setShowAIInsights] = useState(false);
   const showFindMore = searchQuery && !isSearching && candidateCount < 20 && !searchError;
+  const isAIEnhanced = !!enhancedQuery || !!aiStats;
   
   return (
     <div className="mb-6">
@@ -44,7 +51,7 @@ export const SearchResults = ({
         onRetry={onRetry}
       />
       
-      <div className="flex justify-between items-start">
+      <div className="flex justify-between items-start mb-4">
         <div className="flex-1">
           <div className="flex items-center flex-wrap gap-3">
             <SearchResultsHeader
@@ -67,6 +74,19 @@ export const SearchResults = ({
                 Find More Candidates
               </Button>
             )}
+
+            {/* AI Insights Toggle */}
+            {isAIEnhanced && (
+              <Button
+                onClick={() => setShowAIInsights(!showAIInsights)}
+                variant={showAIInsights ? "default" : "outline"}
+                size="sm"
+                className="flex items-center gap-2"
+              >
+                <Brain className="h-4 w-4" />
+                {showAIInsights ? 'Hide' : 'Show'} AI Insights
+              </Button>
+            )}
             
             <SearchResultsBadges searchMetadata={searchMetadata} />
           </div>
@@ -77,6 +97,7 @@ export const SearchResults = ({
               <QueryInterpretation 
                 interpretation={searchMetadata.queryInterpretation}
                 parsedQuery={searchMetadata.parsedQuery}
+                isAIEnhanced={searchMetadata.aiEnhanced}
               />
             </div>
           )}
@@ -112,6 +133,22 @@ export const SearchResults = ({
                   <span>{searchMetadata.confidence}% confidence</span>
                 </div>
               )}
+
+              {/* AI Enhancement Indicator */}
+              {searchMetadata.aiEnhanced && (
+                <div className="flex items-center gap-2 text-indigo-600">
+                  <Brain className="h-4 w-4" />
+                  <span>AI Enhanced</span>
+                </div>
+              )}
+
+              {/* AI Processing Stats */}
+              {aiStats && (
+                <div className="flex items-center gap-2 text-cyan-600">
+                  <BarChart3 className="h-4 w-4" />
+                  <span>{aiStats.scored}/{aiStats.totalProcessed} AI Scored</span>
+                </div>
+              )}
             </div>
           )}
           
@@ -130,11 +167,23 @@ export const SearchResults = ({
         
         <select className="px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
           <option>Sort by Relevance</option>
+          <option>Sort by AI Score</option>
           <option>Sort by Overall Score</option>
           <option>Sort by Experience</option>
           <option>Sort by Last Active</option>
         </select>
       </div>
+
+      {/* AI Insights Dashboard */}
+      {showAIInsights && isAIEnhanced && (
+        <div className="mb-6">
+          <AIInsightsDashboard
+            enhancedQuery={enhancedQuery}
+            aiStats={aiStats}
+            searchMetadata={searchMetadata}
+          />
+        </div>
+      )}
     </div>
   );
 };

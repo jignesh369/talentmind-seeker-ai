@@ -1,213 +1,235 @@
 
 import React, { useState } from 'react';
-import { Card, CardContent } from "@/components/ui/card"
-import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar"
-import { Badge } from "@/components/ui/badge"
-import { MapPin, Calendar, Clock } from 'lucide-react';
-import { formatDistanceToNow } from 'date-fns';
-import { useAuth } from '@/hooks/useAuth';
-import { useToast } from '@/hooks/use-toast';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Progress } from '@/components/ui/progress';
+import { 
+  MapPin, 
+  Calendar, 
+  Github, 
+  Linkedin, 
+  ExternalLink,
+  Brain,
+  Star,
+  TrendingUp,
+  Mail,
+  ChevronDown,
+  ChevronUp
+} from 'lucide-react';
+import { AIScoreCard } from '../ai/AIScoreCard';
 
 interface CandidateCardProps {
   candidate: any;
 }
 
 export const CandidateCard = ({ candidate }: CandidateCardProps) => {
-  const { user } = useAuth();
-  const { toast } = useToast();
-  const [isExpanded, setIsExpanded] = useState(false);
-  const [isDrafting, setIsDrafting] = useState(false);
+  const [showAIDetails, setShowAIDetails] = useState(false);
+  
+  const getScoreColor = (score: number) => {
+    if (score >= 80) return 'text-green-600';
+    if (score >= 60) return 'text-blue-600';
+    if (score >= 40) return 'text-yellow-600';
+    return 'text-red-600';
+  };
 
-  const handleAddToDraft = async () => {
-    if (!user) {
-      toast({
-        title: "Authentication required",
-        description: "Please sign in to add candidates to drafts",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setIsDrafting(true);
-    try {
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-
-      toast({
-        title: "Candidate added to drafts",
-        description: `${candidate.name} has been added to your drafts.`,
-      });
-    } catch (error) {
-      toast({
-        title: "Failed to add candidate to drafts",
-        description: "There was an error adding this candidate to your drafts.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsDrafting(false);
+  const getTierColor = (tier: string) => {
+    switch (tier) {
+      case 'A': return 'bg-green-100 text-green-800';
+      case 'B': return 'bg-blue-100 text-blue-800';
+      case 'C': return 'bg-yellow-100 text-yellow-800';
+      case 'D': return 'bg-red-100 text-red-800';
+      default: return 'bg-gray-100 text-gray-800';
     }
   };
 
+  // Use AI score if available, otherwise fall back to original
+  const displayScore = candidate.ai_overall_score || candidate.overall_score || 0;
+  const isAIEnhanced = candidate.ai_processed;
+
   return (
-    <Card className="hover:shadow-lg transition-shadow duration-200 border-slate-200">
-      <CardContent className="p-6">
-        <div className="flex items-start justify-between mb-4">
-          <div className="flex items-start space-x-4">
-            {/* Avatar */}
-            <Avatar className="w-16 h-16">
-              <AvatarImage src={candidate.avatar_url} alt={candidate.name} />
-              <AvatarFallback className="bg-gradient-to-br from-blue-500 to-purple-600 text-white text-lg font-semibold">
-                {candidate.name?.charAt(0) || '?'}
+    <Card className="h-full hover:shadow-lg transition-shadow duration-200">
+      <CardHeader className="pb-4">
+        <div className="flex items-start justify-between">
+          <div className="flex items-center space-x-3">
+            <Avatar className="h-12 w-12">
+              <AvatarImage src={candidate.avatar_url} />
+              <AvatarFallback>
+                {candidate.name.split(' ').map((n: string) => n[0]).join('').slice(0, 2)}
               </AvatarFallback>
             </Avatar>
-
-            <div className="flex-1">
-              <div className="flex items-start justify-between">
-                <div>
-                  <h3 className="text-lg font-semibold text-slate-900 mb-1">
-                    {candidate.name || 'Unknown Name'}
-                  </h3>
-                  <p className="text-slate-600 mb-2">{candidate.title || 'No title available'}</p>
-                  
-                  {/* Enhanced match explanation */}
-                  {candidate.matchExplanation && (
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className="text-xs text-green-600 font-medium">Match:</span>
-                      <span className="text-xs text-slate-600">{candidate.matchExplanation}</span>
-                      {candidate.relevanceScore && (
-                        <Badge variant="outline" className="text-xs">
-                          Score: {Math.round(candidate.relevanceScore)}
-                        </Badge>
-                      )}
-                    </div>
-                  )}
-                  
-                  <div className="flex items-center gap-4 text-sm text-slate-500 mb-3">
-                    {candidate.location && (
-                      <div className="flex items-center gap-1">
-                        <MapPin className="w-4 h-4" />
-                        <span>{candidate.location}</span>
-                      </div>
-                    )}
-                    {candidate.experience_years !== undefined && candidate.experience_years !== null && (
-                      <div className="flex items-center gap-1">
-                        <Calendar className="w-4 h-4" />
-                        <span>{candidate.experience_years} years exp</span>
-                      </div>
-                    )}
-                    {candidate.last_active && (
-                      <div className="flex items-center gap-1">
-                        <Clock className="w-4 h-4" />
-                        <span>Active {formatDistanceToNow(new Date(candidate.last_active), { addSuffix: true })}</span>
-                      </div>
-                    )}
-                  </div>
+            <div>
+              <h3 className="font-semibold text-lg">{candidate.name}</h3>
+              <p className="text-gray-600 text-sm">{candidate.title}</p>
+              {candidate.location && (
+                <div className="flex items-center text-gray-500 text-xs mt-1">
+                  <MapPin className="h-3 w-3 mr-1" />
+                  {candidate.location}
                 </div>
-              </div>
-
-              {/* Skills */}
-              {candidate.skills && candidate.skills.length > 0 && (
-                <div className="flex flex-wrap gap-1 mb-3">
-                  {candidate.skills.slice(0, isExpanded ? candidate.skills.length : 8).map((skill: string, index: number) => (
-                    <Badge key={index} variant="secondary" className="text-xs">
-                      {skill}
-                    </Badge>
-                  ))}
-                  {candidate.skills.length > 8 && !isExpanded && (
-                    <button
-                      onClick={() => setIsExpanded(true)}
-                      className="text-xs text-blue-600 hover:text-blue-800"
-                    >
-                      +{candidate.skills.length - 8} more
-                    </button>
-                  )}
-                </div>
-              )}
-
-              {/* Summary */}
-              {candidate.summary && (
-                <p className="text-sm text-slate-600 mb-3 line-clamp-2">
-                  {candidate.summary}
-                </p>
               )}
             </div>
           </div>
-
-          {/* Score indicators */}
-          <div className="flex flex-col items-end gap-2">
-            <div className="text-right">
-              <div className="text-lg font-bold text-slate-900">
-                {candidate.overall_score || 0}
+          
+          <div className="text-right space-y-1">
+            <div className="flex items-center gap-2">
+              <div className={`text-lg font-bold ${getScoreColor(displayScore)}`}>
+                {displayScore}%
               </div>
-              <div className="text-xs text-slate-500">Overall Score</div>
+              {isAIEnhanced && (
+                <Brain className="h-4 w-4 text-indigo-600" title="AI Enhanced" />
+              )}
             </div>
             
-            {/* Search strategy indicator */}
-            {candidate.search_strategy && (
-              <Badge variant="outline" className="text-xs">
-                {candidate.search_strategy.replace(/_/g, ' ')}
+            {candidate.ai_tier && (
+              <Badge className={`text-xs ${getTierColor(candidate.ai_tier)}`}>
+                Tier {candidate.ai_tier}
               </Badge>
+            )}
+            
+            {candidate.platform && (
+              <div className="text-xs text-gray-500">
+                via {candidate.platform}
+              </div>
             )}
           </div>
         </div>
+      </CardHeader>
 
-        {/* Score metrics */}
-        {isExpanded && (
-          <div className="grid grid-cols-2 gap-4 mb-4">
-            <div>
-              <div className="text-xs font-medium text-slate-700">Skill Match</div>
-              <div className="text-sm text-slate-600">{candidate.skill_match || 0}</div>
-            </div>
-            <div>
-              <div className="text-xs font-medium text-slate-700">Experience</div>
-              <div className="text-sm text-slate-600">{candidate.experience || 0}</div>
-            </div>
-            <div>
-              <div className="text-xs font-medium text-slate-700">Reputation</div>
-              <div className="text-sm text-slate-600">{candidate.reputation || 0}</div>
-            </div>
-            <div>
-              <div className="text-xs font-medium text-slate-700">Freshness</div>
-              <div className="text-sm text-slate-600">{candidate.freshness || 0}</div>
-            </div>
-            <div>
-              <div className="text-xs font-medium text-slate-700">Social Proof</div>
-              <div className="text-sm text-slate-600">{candidate.social_proof || 0}</div>
+      <CardContent className="space-y-4">
+        {/* Enhanced Summary or Original Summary */}
+        {(candidate.enhanced_summary || candidate.summary) && (
+          <div>
+            <p className="text-sm text-gray-700 line-clamp-3">
+              {candidate.enhanced_summary || candidate.summary}
+            </p>
+            {isAIEnhanced && candidate.enhanced_summary && (
+              <div className="text-xs text-indigo-600 mt-1">
+                ✨ AI-Enhanced Profile
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Skills */}
+        {candidate.skills && candidate.skills.length > 0 && (
+          <div>
+            <div className="flex flex-wrap gap-1">
+              {candidate.skills.slice(0, 6).map((skill: string, index: number) => (
+                <Badge key={index} variant="outline" className="text-xs">
+                  {skill}
+                </Badge>
+              ))}
+              {candidate.skills.length > 6 && (
+                <Badge variant="outline" className="text-xs">
+                  +{candidate.skills.length - 6} more
+                </Badge>
+              )}
             </div>
           </div>
         )}
 
-        {/* Expanded details */}
-        {isExpanded && (
-          <div className="mb-4">
-            <h4 className="text-sm font-semibold text-slate-700 mb-2">Additional Details</h4>
-            <div className="text-sm text-slate-600 space-y-2">
-              <div>
-                <strong>Email:</strong> {candidate.email || 'Not available'}
-              </div>
-              <div>
-                <strong>Github Username:</strong> {candidate.github_username || 'Not available'}
-              </div>
-              <div>
-                <strong>Platform:</strong> {candidate.platform || 'Unknown'}
-              </div>
+        {/* AI Strengths (if available) */}
+        {candidate.ai_strengths && candidate.ai_strengths.length > 0 && (
+          <div>
+            <div className="text-sm font-medium text-gray-600 mb-1">AI-Identified Strengths</div>
+            <div className="flex flex-wrap gap-1">
+              {candidate.ai_strengths.slice(0, 3).map((strength: string, index: number) => (
+                <Badge key={index} variant="secondary" className="text-xs">
+                  <Star className="h-3 w-3 mr-1" />
+                  {strength}
+                </Badge>
+              ))}
             </div>
           </div>
         )}
 
-        {/* Action buttons */}
-        <div className="flex justify-end space-x-2">
-          <Button variant="outline" size="sm" onClick={() => setIsExpanded(!isExpanded)}>
-            {isExpanded ? 'Show Less' : 'Show More'}
-          </Button>
-          <Button variant="default" size="sm" disabled={isDrafting} onClick={handleAddToDraft}>
-            {isDrafting ? 'Adding...' : 'Add to Draft'}
-          </Button>
+        {/* Score Breakdown */}
+        <div className="space-y-2">
+          {isAIEnhanced && candidate.ai_technical_fit && (
+            <div>
+              <div className="flex justify-between text-sm mb-1">
+                <span>Technical Fit</span>
+                <span className={`font-medium ${getScoreColor(candidate.ai_technical_fit)}`}>
+                  {candidate.ai_technical_fit}%
+                </span>
+              </div>
+              <Progress value={candidate.ai_technical_fit} className="h-1.5" />
+            </div>
+          )}
+          
+          {candidate.experience_years && (
+            <div className="flex items-center text-sm text-gray-600">
+              <Calendar className="h-4 w-4 mr-2" />
+              {candidate.experience_years} years experience
+            </div>
+          )}
+          
+          {candidate.last_active && (
+            <div className="text-xs text-gray-500">
+              Last active: {new Date(candidate.last_active).toLocaleDateString()}
+            </div>
+          )}
         </div>
+
+        {/* Links */}
+        <div className="flex items-center space-x-4 pt-2">
+          {candidate.github_username && (
+            <a
+              href={`https://github.com/${candidate.github_username}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center text-gray-600 hover:text-gray-900"
+            >
+              <Github className="h-4 w-4 mr-1" />
+              <span className="text-sm">GitHub</span>
+            </a>
+          )}
+          
+          {candidate.linkedin_url && (
+            <a
+              href={candidate.linkedin_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center text-gray-600 hover:text-gray-900"
+            >
+              <Linkedin className="h-4 w-4 mr-1" />
+              <span className="text-sm">LinkedIn</span>
+            </a>
+          )}
+          
+          {candidate.email && (
+            <a
+              href={`mailto:${candidate.email}`}
+              className="flex items-center text-gray-600 hover:text-gray-900"
+            >
+              <Mail className="h-4 w-4 mr-1" />
+              <span className="text-sm">Email</span>
+            </a>
+          )}
+        </div>
+
+        {/* AI Details Toggle */}
+        {isAIEnhanced && (
+          <div className="pt-2 border-t">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowAIDetails(!showAIDetails)}
+              className="w-full flex items-center justify-center gap-2"
+            >
+              <Brain className="h-4 w-4" />
+              {showAIDetails ? 'Hide' : 'Show'} AI Analysis
+              {showAIDetails ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+            </Button>
+            
+            {showAIDetails && (
+              <div className="mt-3">
+                <AIScoreCard candidate={candidate} />
+              </div>
+            )}
+          </div>
+        )}
       </CardContent>
     </Card>
   );

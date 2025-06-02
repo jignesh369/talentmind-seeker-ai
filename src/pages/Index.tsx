@@ -24,6 +24,8 @@ const Index = () => {
     isSearching, 
     searchMetadata, 
     searchError,
+    enhancedQuery,
+    aiStats,
     handleSearch, 
     clearSearch
   } = useNewSearchEngine();
@@ -67,8 +69,8 @@ const Index = () => {
       await handleSearch(searchQuery);
       
       toast({
-        title: "Search expanded",
-        description: "Searching for additional candidates across all sources",
+        title: "AI-Enhanced Search Expanded",
+        description: "Searching for additional candidates with AI intelligence",
       });
     } catch (error) {
       console.error('Error finding more candidates:', error);
@@ -109,6 +111,8 @@ const Index = () => {
               retryCount={0}
               onRetry={() => handleSearch(searchQuery)}
               onFindMore={handleFindMore}
+              enhancedQuery={enhancedQuery}
+              aiStats={aiStats}
             />
 
             {/* Filter Panel */}

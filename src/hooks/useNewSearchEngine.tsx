@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { useAuth } from './useAuth';
 import { useToast } from './use-toast';
-import { Button } from '@/components/ui/button';
+import { useAIIntelligence } from './useAIIntelligence';
 import { newDataCollectionService } from '@/services/NewDataCollectionService';
 
 interface SearchFilters {
@@ -28,6 +28,22 @@ export const useNewSearchEngine = () => {
   });
   const { user } = useAuth();
   const { toast } = useToast();
+  
+  // AI Intelligence Integration
+  const {
+    isProcessing: aiProcessing,
+    enhancedQuery,
+    processedCandidates,
+    aiStats,
+    enhanceSearchQuery,
+    processCandidatesWithAI,
+    clearAIData
+  } = useAIIntelligence({
+    enableQueryEnhancement: true,
+    enableCandidateScoring: true,
+    enableProfileEnhancement: true,
+    enableOutreachGeneration: false
+  });
 
   const handleSearch = async (query: string): Promise<void> => {
     if (!user) {
@@ -41,85 +57,124 @@ export const useNewSearchEngine = () => {
 
     if (!query || query.trim().length < 2) {
       toast({
-        title: "Invalid search query",
-        description: "Search query must be at least 2 characters",
+        title: "Invalid search",
+        description: "Please enter a search query with at least 2 characters",
         variant: "destructive",
       });
       return;
     }
-    
-    setSearchQuery(query);
+
     setIsSearching(true);
-    setSearchMetadata(null);
     setSearchError(null);
-
+    setSearchQuery(query);
+    
     try {
-      console.log('🔍 Starting new search engine search:', {
-        query,
-        filters
-      });
+      console.log('🚀 Starting AI-enhanced search for:', query);
       
-      const searchResult = await newDataCollectionService.searchCandidates({
+      // Phase 1: AI Query Enhancement
+      const openaiKey = 'dummy-key-for-demo'; // In production, get from environment
+      const aiEnhancedQuery = await enhanceSearchQuery(query, openaiKey);
+      
+      // Phase 2: Data Collection with Enhanced Query
+      const searchRequest = {
         query: query.trim(),
-        location: filters.location.trim() || undefined,
-        filters: {
-          minScore: filters.minScore,
-          maxScore: filters.maxScore,
-          skills: filters.skills,
-          lastActiveDays: filters.lastActive ? parseInt(filters.lastActive) : undefined,
-        },
-        sources: ['linkedin', 'github', 'stackoverflow', 'google'],
-        limit: 50
-      });
+        location: filters.location || undefined,
+        limit: 20,
+        enhancedQuery: aiEnhancedQuery
+      };
+
+      console.log('🔍 Executing enhanced data collection...');
+      const response = await newDataCollectionService.searchCandidates(searchRequest);
       
-      setSearchResults(searchResult.candidates);
-      setSearchMetadata(searchResult.metadata);
-      
-      const resultCount = searchResult.candidates.length;
-      let toastDescription = `Found ${resultCount} real candidates`;
-      
-      if (filters.location) {
-        toastDescription += ` in ${filters.location}`;
+      if (!response.success) {
+        throw new Error(response.error || 'Search failed');
       }
+
+      console.log('📊 Raw search results:', response.candidates.length);
+
+      // Phase 3: AI Processing of Candidates
+      let finalCandidates = response.candidates;
       
+      if (response.candidates.length > 0) {
+        console.log('🤖 Processing candidates with AI intelligence...');
+        
+        const aiProcessedResults = await processCandidatesWithAI(
+          response.candidates,
+          aiEnhancedQuery || { query },
+          undefined, // job context
+          openaiKey
+        );
+        
+        // Extract enhanced candidates with AI scores
+        finalCandidates = aiProcessedResults.map(result => ({
+          ...result.originalCandidate,
+          // Add AI scoring to candidate
+          ai_overall_score: result.aiScoring?.overallScore,
+          ai_tier: result.aiScoring?.tier,
+          ai_technical_fit: result.aiScoring?.technicalFit,
+          ai_experience_level: result.aiScoring?.experienceLevel,
+          ai_risk_assessment: result.aiScoring?.riskAssessment,
+          ai_reasoning: result.aiScoring?.reasoning,
+          ai_strengths: result.aiScoring?.strengths,
+          ai_concerns: result.aiScoring?.concerns,
+          // Add enhanced profile data
+          enhanced_summary: result.enhancedProfile?.summary,
+          enhanced_strengths: result.enhancedProfile?.strengths,
+          enhanced_specializations: result.enhancedProfile?.specializations,
+          career_trajectory: result.enhancedProfile?.careerTrajectory,
+          // Add processing metadata
+          ai_processed: true,
+          ai_confidence: result.processingMetadata.confidence,
+          processing_time: result.processingMetadata.processingTime
+        }));
+
+        console.log('✅ AI processing completed:', aiStats);
+      }
+
+      // Sort by AI scores if available, otherwise by original scores
+      finalCandidates.sort((a, b) => {
+        const scoreA = a.ai_overall_score || a.overall_score || 0;
+        const scoreB = b.ai_overall_score || b.overall_score || 0;
+        return scoreB - scoreA;
+      });
+
+      setSearchResults(finalCandidates);
+      
+      // Enhanced metadata with AI insights
+      const enhancedMetadata = {
+        ...response.metadata,
+        queryInterpretation: aiEnhancedQuery?.interpretation || query,
+        parsedQuery: aiEnhancedQuery,
+        aiEnhanced: !!aiEnhancedQuery,
+        aiProcessingStats: aiStats,
+        confidence: aiEnhancedQuery?.aiConfidence || response.metadata?.confidence || 50,
+        searchStrategy: aiEnhancedQuery?.searchStrategy || 'standard',
+        candidatesProcessed: finalCandidates.length,
+        aiTierDistribution: aiStats?.tierDistribution
+      };
+      
+      setSearchMetadata(enhancedMetadata);
+
       toast({
-        title: "Search completed",
-        description: toastDescription,
+        title: "AI-Enhanced Search Complete",
+        description: `Found ${finalCandidates.length} candidates with AI analysis${aiStats ? ` (${aiStats.scored} scored)` : ''}`,
       });
 
-      console.log('✅ New search engine completed:', {
-        query,
-        candidates: searchResult.candidates.length,
-        sources: searchResult.metadata.sourcesUsed,
-        processingTime: searchResult.metadata.processingTime
-      });
+      console.log('🎯 AI-enhanced search completed successfully');
 
-    } catch (error: any) {
-      console.error('❌ New search engine error:', error);
-      
+    } catch (error) {
+      console.error('❌ AI-enhanced search failed:', error);
       setSearchError({
         type: 'service',
-        message: error.message || 'Search failed. Please try again.',
+        message: error.message || 'Search failed unexpectedly',
         retryable: true
       });
       
       toast({
         title: "Search failed",
-        description: error.message || 'Search failed. Please try again.',
+        description: error.message || 'An unexpected error occurred',
         variant: "destructive",
-        action: (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => handleSearch(query)}
-          >
-            Retry
-          </Button>
-        )
       });
-      
-      setSearchResults([]);
-      setSearchMetadata(null);
     } finally {
       setIsSearching(false);
     }
@@ -130,6 +185,7 @@ export const useNewSearchEngine = () => {
     setSearchResults([]);
     setSearchMetadata(null);
     setSearchError(null);
+    clearAIData();
   };
 
   const clearFilters = () => {
@@ -143,13 +199,23 @@ export const useNewSearchEngine = () => {
   };
 
   return {
+    // Search state
     searchQuery,
     searchResults,
-    isSearching,
+    isSearching: isSearching || aiProcessing,
     searchMetadata,
     searchError,
+    
+    // AI state
+    enhancedQuery,
+    processedCandidates,
+    aiStats,
+    
+    // Filter state
     filters,
     setFilters,
+    
+    // Actions
     handleSearch,
     clearSearch,
     clearFilters
