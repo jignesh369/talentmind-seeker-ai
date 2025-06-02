@@ -1,9 +1,13 @@
-
 import { supabase } from '@/integrations/supabase/client';
 import { QueryParsingService, ParsedQuery } from './queryParsingService';
 
 export interface EnhancedSearchOptions {
   query: string;
+  location?: string;
+  minScore?: number;
+  maxScore?: number;
+  skills?: string[];
+  lastActiveDays?: number;
   limit?: number;
   includeQueryParsing?: boolean;
 }
@@ -19,31 +23,63 @@ export interface EnhancedSearchResult {
     resultsFromDatabase: number;
     relevanceScoring: boolean;
     queryInterpretation: string;
+    filtersApplied?: {
+      location?: string;
+      scoreRange?: string;
+      skills?: string[];
+      lastActiveDays?: number;
+    };
   };
 }
 
 export class EnhancedDatabaseSearchService {
   static async searchCandidates(options: EnhancedSearchOptions): Promise<EnhancedSearchResult> {
+    return this.searchCandidatesWithFilters(options);
+  }
+
+  static async searchCandidatesWithFilters(options: EnhancedSearchOptions): Promise<EnhancedSearchResult> {
     const startTime = Date.now();
-    const { query, limit = 50, includeQueryParsing = true } = options;
+    const { 
+      query, 
+      location, 
+      minScore = 0, 
+      maxScore = 100, 
+      skills = [], 
+      lastActiveDays,
+      limit = 50, 
+      includeQueryParsing = true 
+    } = options;
     
-    console.log('🔍 Starting enhanced database search:', { query });
+    console.log('🔍 Starting enhanced database search with filters:', { 
+      query, 
+      location, 
+      scoreRange: `${minScore}-${maxScore}`,
+      skills,
+      lastActiveDays
+    });
 
     try {
       // Parse the query for better understanding
       const parsedQuery = includeQueryParsing ? QueryParsingService.parseQuery(query) : null;
-      const filters = parsedQuery ? QueryParsingService.buildDatabaseSearchFilters(parsedQuery) : null;
+      const queryFilters = parsedQuery ? QueryParsingService.buildDatabaseSearchFilters(parsedQuery) : null;
       
       console.log('📊 Parsed query:', parsedQuery);
+      console.log('🔧 Query filters:', queryFilters);
 
       // Build the enhanced database query
       let dbQuery = supabase.from('candidates').select('*');
 
-      if (filters && filters.skills.length > 0) {
-        // Search for skill overlaps with enhanced skills
-        dbQuery = dbQuery.overlaps('skills', filters.skills);
+      // Apply skill filters (combine parsed skills with user-provided skills)
+      const allSkills = [
+        ...(queryFilters?.skills || []),
+        ...(skills || [])
+      ].filter((skill, index, arr) => arr.indexOf(skill) === index); // Remove duplicates
+
+      if (allSkills.length > 0) {
+        console.log('🏷️ Applying skill filters:', allSkills);
+        dbQuery = dbQuery.overlaps('skills', allSkills);
       } else if (query.trim()) {
-        // Fallback to text search
+        // Fallback to text search if no skills identified
         const searchTerms = query.trim().toLowerCase();
         dbQuery = dbQuery.or(`
           name.ilike.%${searchTerms}%,
@@ -52,9 +88,48 @@ export class EnhancedDatabaseSearchService {
         `);
       }
 
-      // Apply location filter if available
-      if (filters?.location) {
-        dbQuery = dbQuery.ilike('location', `%${filters.location}%`);
+      // Apply location filter (prioritize user filter over parsed location)
+      const locationFilter = location || queryFilters?.location;
+      if (locationFilter) {
+        console.log('📍 Applying location filter:', locationFilter);
+        
+        // Enhanced location matching - check for country-city relationships
+        const locationConditions = [`location.ilike.%${locationFilter}%`];
+        
+        // Add country-city mappings
+        const locationMappings = {
+          'india': ['hyderabad', 'bangalore', 'mumbai', 'delhi', 'pune', 'chennai'],
+          'usa': ['new york', 'san francisco', 'seattle', 'austin', 'boston'],
+          'uk': ['london', 'manchester', 'edinburgh', 'birmingham'],
+          'canada': ['toronto', 'vancouver', 'montreal', 'ottawa']
+        };
+
+        const lowerLocation = locationFilter.toLowerCase();
+        for (const [country, cities] of Object.entries(locationMappings)) {
+          if (lowerLocation === country) {
+            cities.forEach(city => {
+              locationConditions.push(`location.ilike.%${city}%`);
+            });
+          } else if (cities.includes(lowerLocation)) {
+            locationConditions.push(`location.ilike.%${country}%`);
+          }
+        }
+
+        dbQuery = dbQuery.or(locationConditions.join(','));
+      }
+
+      // Apply score range filter
+      if (minScore > 0 || maxScore < 100) {
+        console.log('📊 Applying score filter:', `${minScore}-${maxScore}`);
+        dbQuery = dbQuery.gte('overall_score', minScore).lte('overall_score', maxScore);
+      }
+
+      // Apply last active filter
+      if (lastActiveDays && lastActiveDays > 0) {
+        const cutoffDate = new Date();
+        cutoffDate.setDate(cutoffDate.getDate() - lastActiveDays);
+        console.log('⏰ Applying last active filter:', `${lastActiveDays} days (since ${cutoffDate.toISOString()})`);
+        dbQuery = dbQuery.gte('last_active', cutoffDate.toISOString());
       }
 
       // Execute query with enhanced sorting
@@ -69,17 +144,23 @@ export class EnhancedDatabaseSearchService {
         throw error;
       }
 
-      // Apply relevance scoring based on parsed query
+      // Apply relevance scoring based on parsed query and filters
       const rankedCandidates = this.calculateRelevanceScores(
         candidates || [], 
         parsedQuery || null,
-        query
+        query,
+        { location: locationFilter, skills: allSkills }
       );
 
       const processingTime = Date.now() - startTime;
       
       // Generate query interpretation for user feedback
-      const queryInterpretation = this.generateQueryInterpretation(parsedQuery, query);
+      const queryInterpretation = this.generateQueryInterpretation(parsedQuery, query, {
+        location: locationFilter,
+        scoreRange: minScore !== 0 || maxScore !== 100 ? `${minScore}-${maxScore}` : undefined,
+        skills: allSkills,
+        lastActiveDays
+      });
       
       console.log(`✅ Enhanced database search completed in ${processingTime}ms: ${rankedCandidates.length} candidates`);
 
@@ -93,7 +174,13 @@ export class EnhancedDatabaseSearchService {
           processingTime,
           resultsFromDatabase: rankedCandidates.length,
           relevanceScoring: true,
-          queryInterpretation
+          queryInterpretation,
+          filtersApplied: {
+            location: locationFilter,
+            scoreRange: minScore !== 0 || maxScore !== 100 ? `${minScore}-${maxScore}` : undefined,
+            skills: allSkills.length > 0 ? allSkills : undefined,
+            lastActiveDays
+          }
         }
       };
 
@@ -103,7 +190,7 @@ export class EnhancedDatabaseSearchService {
     }
   }
 
-  private static calculateRelevanceScores(candidates: any[], parsedQuery: ParsedQuery | null, originalQuery: string): any[] {
+  private static calculateRelevanceScores(candidates: any[], parsedQuery: ParsedQuery | null, originalQuery: string, filters: any): any[] {
     if (!candidates.length) return candidates;
 
     return candidates.map(candidate => {
@@ -142,15 +229,28 @@ export class EnhancedDatabaseSearchService {
         });
       }
 
+      // Filter-based relevance boost
+      if (filters.location && candidate.location?.toLowerCase().includes(filters.location.toLowerCase())) {
+        relevanceScore += 10;
+      }
+
+      if (filters.skills?.length > 0) {
+        const candidateSkills = candidate.skills || [];
+        const skillMatches = filters.skills.filter(skill => 
+          candidateSkills.some((cs: string) => cs.toLowerCase().includes(skill.toLowerCase()))
+        );
+        relevanceScore += skillMatches.length * 8;
+      }
+
       return {
         ...candidate,
         relevanceScore,
-        matchExplanation: this.generateMatchExplanation(candidate, parsedQuery, originalQuery)
+        matchExplanation: this.generateMatchExplanation(candidate, parsedQuery, originalQuery, filters)
       };
     }).sort((a, b) => b.relevanceScore - a.relevanceScore);
   }
 
-  private static generateMatchExplanation(candidate: any, parsedQuery: ParsedQuery | null, originalQuery: string): string {
+  private static generateMatchExplanation(candidate: any, parsedQuery: ParsedQuery | null, originalQuery: string, filters: any): string {
     const explanations = [];
 
     if (parsedQuery) {
@@ -184,30 +284,54 @@ export class EnhancedDatabaseSearchService {
       }
     }
 
+    // Filter-based matches
+    if (filters.location && candidate.location?.toLowerCase().includes(filters.location.toLowerCase())) {
+      explanations.push(`Location Filter: ${filters.location}`);
+    }
+
+    if (filters.skills?.length > 0) {
+      const candidateSkills = candidate.skills || [];
+      const skillMatches = filters.skills.filter(skill => 
+        candidateSkills.some((cs: string) => cs.toLowerCase().includes(skill.toLowerCase()))
+      );
+      if (skillMatches.length > 0) {
+        explanations.push(`Skill Filter: ${skillMatches.join(', ')}`);
+      }
+    }
+
     return explanations.length > 0 ? explanations.join(' • ') : 'General match';
   }
 
-  private static generateQueryInterpretation(parsedQuery: ParsedQuery | null, originalQuery: string): string {
-    if (!parsedQuery) {
-      return `Searching for: "${originalQuery}"`;
-    }
-
+  private static generateQueryInterpretation(parsedQuery: ParsedQuery | null, originalQuery: string, appliedFilters: any): string {
     const parts = [];
     
-    if (parsedQuery.roleTypes.length > 0) {
+    if (parsedQuery && parsedQuery.roleTypes.length > 0) {
       parts.push(`${parsedQuery.roleTypes[0]}s`);
     } else {
       parts.push('Professionals');
     }
 
-    if (parsedQuery.enhancedSkills.length > 0) {
+    if (parsedQuery && parsedQuery.enhancedSkills.length > 0) {
       parts.push(`skilled in ${parsedQuery.enhancedSkills.slice(0, 3).join(', ')}`);
+    } else if (appliedFilters.skills?.length > 0) {
+      parts.push(`skilled in ${appliedFilters.skills.slice(0, 3).join(', ')}`);
     }
 
-    if (parsedQuery.normalizedLocation.length > 0) {
+    if (appliedFilters.location) {
+      parts.push(`in ${appliedFilters.location}`);
+    } else if (parsedQuery && parsedQuery.normalizedLocation.length > 0) {
       parts.push(`in ${parsedQuery.normalizedLocation[0]}`);
     }
 
-    return `Searching for: ${parts.join(' ')} (Confidence: ${parsedQuery.confidence}%)`;
+    if (appliedFilters.scoreRange) {
+      parts.push(`with score ${appliedFilters.scoreRange}`);
+    }
+
+    if (appliedFilters.lastActiveDays) {
+      parts.push(`active within ${appliedFilters.lastActiveDays} days`);
+    }
+
+    const confidence = parsedQuery?.confidence || 70;
+    return `Searching for: ${parts.join(' ')} (Confidence: ${confidence}%)`;
   }
 }
