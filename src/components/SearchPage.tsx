@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { FilterPanel } from './FilterPanel';
 import { CandidateCard } from './candidates/CandidateCard';
 import { SearchResults } from './candidates/SearchResults';
-import { useSearchWithFilters } from '@/hooks/useSearchWithFilters';
+import { useNewSearchEngine } from '@/hooks/useNewSearchEngine';
 
 export const SearchPage = () => {
   const {
@@ -17,24 +17,52 @@ export const SearchPage = () => {
     searchError,
     filters,
     setFilters,
-    handleSearchWithFilters,
-    findMoreCandidatesWithFilters,
+    handleSearch,
     clearSearch,
     clearFilters
-  } = useSearchWithFilters();
+  } = useNewSearchEngine();
 
   const [inputValue, setInputValue] = React.useState('');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (inputValue.trim()) {
-      handleSearchWithFilters(inputValue.trim());
+      handleSearch(inputValue.trim());
     }
   };
 
   const handleFindMore = () => {
-    findMoreCandidatesWithFilters();
+    if (searchQuery) {
+      handleSearch(searchQuery);
+    }
   };
+
+  // Apply client-side filtering to search results
+  const filteredResults = searchResults.filter(candidate => {
+    // Score range filter
+    const score = candidate.overall_score || candidate.confidence_score || 0;
+    if (score < filters.minScore || score > filters.maxScore) return false;
+    
+    // Location filter
+    if (filters.location && filters.location.trim() !== '') {
+      const candidateLocation = candidate.location || '';
+      const filterLocation = filters.location.toLowerCase().trim();
+      if (!candidateLocation.toLowerCase().includes(filterLocation)) return false;
+    }
+    
+    // Skills filter
+    if (filters.skills && filters.skills.length > 0) {
+      const candidateSkills = candidate.skills || [];
+      const hasMatchingSkill = filters.skills.some(filterSkill => 
+        candidateSkills.some((skill: string) => 
+          skill.toLowerCase().includes(filterSkill.toLowerCase())
+        )
+      );
+      if (!hasMatchingSkill) return false;
+    }
+    
+    return true;
+  });
 
   return (
     <div className="min-h-screen bg-slate-50 py-8">
@@ -45,7 +73,7 @@ export const SearchPage = () => {
             Find Tech Talent
           </h1>
           <p className="text-slate-600">
-            Search across multiple platforms with intelligent filtering
+            Search across multiple platforms with real data collection
           </p>
         </div>
 
@@ -97,17 +125,17 @@ export const SearchPage = () => {
             <SearchResults
               searchQuery={searchQuery}
               isSearching={isSearching}
-              candidateCount={searchResults.length}
+              candidateCount={filteredResults.length}
               searchMetadata={searchMetadata}
               searchError={searchError}
-              onRetry={() => handleSearchWithFilters(searchQuery)}
+              onRetry={() => handleSearch(searchQuery)}
               onFindMore={handleFindMore}
             />
 
             {/* Results Grid */}
-            {searchResults.length > 0 && (
+            {filteredResults.length > 0 && (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {searchResults.map((candidate) => (
+                {filteredResults.map((candidate) => (
                   <CandidateCard 
                     key={candidate.id} 
                     candidate={candidate} 
@@ -117,7 +145,7 @@ export const SearchPage = () => {
             )}
 
             {/* No Results Message */}
-            {searchQuery && !isSearching && searchResults.length === 0 && !searchError && (
+            {searchQuery && !isSearching && filteredResults.length === 0 && !searchError && (
               <div className="text-center py-12">
                 <div className="max-w-md mx-auto">
                   <Search className="h-12 w-12 text-slate-400 mx-auto mb-4" />
@@ -141,11 +169,11 @@ export const SearchPage = () => {
           <div className="text-center py-16">
             <Search className="h-16 w-16 text-slate-400 mx-auto mb-6" />
             <h2 className="text-2xl font-semibold text-slate-900 mb-4">
-              Start Your Search
+              Start Your Real Data Search
             </h2>
             <p className="text-slate-600 max-w-2xl mx-auto mb-8">
               Search for developers using natural language queries. Our AI will parse your requirements 
-              and find relevant candidates across multiple platforms with intelligent filtering.
+              and find real candidates across LinkedIn (via Apify), GitHub, StackOverflow, and Google with intelligent filtering.
             </p>
             <div className="space-y-2 text-sm text-slate-500">
               <p>Try searching for:</p>
@@ -160,7 +188,7 @@ export const SearchPage = () => {
                     key={example}
                     onClick={() => {
                       setInputValue(example);
-                      handleSearchWithFilters(example);
+                      handleSearch(example);
                     }}
                     className="px-3 py-1 bg-slate-100 hover:bg-slate-200 rounded-full text-slate-700 transition-colors"
                   >

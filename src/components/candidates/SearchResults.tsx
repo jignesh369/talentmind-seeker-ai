@@ -1,10 +1,11 @@
+
 import React from 'react';
 import { SearchResultsHeader } from './SearchResultsHeader';
 import { SearchResultsBadges } from './SearchResultsBadges';
 import { SearchResultsMetadata } from './SearchResultsMetadata';
 import { SearchResultsError } from './SearchResultsError';
 import { Button } from '@/components/ui/button';
-import { Search, Database } from 'lucide-react';
+import { Search, Database, Zap, Shield } from 'lucide-react';
 import { QueryInterpretation } from '../search/QueryInterpretation';
 
 interface SearchResultsProps {
@@ -85,20 +86,44 @@ export const SearchResults = ({
             searchError={searchError}
           />
           
-          {searchMetadata?.searchType === 'enhanced_database' && (
-            <div className="flex items-center gap-2 mt-2 text-sm text-slate-600">
-              <Database className="h-4 w-4" />
-              <span>Enhanced search with query parsing</span>
+          {/* Real Data Collection System Status */}
+          {searchMetadata && (
+            <div className="flex items-center gap-4 mt-3 text-sm">
+              {/* Data Sources Used */}
+              {searchMetadata.sourcesUsed && (
+                <div className="flex items-center gap-2 text-blue-600">
+                  <Database className="h-4 w-4" />
+                  <span>Sources: {searchMetadata.sourcesUsed.join(', ')}</span>
+                </div>
+              )}
+              
+              {/* Processing Time */}
               {searchMetadata.processingTime && (
-                <span className="text-slate-400">
-                  • {searchMetadata.processingTime}ms
-                </span>
+                <div className="flex items-center gap-2 text-green-600">
+                  <Zap className="h-4 w-4" />
+                  <span>{searchMetadata.processingTime}ms</span>
+                </div>
               )}
-              {searchMetadata.relevanceScoring && (
-                <span className="text-green-600">
-                  • Relevance scored
-                </span>
+              
+              {/* Confidence Score */}
+              {searchMetadata.confidence && (
+                <div className="flex items-center gap-2 text-purple-600">
+                  <Shield className="h-4 w-4" />
+                  <span>{searchMetadata.confidence}% confidence</span>
+                </div>
               )}
+            </div>
+          )}
+          
+          {/* Error Information */}
+          {searchMetadata?.errors && searchMetadata.errors.length > 0 && (
+            <div className="mt-2 text-sm text-orange-600">
+              <span>Some sources unavailable: </span>
+              {searchMetadata.errors.map((error: any, index: number) => (
+                <span key={index}>
+                  {error.source}{index < searchMetadata.errors.length - 1 ? ', ' : ''}
+                </span>
+              ))}
             </div>
           )}
         </div>

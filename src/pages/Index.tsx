@@ -9,7 +9,7 @@ import { SearchResults } from '../components/candidates/SearchResults';
 import { CandidatesList } from '../components/candidates/CandidatesList';
 import { useCandidates } from '../hooks/useCandidates';
 import { useAuth } from '../hooks/useAuth';
-import { useSearch } from '../hooks/useSearch';
+import { useNewSearchEngine } from '../hooks/useNewSearchEngine';
 import { useFilters } from '../hooks/useFilters';
 import { useUIState } from '../hooks/useUIState';
 import { useToast } from '@/hooks/use-toast';
@@ -24,12 +24,9 @@ const Index = () => {
     isSearching, 
     searchMetadata, 
     searchError,
-    retryCount,
     handleSearch, 
-    clearSearch,
-    retrySearch,
-    findMoreCandidates
-  } = useSearch();
+    clearSearch
+  } = useNewSearchEngine();
   const { filters, setFilters, applyFilters } = useFilters();
   const { isFilterOpen, setIsFilterOpen, isDataCollectionOpen, setIsDataCollectionOpen } = useUIState();
 
@@ -41,7 +38,7 @@ const Index = () => {
     });
   };
 
-  // Use search results if available, otherwise use all candidates
+  // Use new search results if available, otherwise use all candidates
   const displayCandidates = searchResults.length > 0 ? searchResults : candidates;
   const filteredCandidates = applyFilters(displayCandidates);
 
@@ -57,6 +54,27 @@ const Index = () => {
       toast({
         title: "Error",
         description: "Failed to refresh data. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleFindMore = async () => {
+    if (!searchQuery) return;
+    
+    try {
+      // Re-run search to find more candidates using the new engine
+      await handleSearch(searchQuery);
+      
+      toast({
+        title: "Search expanded",
+        description: "Searching for additional candidates across all sources",
+      });
+    } catch (error) {
+      console.error('Error finding more candidates:', error);
+      toast({
+        title: "Search failed",
+        description: "Unable to find more candidates at this time",
         variant: "destructive",
       });
     }
@@ -88,9 +106,9 @@ const Index = () => {
               candidateCount={filteredCandidates.length}
               searchMetadata={searchMetadata}
               searchError={searchError}
-              retryCount={retryCount}
-              onRetry={retrySearch}
-              onFindMore={findMoreCandidates}
+              retryCount={0}
+              onRetry={() => handleSearch(searchQuery)}
+              onFindMore={handleFindMore}
             />
 
             {/* Filter Panel */}
