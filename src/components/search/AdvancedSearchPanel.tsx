@@ -41,10 +41,6 @@ export const AdvancedSearchPanel = ({
     onSearch(query, filters);
   };
 
-  const handleAddToHistory = (addFunction: any) => {
-    // This will be called by SearchHistoryPanel to provide its addToHistory function
-  };
-
   const handleBooleanSearch = (query: string) => {
     onSearch(query);
   };
@@ -113,7 +109,6 @@ export const AdvancedSearchPanel = ({
                 {activeTab === 'history' && (
                   <SearchHistoryPanel
                     onLoadSearch={handleLoadSearch}
-                    onAddToHistory={handleAddToHistory}
                   />
                 )}
                 

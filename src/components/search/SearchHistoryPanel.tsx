@@ -16,15 +16,14 @@ interface SearchHistoryItem {
 
 interface SearchHistoryPanelProps {
   onLoadSearch: (query: string, filters?: any) => void;
-  onAddToHistory: (item: Omit<SearchHistoryItem, 'id' | 'timestamp'>) => void;
 }
 
-export const SearchHistoryPanel = ({ onLoadSearch, onAddToHistory }: SearchHistoryPanelProps) => {
+export const SearchHistoryPanel = ({ onLoadSearch }: SearchHistoryPanelProps) => {
   const [searchHistory, setSearchHistory] = useState<SearchHistoryItem[]>([]);
   const [showAll, setShowAll] = useState(false);
   const { toast } = useToast();
 
-  // Add search to history
+  // Add search to history - this will be called externally
   const addToHistory = (item: Omit<SearchHistoryItem, 'id' | 'timestamp'>) => {
     const historyItem: SearchHistoryItem = {
       ...item,
@@ -38,11 +37,6 @@ export const SearchHistoryPanel = ({ onLoadSearch, onAddToHistory }: SearchHisto
       return [historyItem, ...filtered].slice(0, 50); // Keep max 50 items
     });
   };
-
-  // Expose addToHistory function to parent
-  useEffect(() => {
-    onAddToHistory(addToHistory);
-  }, [onAddToHistory]);
 
   const handleLoadSearch = (item: SearchHistoryItem) => {
     onLoadSearch(item.query, item.filters);
