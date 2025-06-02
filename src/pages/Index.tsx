@@ -7,6 +7,7 @@ import { DataCollectionDrawer } from '../components/DataCollectionDrawer';
 import { Header } from '../components/layout/Header';
 import { SearchResults } from '../components/candidates/SearchResults';
 import { CandidatesList } from '../components/candidates/CandidatesList';
+import { EnhancedSearchInterface } from '../components/search/EnhancedSearchInterface';
 import { useCandidates } from '../hooks/useCandidates';
 import { useAuth } from '../hooks/useAuth';
 import { useNewSearchEngine } from '../hooks/useNewSearchEngine';
@@ -95,8 +96,18 @@ const Index = () => {
         <StatsOverview totalCandidates={displayCandidates.length} />
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mt-8">
-          {/* Left Sidebar - Chat Only */}
-          <div className="lg:col-span-1">
+          {/* Left Sidebar - Enhanced Search Interface */}
+          <div className="lg:col-span-1 space-y-6">
+            <div className="bg-white rounded-lg border border-slate-200 p-6">
+              <h2 className="text-lg font-semibold mb-4">AI-Powered Search</h2>
+              <EnhancedSearchInterface
+                onSearch={handleSearch}
+                isSearching={isSearching}
+                searchQuery={searchQuery}
+              />
+            </div>
+            
+            {/* Chat Interface */}
             <ChatInterface onSearch={handleSearch} />
           </div>
 
