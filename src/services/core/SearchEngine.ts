@@ -1,4 +1,3 @@
-
 import { DataSourcePlugin } from './DataSourcePlugin';
 import { QueryParser } from './QueryParser';
 import { ScoreCalculator } from './ScoreCalculator';
@@ -28,12 +27,6 @@ export interface SearchResult {
     queryInterpretation: string;
     confidence: number;
     errors: Array<{ source: string; error: string }>;
-    stackoverflowEnrichment?: {
-      applied: boolean;
-      enrichedCount: number;
-      totalProcessed: number;
-      averageConfidence: number;
-    };
   };
 }
 

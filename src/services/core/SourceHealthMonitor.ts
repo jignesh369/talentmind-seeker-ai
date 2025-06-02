@@ -38,9 +38,6 @@ export class SourceHealthMonitor {
         case 'github':
           isAvailable = await this.checkGitHubHealth();
           break;
-        case 'stackoverflow':
-          isAvailable = await this.checkStackOverflowHealth();
-          break;
         case 'google':
           isAvailable = await this.checkGoogleHealth();
           break;
@@ -86,15 +83,6 @@ export class SourceHealthMonitor {
     }
   }
 
-  private static async checkStackOverflowHealth(): Promise<boolean> {
-    try {
-      const response = await fetch('https://api.stackexchange.com/2.3/info?site=stackoverflow');
-      return response.ok;
-    } catch {
-      return false;
-    }
-  }
-
   private static async checkGoogleHealth(): Promise<boolean> {
     // For Google Custom Search, we'll assume it's available
     // Real implementation would check API quota
@@ -108,7 +96,7 @@ export class SourceHealthMonitor {
   }
 
   static async getAvailableSources(): Promise<string[]> {
-    const sources = ['github', 'stackoverflow', 'google', 'linkedin'];
+    const sources = ['github', 'google', 'linkedin'];
     const healthResults = await Promise.all(
       sources.map(source => this.checkSourceHealth(source))
     );
@@ -122,10 +110,9 @@ export class SourceHealthMonitor {
     const availableSources = await this.getAvailableSources();
     const recommendations: string[] = [];
 
-    // AI/ML related queries work well with GitHub and StackOverflow
+    // AI/ML related queries work well with GitHub
     if (query.toLowerCase().includes('ai') || query.toLowerCase().includes('machine learning')) {
       if (availableSources.includes('github')) recommendations.push('github');
-      if (availableSources.includes('stackoverflow')) recommendations.push('stackoverflow');
     }
 
     // Professional role queries work well with LinkedIn
