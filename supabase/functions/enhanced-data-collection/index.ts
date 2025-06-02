@@ -7,15 +7,6 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-// Background task tracking
-let isShuttingDown = false;
-
-// Listen for shutdown events
-addEventListener('beforeunload', (ev) => {
-  isShuttingDown = true;
-  console.log('Function shutdown initiated:', ev.detail?.reason);
-});
-
 // Enhanced error handler
 function handleError(error: any, context: string): Response {
   console.error(`❌ Error in ${context}:`, error);
@@ -32,7 +23,7 @@ function handleError(error: any, context: string): Response {
   );
 }
 
-// Enhanced collection orchestrator
+// Enhanced collection orchestrator with better error handling
 async function orchestrateCollection(
   query: string, 
   location: string | undefined, 
@@ -47,7 +38,7 @@ async function orchestrateCollection(
 
   console.log(`🚀 Starting collection with ${timeBudget}s budget for sources: ${sources.join(', ')}`);
 
-  // Process sources with timeout management
+  // Process sources with improved timeout management
   const sourcePromises = sources.map(async (source) => {
     const sourceStartTime = Date.now();
     const sourceTimeout = Math.min((timeBudget * 1000) / sources.length, 25000); // Max 25s per source
@@ -61,12 +52,17 @@ async function orchestrateCollection(
         controller.abort();
       }, sourceTimeout);
 
+      // Create the request body with proper data types
+      const requestBody = { 
+        query: String(query).trim(), 
+        location: location ? String(location).trim() : undefined,
+        time_budget: Math.floor(sourceTimeout / 1000) - 2 // Reserve 2s for processing
+      };
+
+      console.log(`🔧 Calling ${source} with:`, requestBody);
+
       const response = await supabase.functions.invoke(`collect-${source}-data`, {
-        body: { 
-          query: query.trim(), 
-          location: location?.trim(),
-          time_budget: Math.floor(sourceTimeout / 1000) - 2 // Reserve 2s for processing
-        },
+        body: requestBody,
         signal: controller.signal
       });
 
@@ -84,7 +80,9 @@ async function orchestrateCollection(
         total: candidateCount,
         validated: candidateCount,
         processing_time: Date.now() - sourceStartTime,
-        success: true
+        success: true,
+        success_count: sourceData.success_count || candidateCount,
+        error_count: sourceData.error_count || 0
       };
       
       totalCandidates += candidateCount;
@@ -106,7 +104,8 @@ async function orchestrateCollection(
         total: 0,
         validated: 0,
         error: errorMessage,
-        success: false
+        success: false,
+        processing_time: Date.now() - sourceStartTime
       };
       
       return { source, success: false, error: errorMessage };
@@ -193,7 +192,7 @@ serve(async (req) => {
       total_validated: collectionResult.totalCandidates,
       query: query.trim(),
       location: location?.trim(),
-      enhancement_phase: 'Phase 5.1 - Comprehensive Fix',
+      enhancement_phase: 'Phase 5.2 - Critical Fix',
       
       quality_metrics: {
         validation_rate: collectionResult.totalCandidates > 0 ? '100%' : '0%',
