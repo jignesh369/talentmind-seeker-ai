@@ -1,4 +1,3 @@
-
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
@@ -71,15 +70,19 @@ serve(async (req) => {
             requestBody = { ...requestBody, location }
             break
           case 'linkedin':
-            // Use the enhanced LinkedIn workflow (Google + Apify) - NO OLD FUNCTION CALLS
+            // Use the enhanced LinkedIn workflow (Google + Apify) - SIMPLIFIED SEARCH
             console.log('🔄 Starting enhanced LinkedIn workflow (Google + Apify)...')
             
             try {
-              // Step 1: Discover LinkedIn profile URLs using Google Search
+              // Step 1: Discover LinkedIn profile URLs using simpler Google Search
               console.log('📍 Phase 1: Discovering LinkedIn profiles via Google Search')
+              
+              // Use simpler search query - just the core query terms
+              const simpleQuery = query.replace(/\s+and\s+/gi, ' ').replace(/\s+in\s+/gi, ' ')
+              
               const discoveryResponse = await supabase.functions.invoke('discover-linkedin-profiles', {
                 body: {
-                  searchQuery: `site:linkedin.com/in "${query}"${location ? ` AND "${location}"` : ''}`,
+                  searchQuery: simpleQuery,
                   maxResults: 20
                 }
               })
@@ -93,12 +96,56 @@ serve(async (req) => {
               const profileUrls = discoveryResponse.data?.profileUrls || []
               
               if (profileUrls.length === 0) {
-                console.log('📭 No LinkedIn profile URLs found')
-                collectionResults[source] = {
-                  candidates: [],
-                  total: 0,
-                  error: 'No LinkedIn profiles found in search results'
+                console.log('📭 No LinkedIn profile URLs found - trying fallback search')
+                
+                // Try a more general search as fallback
+                const fallbackResponse = await supabase.functions.invoke('discover-linkedin-profiles', {
+                  body: {
+                    searchQuery: `developer ${simpleQuery.split(' ')[0]}`,
+                    maxResults: 10
+                  }
+                })
+                
+                const fallbackUrls = fallbackResponse.data?.profileUrls || []
+                
+                if (fallbackUrls.length === 0) {
+                  collectionResults[source] = {
+                    candidates: [],
+                    total: 0,
+                    error: 'No LinkedIn profiles found in search results'
+                  }
+                  return
                 }
+                
+                console.log(`✅ Fallback search found ${fallbackUrls.length} LinkedIn profile URLs`)
+                
+                // Use fallback URLs for scraping
+                const scrapingResponse = await supabase.functions.invoke('scrape-linkedin-profiles', {
+                  body: {
+                    profileUrls: fallbackUrls,
+                    originalQuery: query
+                  }
+                })
+
+                if (scrapingResponse.error) {
+                  console.error(`❌ LinkedIn scraping failed:`, scrapingResponse.error)
+                  collectionResults[source].error = scrapingResponse.error.message
+                  return
+                }
+
+                const candidates = scrapingResponse.data?.candidates || []
+                console.log(`✅ Fallback scraping complete: Got ${candidates.length} candidates`)
+                
+                // Apply quality validation
+                const qualifiedCandidates = await validateCandidateQuality(candidates, query, qualityThreshold)
+                
+                collectionResults[source] = {
+                  candidates: qualifiedCandidates,
+                  total: qualifiedCandidates.length,
+                  error: null
+                }
+
+                console.log(`✅ LinkedIn fallback workflow: ${qualifiedCandidates.length}/${candidates.length} candidates passed quality threshold`)
                 return
               }
 

@@ -41,25 +41,53 @@ serve(async (req) => {
     console.log('🔍 Searching for LinkedIn profiles:', searchQuery)
 
     const profileUrls: string[] = []
-    const searchUrl = `https://www.googleapis.com/customsearch/v1?key=${googleApiKey}&cx=${searchEngineId}&q=${encodeURIComponent(searchQuery)}&num=${Math.min(maxResults, 10)}`
     
-    const response = await fetch(searchUrl)
-    
-    if (!response.ok) {
-      console.error(`❌ Google Search API error: ${response.status}`)
-      throw new Error(`Google Search API error: ${response.status}`)
-    }
-    
-    const data = await response.json()
-    
-    if (data.items && data.items.length > 0) {
-      for (const item of data.items) {
-        const url = item.link
+    // Try multiple search strategies
+    const searchStrategies = [
+      `site:linkedin.com/in ${searchQuery}`,
+      `"linkedin.com/in" ${searchQuery}`,
+      `${searchQuery} linkedin profile`,
+      `${searchQuery} site:linkedin.com`
+    ]
+
+    for (const query of searchStrategies) {
+      try {
+        console.log(`🔍 Trying search: ${query}`)
+        const searchUrl = `https://www.googleapis.com/customsearch/v1?key=${googleApiKey}&cx=${searchEngineId}&q=${encodeURIComponent(query)}&num=10`
         
-        // Validate LinkedIn profile URL
-        if (isValidLinkedInProfileUrl(url)) {
-          profileUrls.push(url)
+        const response = await fetch(searchUrl)
+        
+        if (!response.ok) {
+          console.error(`❌ Google Search API error: ${response.status}`)
+          continue
         }
+        
+        const data = await response.json()
+        console.log(`📊 Found ${data.items?.length || 0} results for query: ${query}`)
+        
+        if (data.items && data.items.length > 0) {
+          for (const item of data.items) {
+            const url = item.link
+            
+            // Validate LinkedIn profile URL
+            if (isValidLinkedInProfileUrl(url) && !profileUrls.includes(url)) {
+              profileUrls.push(url)
+              console.log(`✅ Found valid LinkedIn URL: ${url}`)
+            }
+          }
+        }
+
+        // Stop if we have enough URLs
+        if (profileUrls.length >= maxResults) {
+          break
+        }
+
+        // Add delay between requests
+        await new Promise(resolve => setTimeout(resolve, 1000))
+        
+      } catch (error) {
+        console.error(`❌ Error in search strategy "${query}":`, error)
+        continue
       }
     }
 
@@ -67,7 +95,7 @@ serve(async (req) => {
 
     return new Response(
       JSON.stringify({ 
-        profileUrls,
+        profileUrls: profileUrls.slice(0, maxResults),
         totalFound: profileUrls.length,
         searchQuery
       }),
@@ -92,11 +120,18 @@ serve(async (req) => {
 function isValidLinkedInProfileUrl(url: string): boolean {
   try {
     const urlObj = new URL(url)
-    return urlObj.hostname === 'www.linkedin.com' && 
-           urlObj.pathname.startsWith('/in/') && 
-           !urlObj.pathname.includes('/company/') &&
-           !urlObj.pathname.includes('/school/') &&
-           !urlObj.pathname.includes('/jobs/')
+    const isLinkedIn = urlObj.hostname === 'www.linkedin.com' || urlObj.hostname === 'linkedin.com'
+    const isProfile = urlObj.pathname.startsWith('/in/') && 
+                     !urlObj.pathname.includes('/company/') &&
+                     !urlObj.pathname.includes('/school/') &&
+                     !urlObj.pathname.includes('/jobs/') &&
+                     !urlObj.pathname.includes('/posts/') &&
+                     !urlObj.pathname.includes('/activity/')
+    
+    // Make sure it's not just the base /in/ path
+    const hasUsername = urlObj.pathname.length > 4 && urlObj.pathname !== '/in/'
+    
+    return isLinkedIn && isProfile && hasUsername
   } catch {
     return false
   }
