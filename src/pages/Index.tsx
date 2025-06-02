@@ -5,7 +5,7 @@ import { StatsOverview } from '../components/StatsOverview';
 import { Header } from '../components/layout/Header';
 import { SimplifiedSearchResults } from '../components/candidates/SimplifiedSearchResults';
 import { CandidatesList } from '../components/candidates/CandidatesList';
-import { EnhancedUnifiedInterface } from '../components/search/EnhancedUnifiedInterface';
+import { ModernSearchInterface } from '../components/search/ModernSearchInterface';
 import { useCandidates } from '../hooks/useCandidates';
 import { useAuth } from '../hooks/useAuth';
 import { useNewSearchEngine } from '../hooks/useNewSearchEngine';
@@ -93,9 +93,9 @@ const Index = () => {
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <StatsOverview totalCandidates={displayCandidates.length} />
 
-        {/* Enhanced Search and Collection Interface */}
+        {/* Modern Hero Search Interface */}
         <div className="mt-8 mb-6">
-          <EnhancedUnifiedInterface
+          <ModernSearchInterface
             onSearch={handleSearch}
             isSearching={isSearching}
             searchQuery={searchQuery}
