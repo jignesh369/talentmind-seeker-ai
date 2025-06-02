@@ -27,7 +27,8 @@ const Index = () => {
     retryCount,
     handleSearch, 
     clearSearch,
-    retrySearch
+    retrySearch,
+    findMoreCandidates
   } = useSearch();
   const { filters, setFilters, applyFilters } = useFilters();
   const { isFilterOpen, setIsFilterOpen, isDataCollectionOpen, setIsDataCollectionOpen } = useUIState();
@@ -43,6 +44,14 @@ const Index = () => {
   // Use search results if available, otherwise use all candidates
   const displayCandidates = searchResults.length > 0 ? searchResults : candidates;
   const filteredCandidates = applyFilters(displayCandidates);
+
+  const handleDataCollected = () => {
+    refetch();
+    // If we have an active search, refresh the search results
+    if (searchQuery) {
+      handleSearch(searchQuery);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100">
@@ -72,6 +81,7 @@ const Index = () => {
               searchError={searchError}
               retryCount={retryCount}
               onRetry={retrySearch}
+              onFindMore={findMoreCandidates}
             />
 
             {/* Filter Panel */}
@@ -97,7 +107,7 @@ const Index = () => {
       <DataCollectionDrawer 
         isOpen={isDataCollectionOpen} 
         onClose={() => setIsDataCollectionOpen(false)}
-        onDataCollected={refetch}
+        onDataCollected={handleDataCollected}
       />
     </div>
   );

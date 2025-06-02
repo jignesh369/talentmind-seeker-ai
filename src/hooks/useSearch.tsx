@@ -1,9 +1,10 @@
 
 import { useState } from 'react';
-import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from './useAuth';
 import { useToast } from './use-toast';
 import { Button } from '@/components/ui/button';
+import { DatabaseSearchService, DatabaseSearchOptions } from '@/services/databaseSearchService';
+import { DataCollectionService } from '@/services/dataCollectionService';
 
 interface SearchError {
   type: 'validation' | 'network' | 'service' | 'unknown';
@@ -114,61 +115,25 @@ export const useSearch = () => {
     }
 
     try {
-      console.log('🔍 Starting robust search with query:', query);
+      console.log('🔍 Starting fast database search with query:', query);
       
-      // Call the improved search function with timeout
-      const searchPromise = supabase.functions.invoke('search-candidates', {
-        body: { query: query.trim(), user_id: user.id }
-      });
+      // Use database search service
+      const searchOptions: DatabaseSearchOptions = {
+        query: query.trim(),
+        limit: 50
+      };
 
-      // Add timeout wrapper
-      const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('Search request timed out')), 15000);
-      });
-
-      const searchResponse = await Promise.race([searchPromise, timeoutPromise]) as any;
-
-      if (searchResponse.error) {
-        console.error('❌ Search failed:', searchResponse.error);
-        throw new Error(searchResponse.error.message || 'Search failed');
-      }
-
-      if (!searchResponse.data) {
-        throw new Error('No data returned from search service');
-      }
-
-      const searchData = searchResponse.data;
-      const candidates = searchData.candidates || [];
+      const searchResult = await DatabaseSearchService.hybridSearch(searchOptions);
       
-      setSearchResults(candidates);
-      setSearchMetadata({
-        search_strategies: searchData.search_strategies,
-        fallback_used: searchData.fallback_used,
-        parsed_criteria: searchData.parsed_criteria,
-        total_results: searchData.total_results,
-        query_validation: searchData.query_validation,
-        service_status: searchData.service_status
-      });
+      setSearchResults(searchResult.candidates);
+      setSearchMetadata(searchResult.searchMetadata);
       
-      // Success feedback with enhanced details
-      const resultCount = candidates.length;
+      // Success feedback
+      const resultCount = searchResult.candidates.length;
       let toastDescription = `Found ${resultCount} candidates`;
       
-      if (searchData.fallback_used) {
-        toastDescription += " (showing top candidates due to broad search criteria)";
-      } else if (searchData.search_strategies) {
-        const strategyCounts = Object.values(searchData.search_strategies)
-          .map((s: any) => s.count)
-          .filter(count => count > 0);
-        
-        if (strategyCounts.length > 1) {
-          toastDescription += ` using ${strategyCounts.length} search strategies`;
-        }
-      }
-      
-      // Add quality indicator
-      if (searchData.service_status === 'degraded') {
-        toastDescription += " (search service running in degraded mode)";
+      if (searchResult.searchMetadata.fallbackUsed) {
+        toastDescription += " (showing existing candidates - try 'Find More' for comprehensive search)";
       }
       
       toast({
@@ -176,11 +141,10 @@ export const useSearch = () => {
         description: toastDescription,
       });
 
-      console.log('✅ Robust search completed successfully:', {
+      console.log('✅ Database search completed successfully:', {
         query,
         resultCount,
-        strategies: searchData.search_strategies,
-        fallbackUsed: searchData.fallback_used,
+        processingTime: searchResult.searchMetadata.processingTime,
         retryCount
       });
 
@@ -234,6 +198,45 @@ export const useSearch = () => {
     }
   };
 
+  const findMoreCandidates = async () => {
+    if (!searchQuery || !user) return;
+
+    setIsSearching(true);
+    
+    try {
+      console.log('🔍 Starting comprehensive data collection for:', searchQuery);
+      
+      // Use data collection service to find more candidates
+      const collectionResult = await DataCollectionService.collectCandidates({
+        query: searchQuery,
+        sources: ['github', 'stackoverflow', 'linkedin'],
+        timeBudget: 60 // 1 minute
+      });
+
+      // Combine existing search results with new data collection results
+      // Note: The data collection service saves candidates to the database,
+      // so we'll need to re-run the database search to get the updated results
+      
+      toast({
+        title: "Data collection completed",
+        description: `Found ${collectionResult.total_candidates} additional candidates`,
+      });
+
+      // Re-run database search to get updated results
+      await handleSearch(searchQuery);
+      
+    } catch (error: any) {
+      console.error('❌ Data collection error:', error);
+      toast({
+        title: "Data collection failed",
+        description: "Unable to find more candidates at this time",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
   const clearSearch = () => {
     setSearchQuery('');
     setSearchResults([]);
@@ -257,6 +260,7 @@ export const useSearch = () => {
     retryCount,
     handleSearch,
     clearSearch,
-    retrySearch
+    retrySearch,
+    findMoreCandidates
   };
 };
