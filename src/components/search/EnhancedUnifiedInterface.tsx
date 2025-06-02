@@ -39,7 +39,7 @@ export const EnhancedUnifiedInterface = ({
   // Data collection state
   const [query, setQuery] = useState("");
   const [location, setLocation] = useState("");
-  const [sources, setSources] = useState<string[]>(['github', 'stackoverflow', 'linkedin', 'google']);
+  const [sources, setSources] = useState<string[]>(['github', 'linkedin', 'google']);
   const [isCollecting, setIsCollecting] = useState(false);
   const [collectionResult, setCollectionResult] = useState<any>(null);
   const [collectionSources, setCollectionSources] = useState<any[]>([]);

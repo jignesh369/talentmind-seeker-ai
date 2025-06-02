@@ -21,7 +21,7 @@ export class NewDataCollectionService {
   }
 
   private initializePlugins(): void {
-    // Register data source plugins (StackOverflow removed)
+    // Register data source plugins
     this.searchEngine.registerPlugin('linkedin', new LinkedInApifyPlugin());
     this.searchEngine.registerPlugin('github', new GitHubRealPlugin());
     this.searchEngine.registerPlugin('google', new GoogleSearchRealPlugin());

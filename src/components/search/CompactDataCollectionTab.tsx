@@ -21,7 +21,6 @@ interface CompactDataCollectionTabProps {
 
 const sourceOptions = [
   { id: 'github', label: 'GitHub', color: 'bg-gray-100 text-gray-800' },
-  { id: 'stackoverflow', label: 'Stack Overflow', color: 'bg-orange-100 text-orange-800' },
   { id: 'linkedin', label: 'LinkedIn', color: 'bg-blue-100 text-blue-800' },
   { id: 'google', label: 'Google', color: 'bg-green-100 text-green-800' }
 ];

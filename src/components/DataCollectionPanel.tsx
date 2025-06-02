@@ -8,7 +8,7 @@ import { DeduplicationStatsCard } from './DeduplicationStatsCard';
 export const DataCollectionPanel = () => {
   const [query, setQuery] = useState('');
   const [location, setLocation] = useState('');
-  const [selectedSources, setSelectedSources] = useState(['github', 'stackoverflow', 'google']);
+  const [selectedSources, setSelectedSources] = useState(['github', 'google']);
   const { collectData, isCollecting, collectionResult, progress } = useEnhancedDataCollection();
   const { refetch } = useCandidates();
 
@@ -25,7 +25,6 @@ export const DataCollectionPanel = () => {
 
   const sources = [
     { id: 'github', name: 'GitHub', icon: Github, description: 'Developers with public repositories' },
-    { id: 'stackoverflow', name: 'Stack Overflow', icon: Users, description: 'Active community contributors' },
     { id: 'google', name: 'Google Search', icon: Globe, description: 'General web presence and portfolios' }
   ];
 
@@ -119,7 +118,7 @@ export const DataCollectionPanel = () => {
       {isCollecting && progress && (
         <div className="mt-4 p-3 bg-blue-50 border border-blue-100 rounded-lg">
           <div className="flex items-center space-x-2">
-            <Loader2 className="w-4 h-4 text-blue-500 animate-spin" />
+            <Loader2 className="w-4 w-4 text-blue-500 animate-spin" />
             <p className="text-sm text-blue-700">{progress}</p>
           </div>
         </div>

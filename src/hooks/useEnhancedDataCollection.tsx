@@ -67,7 +67,7 @@ export const useEnhancedDataCollection = () => {
   const collectData = async (
     query: string, 
     location?: string, 
-    sources: string[] = ['github', 'stackoverflow', 'linkedin', 'google']
+    sources: string[] = ['github', 'linkedin', 'google']
   ): Promise<DataCollectionResponse | null> => {
     if (!user) {
       toast({

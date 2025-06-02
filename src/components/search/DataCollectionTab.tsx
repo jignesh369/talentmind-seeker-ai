@@ -23,7 +23,6 @@ interface DataCollectionTabProps {
 
 const sourceOptions = [
   { id: 'github', label: 'GitHub', description: 'Open source developers' },
-  { id: 'stackoverflow', label: 'Stack Overflow', description: 'Technical experts' },
   { id: 'linkedin', label: 'LinkedIn (Apify)', description: 'Professional profiles' },
   { id: 'google', label: 'Google Search', description: 'Web presence' }
 ];
@@ -52,7 +51,7 @@ export const DataCollectionTab = ({
             Collect new candidates from external sources
           </p>
           <p className="text-xs text-green-700">
-            GitHub • Stack Overflow • LinkedIn • Google Search
+            GitHub • LinkedIn • Google Search
           </p>
         </div>
       </div>

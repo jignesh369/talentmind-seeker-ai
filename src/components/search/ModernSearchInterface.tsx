@@ -32,7 +32,7 @@ export const ModernSearchInterface = ({
   
   // Collection state
   const [location, setLocation] = useState("");
-  const [sources, setSources] = useState<string[]>(['github', 'stackoverflow', 'linkedin', 'google']);
+  const [sources, setSources] = useState<string[]>(['github', 'linkedin', 'google']);
   const [isCollecting, setIsCollecting] = useState(false);
   const [collectionProgress, setCollectionProgress] = useState(0);
 
@@ -178,7 +178,7 @@ export const ModernSearchInterface = ({
                 <div className="flex items-center gap-2">
                   <span className="text-sm text-slate-600 min-w-fit">Sources:</span>
                   <div className="flex flex-wrap gap-1">
-                    {['github', 'stackoverflow', 'linkedin', 'google'].map((source) => (
+                    {['github', 'linkedin', 'google'].map((source) => (
                       <Badge
                         key={source}
                         variant={sources.includes(source) ? "default" : "outline"}
