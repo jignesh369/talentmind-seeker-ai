@@ -1,3 +1,4 @@
+
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { EnhancedProgressiveCollector } from './enhanced-progressive-collector.ts'
@@ -6,6 +7,92 @@ import { ResultQualityGuarantor } from './result-quality-guarantor.ts'
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+}
+
+// Helper functions moved outside of serve
+const applyComprehensiveAIEnhancements = async (candidates: any[], timeoutMs: number): Promise<any[]> => {
+  const startTime = Date.now()
+  const enhancedCandidates = []
+  
+  for (const candidate of candidates) {
+    if (Date.now() - startTime > timeoutMs) {
+      console.log(`⏱️ AI enhancement timeout after ${enhancedCandidates.length} candidates`)
+      break
+    }
+    
+    // Apply comprehensive enhancements
+    const enhanced = {
+      ...candidate,
+      summary: enhanceSummary(candidate),
+      skills: normalizeAndEnhanceSkills(candidate.skills || []),
+      title: enhanceTitle(candidate),
+      overall_score: recalculateEnhancedScore(candidate),
+      ai_enhanced: true,
+      ai_enhancement_level: 'comprehensive',
+      ai_enhancement_timestamp: new Date().toISOString()
+    }
+    
+    enhancedCandidates.push(enhanced)
+  }
+  
+  return enhancedCandidates
+}
+
+const enhanceSummary = (candidate: any): string => {
+  if (!candidate.summary || candidate.summary.length < 100) {
+    const name = candidate.name || 'This professional'
+    const title = candidate.title || 'developer'
+    const experience = candidate.experience_years || 'several years of'
+    const skills = candidate.skills?.slice(0, 3)?.join(', ') || 'various technologies'
+    const location = candidate.location ? ` based in ${candidate.location}` : ''
+    
+    return `${name} is a ${title}${location} with ${experience} years of experience. Specializes in ${skills} and has demonstrated expertise in modern software development practices. Known for delivering high-quality solutions and collaborating effectively in team environments.`
+  }
+  
+  return candidate.summary
+}
+
+const normalizeAndEnhanceSkills = (skills: string[]): string[] => {
+  const skillMap = {
+    'js': 'JavaScript', 'ts': 'TypeScript', 'py': 'Python',
+    'reactjs': 'React', 'nodejs': 'Node.js', 'vuejs': 'Vue.js'
+  }
+  
+  const normalized = new Set<string>()
+  
+  skills.forEach(skill => {
+    const normalizedSkill = skillMap[skill.toLowerCase()] || skill
+    normalized.add(normalizedSkill)
+  })
+  
+  return Array.from(normalized).slice(0, 12)
+}
+
+const enhanceTitle = (candidate: any): string => {
+  if (!candidate.title || candidate.title.length < 10) {
+    const experience = candidate.experience_years
+    const primarySkill = candidate.skills?.[0] || 'Software'
+    
+    let seniority = 'Developer'
+    if (experience >= 8) seniority = 'Senior Developer'
+    if (experience >= 12) seniority = 'Lead Developer'
+    
+    return `${seniority} specializing in ${primarySkill}`
+  }
+  
+  return candidate.title
+}
+
+const recalculateEnhancedScore = (candidate: any): number => {
+  const factors = [
+    Math.min((candidate.experience_years || 0) * 8, 80),
+    Math.min((candidate.skills?.length || 0) * 3, 30),
+    candidate.skill_match || 0,
+    candidate.reputation || 0,
+    candidate.social_proof || 0
+  ]
+  
+  return Math.round(factors.reduce((sum, factor) => sum + factor, 0) / factors.length)
 }
 
 serve(async (req) => {
@@ -130,7 +217,7 @@ serve(async (req) => {
       
       try {
         const candidatesToEnhance = finalCandidates.slice(0, 15)
-        const enhancedCandidates = await this.applyComprehensiveAIEnhancements(candidatesToEnhance, aiProcessingBudget)
+        const enhancedCandidates = await applyComprehensiveAIEnhancements(candidatesToEnhance, aiProcessingBudget)
         
         finalCandidates.splice(0, enhancedCandidates.length, ...enhancedCandidates)
         aiEnhancementsApplied = enhancedCandidates.length
@@ -220,91 +307,6 @@ serve(async (req) => {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
       }
     )
-  }
-
-  async applyComprehensiveAIEnhancements(candidates: any[], timeoutMs: number): Promise<any[]> {
-    const startTime = Date.now()
-    const enhancedCandidates = []
-    
-    for (const candidate of candidates) {
-      if (Date.now() - startTime > timeoutMs) {
-        console.log(`⏱️ AI enhancement timeout after ${enhancedCandidates.length} candidates`)
-        break
-      }
-      
-      // Apply comprehensive enhancements
-      const enhanced = {
-        ...candidate,
-        summary: this.enhanceSummary(candidate),
-        skills: this.normalizeAndEnhanceSkills(candidate.skills || []),
-        title: this.enhanceTitle(candidate),
-        overall_score: this.recalculateEnhancedScore(candidate),
-        ai_enhanced: true,
-        ai_enhancement_level: 'comprehensive',
-        ai_enhancement_timestamp: new Date().toISOString()
-      }
-      
-      enhancedCandidates.push(enhanced)
-    }
-    
-    return enhancedCandidates
-  }
-
-  enhanceSummary(candidate: any): string {
-    if (!candidate.summary || candidate.summary.length < 100) {
-      const name = candidate.name || 'This professional'
-      const title = candidate.title || 'developer'
-      const experience = candidate.experience_years || 'several years of'
-      const skills = candidate.skills?.slice(0, 3)?.join(', ') || 'various technologies'
-      const location = candidate.location ? ` based in ${candidate.location}` : ''
-      
-      return `${name} is a ${title}${location} with ${experience} years of experience. Specializes in ${skills} and has demonstrated expertise in modern software development practices. Known for delivering high-quality solutions and collaborating effectively in team environments.`
-    }
-    
-    return candidate.summary
-  }
-
-  normalizeAndEnhanceSkills(skills: string[]): string[] {
-    const skillMap = {
-      'js': 'JavaScript', 'ts': 'TypeScript', 'py': 'Python',
-      'reactjs': 'React', 'nodejs': 'Node.js', 'vuejs': 'Vue.js'
-    }
-    
-    const normalized = new Set<string>()
-    
-    skills.forEach(skill => {
-      const normalizedSkill = skillMap[skill.toLowerCase()] || skill
-      normalized.add(normalizedSkill)
-    })
-    
-    return Array.from(normalized).slice(0, 12)
-  }
-
-  enhanceTitle(candidate: any): string {
-    if (!candidate.title || candidate.title.length < 10) {
-      const experience = candidate.experience_years
-      const primarySkill = candidate.skills?.[0] || 'Software'
-      
-      let seniority = 'Developer'
-      if (experience >= 8) seniority = 'Senior Developer'
-      if (experience >= 12) seniority = 'Lead Developer'
-      
-      return `${seniority} specializing in ${primarySkill}`
-    }
-    
-    return candidate.title
-  }
-
-  recalculateEnhancedScore(candidate: any): number {
-    const factors = [
-      Math.min((candidate.experience_years || 0) * 8, 80),
-      Math.min((candidate.skills?.length || 0) * 3, 30),
-      candidate.skill_match || 0,
-      candidate.reputation || 0,
-      candidate.social_proof || 0
-    ]
-    
-    return Math.round(factors.reduce((sum, factor) => sum + factor, 0) / factors.length)
   }
 })
 
