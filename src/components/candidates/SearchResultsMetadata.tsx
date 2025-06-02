@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { Brain, Layers, Lightbulb } from 'lucide-react';
+import { Brain, Layers, Lightbulb, Target, Award, TrendingUp } from 'lucide-react';
 
 interface SearchResultsMetadataProps {
   searchMetadata?: any;
@@ -57,6 +57,60 @@ export const SearchResultsMetadata = ({ searchMetadata, searchError }: SearchRes
     );
   };
 
+  const getEnhancedQualityMetrics = () => {
+    const qualityMetrics = searchMetadata?.quality_metrics;
+    if (!qualityMetrics) return null;
+
+    return (
+      <div className="text-xs text-slate-600 mt-2 space-y-1">
+        <div className="flex items-center gap-2">
+          <Award className="w-3 h-3 text-yellow-600" />
+          <span className="font-medium">Quality Metrics:</span>
+        </div>
+        
+        <div className="ml-5 space-y-1">
+          {qualityMetrics.processing_quality > 0 && (
+            <div className="flex items-center gap-2">
+              <Target className="w-3 h-3" />
+              <span>Processing Quality: {qualityMetrics.processing_quality}%</span>
+              {qualityMetrics.processing_quality >= 80 && <span className="text-green-600">(Excellent)</span>}
+              {qualityMetrics.processing_quality >= 60 && qualityMetrics.processing_quality < 80 && <span className="text-blue-600">(Good)</span>}
+              {qualityMetrics.processing_quality < 60 && <span className="text-amber-600">(Fair)</span>}
+            </div>
+          )}
+          
+          {qualityMetrics.result_quality > 0 && (
+            <div className="flex items-center gap-2">
+              <TrendingUp className="w-3 h-3" />
+              <span>Result Quality: {qualityMetrics.result_quality}%</span>
+              {qualityMetrics.result_quality >= 80 && <span className="text-green-600">(High)</span>}
+              {qualityMetrics.result_quality >= 60 && qualityMetrics.result_quality < 80 && <span className="text-blue-600">(Medium)</span>}
+              {qualityMetrics.result_quality < 60 && <span className="text-amber-600">(Low)</span>}
+            </div>
+          )}
+          
+          {qualityMetrics.search_effectiveness > 0 && (
+            <div className="flex items-center gap-2">
+              <Brain className="w-3 h-3" />
+              <span>Search Effectiveness: {qualityMetrics.search_effectiveness}%</span>
+            </div>
+          )}
+        </div>
+
+        {qualityMetrics.quality_report && (
+          <div className="ml-5 mt-2">
+            <span className="text-slate-500">
+              Quality Distribution: {Object.entries(qualityMetrics.quality_report.quality_summary || {})
+                .filter(([_, count]: [string, any]) => count > 0)
+                .map(([tier, count]: [string, any]) => `${count} ${tier}`)
+                .join(', ')}
+            </span>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const getAdvancedValidationInfo = () => {
     if (!searchMetadata?.query_validation && !searchMetadata?.parsed_criteria) return null;
     
@@ -91,9 +145,26 @@ export const SearchResultsMetadata = ({ searchMetadata, searchError }: SearchRes
     );
   };
 
+  const getSearchRecommendations = () => {
+    const searchReport = searchMetadata?.search_report;
+    if (!searchReport?.recommendations?.length) return null;
+
+    return (
+      <div className="text-xs text-blue-600 mt-2">
+        <div className="font-medium mb-1">💡 Recommendations:</div>
+        <ul className="ml-3 space-y-1">
+          {searchReport.recommendations.slice(0, 2).map((rec: string, index: number) => (
+            <li key={index} className="list-disc">{rec}</li>
+          ))}
+        </ul>
+      </div>
+    );
+  };
+
   return (
     <>
       {getAdvancedStrategyInfo()}
+      {getEnhancedQualityMetrics()}
       {getAdvancedValidationInfo()}
       
       {searchMetadata?.fallback_used && !searchError && (
@@ -102,20 +173,13 @@ export const SearchResultsMetadata = ({ searchMetadata, searchError }: SearchRes
         </p>
       )}
       
-      {searchMetadata?.parsed_criteria && (
-        <div className="text-xs text-slate-500 mt-2">
-          <span>Parsed: </span>
-          {searchMetadata.parsed_criteria.skills?.length > 0 && (
-            <span className="mr-2">Skills: {searchMetadata.parsed_criteria.skills.slice(0, 3).join(', ')}</span>
-          )}
-          {searchMetadata.parsed_criteria.location && (
-            <span className="mr-2">Location: {searchMetadata.parsed_criteria.location}</span>
-          )}
-          {searchMetadata.parsed_criteria.seniority_level && searchMetadata.parsed_criteria.seniority_level !== 'any' && (
-            <span className="mr-2">Level: {searchMetadata.parsed_criteria.seniority_level}</span>
-          )}
-        </div>
+      {searchMetadata?.enhanced_features?.enhanced_coordination && (
+        <p className="text-xs text-green-600 mt-1">
+          ✨ Enhanced search coordination and quality filtering applied
+        </p>
       )}
+      
+      {getSearchRecommendations()}
     </>
   );
 };

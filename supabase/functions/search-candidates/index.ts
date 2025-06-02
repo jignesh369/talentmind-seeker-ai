@@ -15,6 +15,7 @@ import {
   executeIntentBasedSearch 
 } from './advanced-strategies.ts'
 import { executeSearchStrategy } from './search-utils.ts'
+import { EnhancedSearchCoordinator } from './enhanced-search-coordinator.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -28,7 +29,7 @@ serve(async (req) => {
 
   try {
     const requestBody = await req.json()
-    const { query, user_id } = requestBody
+    const { query, user_id, quality_settings } = requestBody
 
     // Validate inputs
     const queryValidation = validateAndSanitizeQuery(query)
@@ -68,7 +69,7 @@ serve(async (req) => {
 
     const sanitizedQuery = queryValidation.sanitized
 
-    // Initialize Supabase client with error handling
+    // Initialize Supabase client
     const supabaseUrl = Deno.env.get('SUPABASE_URL')
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
     
@@ -77,6 +78,8 @@ serve(async (req) => {
     }
     
     const supabase = createClient(supabaseUrl, supabaseKey)
+
+    console.log('🚀 Starting enhanced search with comprehensive quality improvements...')
 
     // Step 1: Enhanced query parsing
     const parsed_criteria = await safeParseQuery(sanitizedQuery, supabaseUrl, supabaseKey)
@@ -95,222 +98,86 @@ serve(async (req) => {
         .select()
         .single()
 
-      if (error) {
-        console.warn('⚠️ Failed to save search record:', error.message)
-      } else {
+      if (!error) {
         searchData = data
       }
     } catch (error) {
       console.warn('⚠️ Search recording failed, continuing without it:', error.message)
     }
 
-    // Step 3: Execute enhanced search strategies
+    // Step 3: Execute traditional search strategies (for compatibility)
     const allResults = new Map()
     const searchResults = {}
 
-    // Strategy 1: Advanced Semantic Search (highest priority)
-    if (parsed_criteria?.contextual_skills && parsed_criteria.confidence_score > 30) {
-      const advancedSemanticResult = await executeAdvancedSemanticSearch(supabase, parsed_criteria)
-      searchResults['advanced_semantic'] = { 
-        count: advancedSemanticResult.data.length, 
-        error: advancedSemanticResult.error,
-        confidence: parsed_criteria.confidence_score
-      }
-      
-      advancedSemanticResult.data.forEach(candidate => {
-        if (!allResults.has(candidate.id)) {
-          allResults.set(candidate.id, candidate)
-        }
-      })
-    }
+    // Execute all traditional strategies first
+    const strategies = [
+      { name: 'advanced_semantic', executor: executeAdvancedSemanticSearch, condition: () => parsed_criteria?.contextual_skills && parsed_criteria.confidence_score > 30 },
+      { name: 'technology_stack', executor: executeTechnologyStackSearch, condition: () => parsed_criteria?.technology_stack?.length > 0 },
+      { name: 'intent_based', executor: executeIntentBasedSearch, condition: () => parsed_criteria?.search_intent },
+      { name: 'semantic_search', executor: executeSemanticSearch, condition: () => parsed_criteria?.semantic_skills?.length > 0 },
+      { name: 'role_based_search', executor: executeRoleBasedSearch, condition: () => parsed_criteria?.role_types?.length > 0 },
+      { name: 'seniority_search', executor: executeSenioritySearch, condition: () => parsed_criteria?.seniority_level !== 'any' },
+      { name: 'industry_search', executor: executeIndustrySearch, condition: () => parsed_criteria?.industries?.length > 0 }
+    ]
 
-    // Strategy 2: Technology Stack Search
-    if (parsed_criteria?.technology_stack?.length > 0) {
-      const stackResult = await executeTechnologyStackSearch(supabase, parsed_criteria)
-      searchResults['technology_stack'] = { 
-        count: stackResult.data.length, 
-        error: stackResult.error,
-        stacks: parsed_criteria.technology_stack
-      }
-      
-      stackResult.data.forEach(candidate => {
-        if (!allResults.has(candidate.id)) {
-          allResults.set(candidate.id, candidate)
-        }
-      })
-    }
-
-    // Strategy 3: Intent-Based Search
-    if (parsed_criteria?.search_intent) {
-      const intentResult = await executeIntentBasedSearch(supabase, parsed_criteria)
-      searchResults['intent_based'] = { 
-        count: intentResult.data.length, 
-        error: intentResult.error,
-        intent: parsed_criteria.search_intent
-      }
-      
-      intentResult.data.forEach(candidate => {
-        if (!allResults.has(candidate.id)) {
-          allResults.set(candidate.id, candidate)
-        }
-      })
-    }
-
-    // Strategy 4: Semantic search
-    if (parsed_criteria?.semantic_skills && Array.isArray(parsed_criteria.semantic_skills) && parsed_criteria.semantic_skills.length > 0) {
-      const semanticResult = await executeSemanticSearch(supabase, parsed_criteria)
-      searchResults['semantic_search'] = { 
-        count: semanticResult.data.length, 
-        error: semanticResult.error 
-      }
-      
-      semanticResult.data.forEach(candidate => {
-        if (!allResults.has(candidate.id)) {
-          allResults.set(candidate.id, candidate)
-        }
-      })
-    }
-
-    // Strategy 5: Role-based search
-    if (parsed_criteria?.role_types && Array.isArray(parsed_criteria.role_types) && parsed_criteria.role_types.length > 0) {
-      const roleResult = await executeRoleBasedSearch(supabase, parsed_criteria)
-      searchResults['role_based_search'] = { 
-        count: roleResult.data.length, 
-        error: roleResult.error 
-      }
-      
-      roleResult.data.forEach(candidate => {
-        if (!allResults.has(candidate.id)) {
-          allResults.set(candidate.id, candidate)
-        }
-      })
-    }
-
-    // Strategy 6: Seniority-based search
-    if (parsed_criteria?.seniority_level && parsed_criteria.seniority_level !== 'any') {
-      const seniorityResult = await executeSenioritySearch(supabase, parsed_criteria)
-      searchResults['seniority_search'] = { 
-        count: seniorityResult.data.length, 
-        error: seniorityResult.error 
-      }
-      
-      seniorityResult.data.forEach(candidate => {
-        if (!allResults.has(candidate.id)) {
-          allResults.set(candidate.id, candidate)
-        }
-      })
-    }
-
-    // Strategy 7: Industry-based search
-    if (parsed_criteria?.industries && Array.isArray(parsed_criteria.industries) && parsed_criteria.industries.length > 0) {
-      const industryResult = await executeIndustrySearch(supabase, parsed_criteria)
-      searchResults['industry_search'] = { 
-        count: industryResult.data.length, 
-        error: industryResult.error 
-      }
-      
-      industryResult.data.forEach(candidate => {
-        if (!allResults.has(candidate.id)) {
-          allResults.set(candidate.id, candidate)
-        }
-      })
-    }
-
-    // Strategy 8: Skills-based search (traditional)
-    if (parsed_criteria?.skills && Array.isArray(parsed_criteria.skills) && parsed_criteria.skills.length > 0) {
-      try {
-        const skillsQuery = supabase
-          .from('candidates')
-          .select('*')
-          .overlaps('skills', parsed_criteria.skills)
-          .order('overall_score', { ascending: false })
-          .limit(20)
-        
-        const skillsResult = await executeSearchStrategy('skills_based', skillsQuery)
-        searchResults['skills_based'] = { 
-          count: skillsResult.data.length, 
-          error: skillsResult.error 
-        }
-        
-        if (skillsResult.data.length > 0) {
-          skillsResult.data.forEach(candidate => {
+    for (const strategy of strategies) {
+      if (strategy.condition()) {
+        try {
+          const result = await strategy.executor(supabase, parsed_criteria)
+          searchResults[strategy.name] = { 
+            count: result.data.length, 
+            error: result.error,
+            data: result.data // Store data for enhanced coordination
+          }
+          
+          result.data.forEach(candidate => {
             if (!allResults.has(candidate.id)) {
-              candidate.hybrid_score = (candidate.overall_score || 0) + 25 // Skills boost
               allResults.set(candidate.id, candidate)
             }
           })
+        } catch (error) {
+          console.error(`❌ ${strategy.name} strategy failed:`, error.message)
+          searchResults[strategy.name] = { count: 0, error: error.message }
         }
-      } catch (error) {
-        console.error('❌ Skills search strategy failed:', error.message)
-        searchResults['skills_based'] = { count: 0, error: error.message }
       }
     }
 
-    // Strategy 9: Text-based search (fallback)
+    // Step 4: Apply enhanced search coordination for quality improvement
+    const enhancementConfig = {
+      enable_quality_filtering: true,
+      quality_thresholds: {
+        min_profile_completeness: quality_settings?.min_profile_completeness || 50,
+        min_skill_relevance: quality_settings?.min_skill_relevance || 40,
+        min_overall_quality: quality_settings?.min_overall_quality || 55
+      },
+      result_limits: {
+        max_per_strategy: 25,
+        final_result_limit: 50
+      }
+    }
+
+    let enhancedResult = null
     try {
-      const searchTerms = sanitizedQuery.toLowerCase()
-        .split(/\s+/)
-        .filter(term => term.length > 2 && !/^[0-9]+$/.test(term))
-        .slice(0, 5)
-
-      if (searchTerms.length > 0) {
-        let textQuery = supabase.from('candidates').select('*')
-        
-        const conditions = []
-        searchTerms.forEach(term => {
-          const safeTerm = term.replace(/[%_\\]/g, '\\$&')
-          conditions.push(`name.ilike.%${safeTerm}%`)
-          conditions.push(`title.ilike.%${safeTerm}%`)
-          conditions.push(`summary.ilike.%${safeTerm}%`)
-        })
-        
-        if (conditions.length > 0) {
-          textQuery = textQuery.or(conditions.join(','))
-          
-          const textResult = await executeSearchStrategy('text_based', 
-            textQuery.order('overall_score', { ascending: false }).limit(30)
-          )
-          
-          searchResults['text_based'] = { 
-            count: textResult.data.length, 
-            error: textResult.error 
-          }
-          
-          if (textResult.data.length > 0) {
-            textResult.data.forEach(candidate => {
-              if (!allResults.has(candidate.id)) {
-                let relevanceScore = candidate.overall_score || 0
-                
-                const nameMatch = searchTerms.some(term => 
-                  candidate.name?.toLowerCase().includes(term)
-                ) ? 20 : 0
-                
-                const titleMatch = searchTerms.some(term => 
-                  candidate.title?.toLowerCase().includes(term)
-                ) ? 15 : 0
-                
-                const summaryMatch = searchTerms.some(term => 
-                  candidate.summary?.toLowerCase().includes(term)
-                ) ? 10 : 0
-                
-                candidate.hybrid_score = relevanceScore + nameMatch + titleMatch + summaryMatch
-                allResults.set(candidate.id, candidate)
-              }
-            })
-          }
-        }
-      }
+      enhancedResult = await EnhancedSearchCoordinator.coordinateEnhancedSearch(
+        supabase,
+        sanitizedQuery,
+        parsed_criteria,
+        searchResults,
+        enhancementConfig
+      )
+      
+      console.log('✅ Enhanced search coordination completed successfully')
     } catch (error) {
-      console.error('❌ Text search strategy failed:', error.message)
-      searchResults['text_based'] = { count: 0, error: error.message }
+      console.error('⚠️ Enhanced coordination failed, using traditional results:', error.message)
     }
 
-    // Convert results and sort with advanced scoring
-    let candidates = Array.from(allResults.values())
-      .sort((a, b) => (b.hybrid_score || 0) - (a.hybrid_score || 0))
+    // Use enhanced results if available, otherwise fall back to traditional
+    let finalCandidates = enhancedResult?.candidates || Array.from(allResults.values())
+    let enhancedMetadata = enhancedResult?.enhanced_metadata || {}
+    let qualityReport = enhancedResult?.quality_report || null
 
-    // Enhanced fallback strategy
-    if (candidates.length === 0) {
+    // Traditional fallback if no results
+    if (finalCandidates.length === 0) {
       console.log('🔄 No results from enhanced search, using intelligent fallback')
       
       try {
@@ -323,15 +190,12 @@ serve(async (req) => {
         )
         
         if (fallbackResult.data.length > 0) {
-          candidates = fallbackResult.data.map(candidate => ({
+          finalCandidates = fallbackResult.data.map(candidate => ({
             ...candidate,
             hybrid_score: candidate.overall_score || 0,
             fallback_result: true
           }))
-          searchResults['smart_fallback'] = { count: candidates.length }
-        } else {
-          console.warn('⚠️ Even smart fallback strategy returned no results')
-          searchResults['smart_fallback'] = { count: 0, error: 'No candidates available' }
+          searchResults['smart_fallback'] = { count: finalCandidates.length }
         }
       } catch (error) {
         console.error('❌ Smart fallback strategy failed:', error.message)
@@ -340,9 +204,9 @@ serve(async (req) => {
     }
 
     // Limit final results
-    const finalCandidates = candidates.slice(0, 50)
+    finalCandidates = finalCandidates.slice(0, 50)
 
-    // Step 4: Safe search update
+    // Step 5: Update search record
     if (searchData?.id) {
       try {
         await supabase
@@ -354,8 +218,7 @@ serve(async (req) => {
       }
     }
 
-    console.log(`✅ Enhanced search completed: "${sanitizedQuery}" -> ${finalCandidates.length} candidates`)
-    console.log('📊 Enhanced search strategy results:', searchResults)
+    console.log(`✅ Enhanced search completed: "${sanitizedQuery}" -> ${finalCandidates.length} high-quality candidates`)
 
     return new Response(
       JSON.stringify({ 
@@ -378,8 +241,17 @@ serve(async (req) => {
           industry_targeting: !!parsed_criteria?.industries?.length,
           technology_stack: !!parsed_criteria?.technology_stack?.length,
           intent_detection: !!parsed_criteria?.search_intent,
-          confidence_scoring: parsed_criteria?.confidence_score || 0
-        }
+          confidence_scoring: parsed_criteria?.confidence_score || 0,
+          quality_filtering: enhancementConfig.enable_quality_filtering,
+          enhanced_coordination: !!enhancedResult
+        },
+        quality_metrics: {
+          processing_quality: enhancedMetadata.processing_quality || 0,
+          result_quality: enhancedMetadata.result_quality || 0,
+          search_effectiveness: enhancedMetadata.search_effectiveness || 0,
+          quality_report: qualityReport
+        },
+        search_report: enhancedResult?.search_report || null
       }),
       { 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
