@@ -1,4 +1,3 @@
-
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { saveCandidateWithSource } from '../shared/database-operations.ts'
@@ -45,18 +44,30 @@ serve(async (req) => {
 
     console.log(`🔍 Starting Apify scraping for ${profileUrls.length} LinkedIn profiles`)
 
-    // Use the LinkedIn profile scraper that works with specific URLs
+    // Extract usernames from LinkedIn URLs
+    const usernames = profileUrls.map(url => {
+      const match = url.match(/linkedin\.com\/in\/([^\/\?]+)/)
+      return match ? match[1] : null
+    }).filter(Boolean)
+
+    if (usernames.length === 0) {
+      throw new Error('No valid LinkedIn usernames could be extracted from URLs')
+    }
+
+    console.log(`📝 Extracted ${usernames.length} usernames:`, usernames)
+
+    // Use the correct LinkedIn profile scraper with usernames
     const actorId = 'dSCLg0C3YEZ83HzYX'
     
     const runInput = {
-      startUrls: profileUrls.map(url => ({ url })),
+      usernames: usernames,
       includeContacts: false,
       includeSkills: true,
       includeExperience: true,
       includeEducation: true
     }
 
-    console.log('🚀 Starting Apify actor run for profile scraping')
+    console.log('🚀 Starting Apify actor run with usernames input')
 
     // Start the Apify actor run
     const runResponse = await fetch(`https://api.apify.com/v2/acts/${actorId}/runs`, {
@@ -71,7 +82,7 @@ serve(async (req) => {
     if (!runResponse.ok) {
       const errorText = await runResponse.text()
       console.error('❌ Apify run failed:', errorText)
-      throw new Error(`Apify run failed: ${runResponse.status}`)
+      throw new Error(`Apify run failed: ${runResponse.status} - ${errorText}`)
     }
 
     const runData = await runResponse.json()
@@ -174,6 +185,7 @@ serve(async (req) => {
         errors,
         processing_stats: {
           profiles_requested: profileUrls.length,
+          usernames_extracted: usernames.length,
           profiles_returned: results.length,
           candidates_saved: savedCandidates.length,
           errors_count: errors.length
@@ -190,6 +202,7 @@ serve(async (req) => {
         errors: [error.message],
         processing_stats: {
           profiles_requested: 0,
+          usernames_extracted: 0,
           profiles_returned: 0,
           candidates_saved: 0,
           errors_count: 1
