@@ -30,6 +30,7 @@ import { EnhancedCandidate } from '../../types/candidate';
 import { useEmailOutreach } from '../../hooks/useEmailOutreach';
 import { useToast } from '../../hooks/use-toast';
 import { UnifiedEmailModal } from '../UnifiedEmailModal';
+import { adaptEnhancedToCandidate, hasRiskData, getRiskIndicatorColor } from '../../utils/candidateAdapter';
 
 interface EnhancedCandidateCardProps {
   candidate: EnhancedCandidate;
@@ -113,6 +114,9 @@ export const EnhancedCandidateCard = ({
     }
   };
 
+  // Convert EnhancedCandidate to Candidate for the email modal
+  const adaptedCandidate = adaptEnhancedToCandidate(candidate);
+
   return (
     <Card className="w-full hover:shadow-xl transition-all duration-300 border-l-4 border-l-blue-500 bg-white">
       <CardHeader className="pb-4">
@@ -136,6 +140,12 @@ export const EnhancedCandidateCard = ({
                   {candidate.overall_score}
                 </div>
               )}
+              {/* Risk Signal Indicator */}
+              {hasRiskData(candidate) && (
+                <div className={`absolute -top-1 -left-1 w-4 h-4 rounded-full border-2 border-white ${getRiskIndicatorColor(candidate.risk_level)}`}>
+                  <AlertTriangle className="h-2 w-2 text-white m-0.5" />
+                </div>
+              )}
             </div>
 
             <div className="flex-1 min-w-0">
@@ -146,6 +156,7 @@ export const EnhancedCandidateCard = ({
                     variant="outline" 
                     className={`${getRiskColor(candidate.risk_level)} text-xs font-medium`}
                   >
+                    <Shield className="w-3 h-3 mr-1" />
                     {candidate.risk_level.toUpperCase()} RISK
                   </Badge>
                 )}
@@ -430,8 +441,11 @@ export const EnhancedCandidateCard = ({
               onClick={() => toggleSection('risks')}
               className="flex items-center space-x-2 font-semibold text-gray-900 hover:text-red-600 transition-colors w-full text-left"
             >
-              <AlertTriangle className="h-4 w-4" />
-              <span>Risk Assessment</span>
+              <Shield className="h-4 w-4" />
+              <span>Risk Signal Indicators</span>
+              <Badge variant="outline" className={`text-xs ${getRiskColor(candidate.risk_level || 'low')}`}>
+                {candidate.risk_factors.length} signals
+              </Badge>
               {expandedSections.has('risks') ? (
                 <ChevronDown className="h-4 w-4" />
               ) : (
@@ -444,7 +458,10 @@ export const EnhancedCandidateCard = ({
                 {candidate.risk_factors.map((risk, index) => (
                   <div key={index} className={`p-4 rounded-lg border ${getRiskColor(risk.type)}`}>
                     <div className="flex items-center justify-between mb-2">
-                      <span className="font-semibold">{risk.reason}</span>
+                      <span className="font-semibold flex items-center">
+                        <AlertTriangle className="w-4 h-4 mr-2" />
+                        {risk.reason}
+                      </span>
                       <Badge variant="outline" className={`text-xs ${getRiskColor(risk.type)}`}>
                         {risk.type.toUpperCase()}
                       </Badge>
@@ -504,7 +521,7 @@ export const EnhancedCandidateCard = ({
       <UnifiedEmailModal
         isOpen={showEmailModal}
         onClose={() => setShowEmailModal(false)}
-        candidate={candidate}
+        candidate={adaptedCandidate}
       />
     </Card>
   );
