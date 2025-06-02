@@ -71,64 +71,74 @@ serve(async (req) => {
             requestBody = { ...requestBody, location }
             break
           case 'linkedin':
-            // Use the enhanced LinkedIn workflow
+            // Use the enhanced LinkedIn workflow (Google + Apify) - NO OLD FUNCTION CALLS
             console.log('🔄 Starting enhanced LinkedIn workflow (Google + Apify)...')
             
-            // Step 1: Discover LinkedIn profile URLs
-            const discoveryResponse = await supabase.functions.invoke('discover-linkedin-profiles', {
-              body: {
-                searchQuery: `site:linkedin.com/in "${query}"${location ? ` AND "${location}"` : ''}`,
-                maxResults: 20
+            try {
+              // Step 1: Discover LinkedIn profile URLs using Google Search
+              console.log('📍 Phase 1: Discovering LinkedIn profiles via Google Search')
+              const discoveryResponse = await supabase.functions.invoke('discover-linkedin-profiles', {
+                body: {
+                  searchQuery: `site:linkedin.com/in "${query}"${location ? ` AND "${location}"` : ''}`,
+                  maxResults: 20
+                }
+              })
+
+              if (discoveryResponse.error) {
+                console.error(`❌ LinkedIn discovery failed:`, discoveryResponse.error)
+                collectionResults[source].error = discoveryResponse.error.message
+                return
               }
-            })
 
-            if (discoveryResponse.error) {
-              console.error(`❌ LinkedIn discovery failed:`, discoveryResponse.error)
-              collectionResults[source].error = discoveryResponse.error.message
-              return
-            }
+              const profileUrls = discoveryResponse.data?.profileUrls || []
+              
+              if (profileUrls.length === 0) {
+                console.log('📭 No LinkedIn profile URLs found')
+                collectionResults[source] = {
+                  candidates: [],
+                  total: 0,
+                  error: 'No LinkedIn profiles found in search results'
+                }
+                return
+              }
 
-            const profileUrls = discoveryResponse.data?.profileUrls || []
-            
-            if (profileUrls.length === 0) {
-              console.log('📭 No LinkedIn profile URLs found')
+              console.log(`✅ Discovery complete: Found ${profileUrls.length} LinkedIn profile URLs`)
+
+              // Step 2: Scrape profile details using Apify
+              console.log('📍 Phase 2: Scraping detailed profile information')
+              const scrapingResponse = await supabase.functions.invoke('scrape-linkedin-profiles', {
+                body: {
+                  profileUrls,
+                  originalQuery: query
+                }
+              })
+
+              if (scrapingResponse.error) {
+                console.error(`❌ LinkedIn scraping failed:`, scrapingResponse.error)
+                collectionResults[source].error = scrapingResponse.error.message
+                return
+              }
+
+              const candidates = scrapingResponse.data?.candidates || []
+              console.log(`✅ Scraping complete: Got ${candidates.length} candidates`)
+              
+              // Apply quality validation
+              const qualifiedCandidates = await validateCandidateQuality(candidates, query, qualityThreshold)
+              
               collectionResults[source] = {
-                candidates: [],
-                total: 0,
-                error: 'No LinkedIn profiles found in search results'
+                candidates: qualifiedCandidates,
+                total: qualifiedCandidates.length,
+                error: null
               }
+
+              console.log(`✅ LinkedIn enhanced workflow: ${qualifiedCandidates.length}/${candidates.length} candidates passed quality threshold`)
+              return
+
+            } catch (linkedinError) {
+              console.error(`❌ LinkedIn enhanced workflow failed:`, linkedinError)
+              collectionResults[source].error = linkedinError.message
               return
             }
-
-            console.log(`📍 Found ${profileUrls.length} LinkedIn profile URLs, proceeding to scrape...`)
-
-            // Step 2: Scrape profile details
-            const scrapingResponse = await supabase.functions.invoke('scrape-linkedin-profiles', {
-              body: {
-                profileUrls,
-                originalQuery: query
-              }
-            })
-
-            if (scrapingResponse.error) {
-              console.error(`❌ LinkedIn scraping failed:`, scrapingResponse.error)
-              collectionResults[source].error = scrapingResponse.error.message
-              return
-            }
-
-            const candidates = scrapingResponse.data?.candidates || []
-            
-            // Apply quality validation
-            const qualifiedCandidates = await validateCandidateQuality(candidates, query, qualityThreshold)
-            
-            collectionResults[source] = {
-              candidates: qualifiedCandidates,
-              total: qualifiedCandidates.length,
-              error: null
-            }
-
-            console.log(`✅ LinkedIn enhanced workflow: ${qualifiedCandidates.length}/${candidates.length} candidates passed quality threshold`)
-            return
 
           default:
             throw new Error(`Unknown source: ${source}`)
@@ -198,15 +208,23 @@ serve(async (req) => {
     return new Response(
       JSON.stringify({
         candidates: rankedCandidates,
-        total: rankedCandidates.length,
-        raw_total: totalCandidatesFound,
-        collection_results: collectionResults,
-        quality_metrics: {
-          average_quality_score: qualityScore,
-          candidates_above_threshold: rankedCandidates.filter(c => (c.quality_score || 0) >= qualityThreshold).length,
-          processing_time_ms: processingTime,
+        total_candidates: rankedCandidates.length,
+        results: {
+          [sources[0]]: rankedCandidates.filter(c => c.primary_source === sources[0]),
+          [sources[1]]: rankedCandidates.filter(c => c.primary_source === sources[1])
+        },
+        enhancement_stats: {
+          sources_successful: Object.values(collectionResults).filter(r => r.candidates.length > 0).length,
+          total_raw_candidates: totalCandidatesFound,
+          quality_filtered_candidates: rankedCandidates.length,
+          average_quality_score: qualityScore
+        },
+        performance_metrics: {
+          total_time_ms: processingTime,
+          sources_processed: sources.length,
           deduplication_ratio: totalCandidatesFound > 0 ? (totalCandidatesFound - rankedCandidates.length) / totalCandidatesFound : 0
         },
+        collection_results: collectionResults,
         timestamp: new Date().toISOString()
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -219,7 +237,19 @@ serve(async (req) => {
         error: 'Enhanced data collection failed',
         details: error.message,
         candidates: [],
-        total: 0
+        total_candidates: 0,
+        results: {},
+        enhancement_stats: {
+          sources_successful: 0,
+          total_raw_candidates: 0,
+          quality_filtered_candidates: 0,
+          average_quality_score: 0
+        },
+        performance_metrics: {
+          total_time_ms: 0,
+          sources_processed: 0,
+          deduplication_ratio: 0
+        }
       }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
