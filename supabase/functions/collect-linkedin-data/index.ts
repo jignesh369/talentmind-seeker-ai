@@ -9,6 +9,80 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
+const convertToCandidate = (profile: any) => {
+  const experienceYears = calculateExperienceYears(profile.experience)
+  const overallScore = calculateOverallScore(profile, experienceYears)
+  
+  return {
+    id: profile.id,
+    name: profile.name,
+    title: profile.headline,
+    location: profile.location,
+    avatar_url: profile.avatar_url,
+    email: null,
+    linkedin_url: profile.profile_url,
+    summary: profile.summary,
+    skills: profile.skills,
+    experience_years: experienceYears,
+    last_active: new Date().toISOString(),
+    overall_score: overallScore,
+    skill_match: calculateSkillMatch(profile.skills),
+    reputation: Math.min(profile.connections / 10, 100),
+    experience: experienceYears * 5,
+    social_proof: calculateSocialProof(profile),
+    freshness: 90, // LinkedIn profiles are generally up-to-date
+    platform: 'linkedin',
+    platform_data: {
+      headline: profile.headline,
+      industry: profile.industry,
+      connections: profile.connections,
+      experience: profile.experience,
+      education: profile.education,
+      endorsements: profile.endorsements
+    }
+  }
+}
+
+const calculateExperienceYears = (experience: any[]): number => {
+  return experience.reduce((total, exp) => {
+    const duration = exp.duration
+    const years = extractYearsFromDuration(duration)
+    return total + years
+  }, 0)
+}
+
+const extractYearsFromDuration = (duration: string): number => {
+  const yearMatch = duration.match(/(\d+)\s*yr/)
+  const monthMatch = duration.match(/(\d+)\s*mo/)
+  
+  let totalYears = yearMatch ? parseInt(yearMatch[1]) : 0
+  const months = monthMatch ? parseInt(monthMatch[1]) : 0
+  
+  totalYears += months / 12
+  return totalYears
+}
+
+const calculateOverallScore = (profile: any, experienceYears: number): number => {
+  const experienceScore = Math.min(experienceYears * 8, 100)
+  const connectionScore = Math.min(profile.connections / 20, 50)
+  const skillScore = Math.min(profile.skills.length * 3, 30)
+  const endorsementScore = Object.values(profile.endorsements).reduce((sum: number, count: any) => sum + count, 0) / 10
+  
+  return Math.round(experienceScore * 0.4 + connectionScore * 0.3 + skillScore * 0.2 + endorsementScore * 0.1)
+}
+
+const calculateSkillMatch = (skills: string[]): number => {
+  return Math.min(skills.length * 5, 100)
+}
+
+const calculateSocialProof = (profile: any): number => {
+  const connectionScore = Math.min(profile.connections / 10, 50)
+  const endorsementCount = Object.keys(profile.endorsements).length
+  const endorsementScore = Math.min(endorsementCount * 3, 50)
+  
+  return Math.round(connectionScore + endorsementScore)
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -46,7 +120,7 @@ serve(async (req) => {
     const savedCandidates = []
     for (const profile of profiles) {
       try {
-        const candidate = this.convertToCandidate(profile)
+        const candidate = convertToCandidate(profile)
         
         const sourceData = {
           candidate_id: candidate.id,
@@ -110,79 +184,5 @@ serve(async (req) => {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
       }
     )
-  }
-
-  convertToCandidate(profile: any) {
-    const experienceYears = this.calculateExperienceYears(profile.experience)
-    const overallScore = this.calculateOverallScore(profile, experienceYears)
-    
-    return {
-      id: profile.id,
-      name: profile.name,
-      title: profile.headline,
-      location: profile.location,
-      avatar_url: profile.avatar_url,
-      email: null,
-      linkedin_url: profile.profile_url,
-      summary: profile.summary,
-      skills: profile.skills,
-      experience_years: experienceYears,
-      last_active: new Date().toISOString(),
-      overall_score: overallScore,
-      skill_match: this.calculateSkillMatch(profile.skills),
-      reputation: Math.min(profile.connections / 10, 100),
-      experience: experienceYears * 5,
-      social_proof: this.calculateSocialProof(profile),
-      freshness: 90, // LinkedIn profiles are generally up-to-date
-      platform: 'linkedin',
-      platform_data: {
-        headline: profile.headline,
-        industry: profile.industry,
-        connections: profile.connections,
-        experience: profile.experience,
-        education: profile.education,
-        endorsements: profile.endorsements
-      }
-    }
-  }
-
-  calculateExperienceYears(experience: any[]): number {
-    return experience.reduce((total, exp) => {
-      const duration = exp.duration
-      const years = this.extractYearsFromDuration(duration)
-      return total + years
-    }, 0)
-  }
-
-  extractYearsFromDuration(duration: string): number {
-    const yearMatch = duration.match(/(\d+)\s*yr/)
-    const monthMatch = duration.match(/(\d+)\s*mo/)
-    
-    let totalYears = yearMatch ? parseInt(yearMatch[1]) : 0
-    const months = monthMatch ? parseInt(monthMatch[1]) : 0
-    
-    totalYears += months / 12
-    return totalYears
-  }
-
-  calculateOverallScore(profile: any, experienceYears: number): number {
-    const experienceScore = Math.min(experienceYears * 8, 100)
-    const connectionScore = Math.min(profile.connections / 20, 50)
-    const skillScore = Math.min(profile.skills.length * 3, 30)
-    const endorsementScore = Object.values(profile.endorsements).reduce((sum: number, count: any) => sum + count, 0) / 10
-    
-    return Math.round(experienceScore * 0.4 + connectionScore * 0.3 + skillScore * 0.2 + endorsementScore * 0.1)
-  }
-
-  calculateSkillMatch(skills: string[]): number {
-    return Math.min(skills.length * 5, 100)
-  }
-
-  calculateSocialProof(profile: any): number {
-    const connectionScore = Math.min(profile.connections / 10, 50)
-    const endorsementCount = Object.keys(profile.endorsements).length
-    const endorsementScore = Math.min(endorsementCount * 3, 50)
-    
-    return Math.round(connectionScore + endorsementScore)
   }
 })
