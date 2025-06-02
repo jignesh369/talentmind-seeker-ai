@@ -55,6 +55,12 @@ export const useDatabaseSearch = () => {
       
       const searchTime = Date.now() - startTime;
       
+      console.log('✅ Database search results:', {
+        candidatesFound: result.candidates.length,
+        searchTime: searchTime + 'ms',
+        totalInDb: result.total
+      });
+      
       setSearchResults(result.candidates);
       
       // Create enhanced metadata for database search
@@ -68,16 +74,18 @@ export const useDatabaseSearch = () => {
       
       setSearchMetadata(metadata);
 
-      toast({
-        title: "Database search complete",
-        description: `Found ${result.candidates.length} candidates in ${searchTime}ms`,
-      });
-
-      console.log('✅ Database search completed:', {
-        query,
-        resultCount: result.candidates.length,
-        searchTime: searchTime + 'ms'
-      });
+      if (result.candidates.length > 0) {
+        toast({
+          title: "Database search complete",
+          description: `Found ${result.candidates.length} candidates in ${searchTime}ms`,
+        });
+      } else {
+        toast({
+          title: "No results found",
+          description: "Try adjusting your search terms or collect new data",
+          variant: "destructive",
+        });
+      }
 
     } catch (error: any) {
       console.error('❌ Database search failed:', error);
@@ -85,7 +93,7 @@ export const useDatabaseSearch = () => {
       
       toast({
         title: "Search failed",
-        description: "Unable to search existing candidates",
+        description: "Unable to search existing candidates. Please try again.",
         variant: "destructive",
       });
       

@@ -32,7 +32,12 @@ export class DatabaseSearchService {
     console.log('🔍 Starting database search:', { query, filters });
 
     try {
-      // Build the query with text search across multiple fields
+      // First get the total count of candidates for metadata
+      const { count: totalCount } = await supabase
+        .from('candidates')
+        .select('*', { count: 'exact', head: true });
+
+      // Build the main query with text search across multiple fields
       let dbQuery = supabase
         .from('candidates')
         .select('*');
@@ -40,6 +45,8 @@ export class DatabaseSearchService {
       // Add text search across name, title, summary, and skills
       if (query && query.trim()) {
         const searchTerms = query.trim().toLowerCase();
+        
+        // Use PostgreSQL full text search with OR conditions
         dbQuery = dbQuery.or(`
           name.ilike.%${searchTerms}%,
           title.ilike.%${searchTerms}%,
@@ -67,25 +74,25 @@ export class DatabaseSearchService {
       }
 
       // Execute query with sorting and limiting
-      const { data: candidates, error } = await dbQuery
+      const { data: candidates, error, count } = await dbQuery
         .order('overall_score', { ascending: false })
         .order('created_at', { ascending: false })
         .limit(limit);
 
       if (error) {
         console.error('❌ Database search error:', error);
-        throw error;
+        throw new Error(`Database search failed: ${error.message}`);
       }
 
       // Calculate relevance scores for better ranking
       const rankedCandidates = this.rankCandidatesByRelevance(candidates || [], query);
 
       const processingTime = Date.now() - startTime;
-      console.log(`✅ Database search completed in ${processingTime}ms: ${rankedCandidates.length} candidates`);
+      console.log(`✅ Database search completed in ${processingTime}ms: ${rankedCandidates.length} candidates found`);
 
       return {
         candidates: rankedCandidates,
-        total: rankedCandidates.length,
+        total: count || rankedCandidates.length,
         searchMetadata: {
           query,
           searchType: 'database',
@@ -97,7 +104,20 @@ export class DatabaseSearchService {
 
     } catch (error: any) {
       console.error('❌ Database search failed:', error);
-      throw new Error(`Database search failed: ${error.message}`);
+      
+      // Return empty results with error information
+      const processingTime = Date.now() - startTime;
+      return {
+        candidates: [],
+        total: 0,
+        searchMetadata: {
+          query,
+          searchType: 'database',
+          processingTime,
+          resultsFromDatabase: 0,
+          fallbackUsed: true
+        }
+      };
     }
   }
 

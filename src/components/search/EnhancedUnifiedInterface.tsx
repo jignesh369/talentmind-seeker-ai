@@ -79,6 +79,13 @@ export const EnhancedUnifiedInterface = ({
     }
   }, [inputValue]);
 
+  // Update input value when searchQuery prop changes
+  useEffect(() => {
+    if (searchQuery && searchQuery !== inputValue) {
+      setInputValue(searchQuery);
+    }
+  }, [searchQuery]);
+
   const calculateSearchQuality = (query: string) => {
     const skills = extractSkills(query);
     const hasRole = /\b(developer|engineer|scientist|analyst|manager)\b/i.test(query);
@@ -111,13 +118,15 @@ export const EnhancedUnifiedInterface = ({
     return commonSkills.filter(skill => queryLower.includes(skill));
   };
 
-  const handleDatabaseSearchSubmit = (e: React.FormEvent) => {
+  const handleDatabaseSearchSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (inputValue.trim()) {
-      handleDatabaseSearch(inputValue.trim());
-      // Also trigger the parent search for UI consistency
-      onSearch(inputValue.trim());
-    }
+    if (!inputValue.trim()) return;
+    
+    console.log('🔍 Starting database search for:', inputValue.trim());
+    
+    // Trigger both database search and parent search
+    await handleDatabaseSearch(inputValue.trim());
+    onSearch(inputValue.trim());
   };
 
   const handleCollectionSubmit = async (e: React.FormEvent) => {
@@ -268,7 +277,7 @@ export const EnhancedUnifiedInterface = ({
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
                 className="flex-1"
-                disabled={isDbSearching}
+                disabled={isDbSearching || isSearching}
                 onFocus={() => setShowSuggestions(true)}
                 onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
               />
@@ -281,24 +290,25 @@ export const EnhancedUnifiedInterface = ({
                   onSearch(suggestion);
                   setShowSuggestions(false);
                 }}
-                isVisible={showSuggestions}
+                isVisible={showSuggestions && inputValue.length > 1}
               />
             </div>
 
             <div className="flex gap-2">
               <Button 
                 type="submit" 
-                disabled={isDbSearching || !inputValue.trim()}
+                disabled={isDbSearching || isSearching || !inputValue.trim()}
                 className="flex items-center gap-2"
               >
                 <Search className="h-4 w-4" />
-                {isDbSearching ? 'Searching Database...' : 'Search Database'}
+                {isDbSearching || isSearching ? 'Searching Database...' : 'Search Database'}
               </Button>
               <Button
                 type="button"
                 variant="outline"
                 onClick={() => setShowAdvanced(true)}
                 className="flex items-center gap-2"
+                disabled={isDbSearching || isSearching}
               >
                 <Settings className="h-4 w-4" />
                 Advanced
@@ -324,7 +334,7 @@ export const EnhancedUnifiedInterface = ({
                   onSearch(quick);
                 }}
                 className="px-3 py-1 text-xs bg-slate-100 hover:bg-slate-200 rounded-full transition-colors"
-                disabled={isDbSearching}
+                disabled={isDbSearching || isSearching}
               >
                 {quick}
               </button>
@@ -438,6 +448,7 @@ export const EnhancedUnifiedInterface = ({
         isOpen={showAdvanced}
         onClose={() => setShowAdvanced(false)}
         onSearch={(query) => {
+          setInputValue(query);
           handleDatabaseSearch(query);
           onSearch(query);
         }}
