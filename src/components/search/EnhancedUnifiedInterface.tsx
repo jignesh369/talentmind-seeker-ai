@@ -4,12 +4,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Search, Settings, Database, Plus, Zap, Shield, TrendingUp } from 'lucide-react';
+import { Search, Settings, Database, Plus, Zap, Shield, TrendingUp, HardDrive } from 'lucide-react';
 import { AdvancedSearchPanel } from './AdvancedSearchPanel';
 import { RealTimeSearchSuggestions } from './RealTimeSearchSuggestions';
 import { SearchQualityIndicator } from './SearchQualityIndicator';
 import { DataCollectionProgress } from './DataCollectionProgress';
 import { useDataCollection } from '@/hooks/useDataCollection';
+import { useDatabaseSearch } from '@/hooks/useDatabaseSearch';
 import { SourceHealthMonitor } from '@/services/core/SourceHealthMonitor';
 import { CandidateValidator } from '@/services/core/CandidateValidator';
 
@@ -32,6 +33,15 @@ export const EnhancedUnifiedInterface = ({
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [availableSources, setAvailableSources] = useState<string[]>([]);
   const [recommendedSources, setRecommendedSources] = useState<string[]>([]);
+  
+  // Database search state
+  const {
+    searchResults: dbSearchResults,
+    isSearching: isDbSearching,
+    searchMetadata: dbSearchMetadata,
+    handleDatabaseSearch,
+    clearSearch: clearDbSearch
+  } = useDatabaseSearch();
   
   // Search quality state
   const [searchQuality, setSearchQuality] = useState({
@@ -100,9 +110,11 @@ export const EnhancedUnifiedInterface = ({
     return commonSkills.filter(skill => queryLower.includes(skill));
   };
 
-  const handleSearchSubmit = (e: React.FormEvent) => {
+  const handleDatabaseSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (inputValue.trim()) {
+      handleDatabaseSearch(inputValue.trim());
+      // Also trigger the parent search for UI consistency
       onSearch(inputValue.trim());
     }
   };
@@ -144,7 +156,7 @@ export const EnhancedUnifiedInterface = ({
 
   const productionQuickSearches = [
     'Senior React Developer',
-    'Python Machine Learning Engineer',
+    'Python Machine Learning Engineer', 
     'Full Stack TypeScript Developer',
     'DevOps AWS Specialist',
     'Senior Data Scientist'
@@ -165,8 +177,8 @@ export const EnhancedUnifiedInterface = ({
             <Database className="w-4 h-4 text-white" />
           </div>
           <div>
-            <h3 className="font-semibold text-slate-900">Production Talent Search</h3>
-            <p className="text-sm text-slate-600">High-quality candidates from verified sources</p>
+            <h3 className="font-semibold text-slate-900">Talent Search & Collection</h3>
+            <p className="text-sm text-slate-600">Search existing candidates or collect new data</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -178,7 +190,7 @@ export const EnhancedUnifiedInterface = ({
       <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'search' | 'collect')}>
         <TabsList className="grid w-full grid-cols-2 mb-4">
           <TabsTrigger value="search" className="flex items-center gap-2">
-            <Search className="h-4 w-4" />
+            <HardDrive className="h-4 w-4" />
             Search Existing
           </TabsTrigger>
           <TabsTrigger value="collect" className="flex items-center gap-2">
@@ -188,15 +200,33 @@ export const EnhancedUnifiedInterface = ({
         </TabsList>
 
         <TabsContent value="search" className="space-y-4">
-          <form onSubmit={handleSearchSubmit} className="space-y-3">
+          {/* Database Statistics */}
+          <div className="flex items-center gap-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+            <HardDrive className="h-5 w-5 text-blue-600" />
+            <div className="flex-1">
+              <p className="text-sm font-medium text-blue-900">
+                Search {dbSearchMetadata?.totalCandidatesInDb || '1,000+'} existing candidates
+              </p>
+              <p className="text-xs text-blue-700">
+                Database-only search • Instant results • No external API calls
+              </p>
+            </div>
+            {dbSearchMetadata && (
+              <div className="text-xs text-blue-600">
+                Last search: {dbSearchMetadata.searchTime}ms
+              </div>
+            )}
+          </div>
+
+          <form onSubmit={handleDatabaseSearchSubmit} className="space-y-3">
             <div className="relative">
               <Input
                 type="text"
-                placeholder="e.g., 'Senior React Developer in SF' or 'Python AI Engineer'"
+                placeholder="Search existing candidates: 'React developer', 'Python engineer', etc."
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
                 className="flex-1"
-                disabled={isSearching}
+                disabled={isDbSearching}
                 onFocus={() => setShowSuggestions(true)}
                 onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
               />
@@ -205,6 +235,7 @@ export const EnhancedUnifiedInterface = ({
                 query={inputValue}
                 onSelectSuggestion={(suggestion) => {
                   setInputValue(suggestion);
+                  handleDatabaseSearch(suggestion);
                   onSearch(suggestion);
                   setShowSuggestions(false);
                 }}
@@ -215,11 +246,11 @@ export const EnhancedUnifiedInterface = ({
             <div className="flex gap-2">
               <Button 
                 type="submit" 
-                disabled={isSearching || !inputValue.trim()}
+                disabled={isDbSearching || !inputValue.trim()}
                 className="flex items-center gap-2"
               >
                 <Search className="h-4 w-4" />
-                {isSearching ? 'Searching...' : 'Search'}
+                {isDbSearching ? 'Searching Database...' : 'Search Database'}
               </Button>
               <Button
                 type="button"
@@ -240,17 +271,18 @@ export const EnhancedUnifiedInterface = ({
           <div className="flex flex-wrap gap-2">
             <span className="text-sm text-slate-600 flex items-center gap-1">
               <Zap className="h-3 w-3" />
-              Production searches:
+              Quick searches:
             </span>
             {productionQuickSearches.map((quick) => (
               <button
                 key={quick}
                 onClick={() => {
                   setInputValue(quick);
+                  handleDatabaseSearch(quick);
                   onSearch(quick);
                 }}
                 className="px-3 py-1 text-xs bg-slate-100 hover:bg-slate-200 rounded-full transition-colors"
-                disabled={isSearching}
+                disabled={isDbSearching}
               >
                 {quick}
               </button>
@@ -259,6 +291,19 @@ export const EnhancedUnifiedInterface = ({
         </TabsContent>
 
         <TabsContent value="collect" className="space-y-4">
+          {/* Collection Information */}
+          <div className="flex items-center gap-4 p-3 bg-green-50 rounded-lg border border-green-200">
+            <Plus className="h-5 w-5 text-green-600" />
+            <div className="flex-1">
+              <p className="text-sm font-medium text-green-900">
+                Collect new candidates from external sources
+              </p>
+              <p className="text-xs text-green-700">
+                GitHub • Stack Overflow • LinkedIn • Google Search
+              </p>
+            </div>
+          </div>
+
           <form onSubmit={handleCollectionSubmit} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="query">Search Query</Label>
@@ -350,7 +395,10 @@ export const EnhancedUnifiedInterface = ({
       <AdvancedSearchPanel
         isOpen={showAdvanced}
         onClose={() => setShowAdvanced(false)}
-        onSearch={onSearch}
+        onSearch={(query) => {
+          handleDatabaseSearch(query);
+          onSearch(query);
+        }}
         currentQuery={inputValue}
       />
     </div>
