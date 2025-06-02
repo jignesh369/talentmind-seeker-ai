@@ -1,5 +1,5 @@
 
-import { AdvancedQueryProcessor } from '../parse-query/advanced-query-processor.ts';
+import { AdvancedQueryProcessor } from './advanced-query-processor.ts';
 import { ResultQualityFilter } from './result-quality-filter.ts';
 
 export interface SearchConfiguration {
