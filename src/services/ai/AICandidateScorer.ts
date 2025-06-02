@@ -30,7 +30,7 @@ export interface CandidateProfile {
 }
 
 export class AICandidateScorer {
-  private openaiApiKey: string;
+  protected openaiApiKey: string;
 
   constructor(openaiApiKey: string) {
     this.openaiApiKey = openaiApiKey;

@@ -76,7 +76,11 @@ Return ONLY valid JSON:
   "tier": "A",
   "technicalFit": 90,
   "experienceLevel": 85,
-  "riskAssessment": "low",
+  "culturalAlignment": 80,
+  "riskAssessment": 90,
+  "communicationQuality": 75,
+  "projectConsistency": 85,
+  "confidence": 88,
   "openSourceScore": 80,
   "aiExpertiseScore": 90,
   "startupFitScore": 85,
@@ -85,6 +89,7 @@ Return ONLY valid JSON:
   "reasoning": "detailed explanation",
   "strengths": ["strength1", "strength2"],
   "concerns": ["concern1"],
+  "recommendedActions": ["action1", "action2"],
   "detailedAnalysis": {
     "openSourceContributions": {
       "level": "regular",
@@ -160,7 +165,11 @@ ORIGINAL QUERY: "${searchQuery.query || searchQuery}"`
       tier: ['A', 'B', 'C', 'D'].includes(parsed.tier) ? parsed.tier : 'C',
       technicalFit: Math.min(Math.max(parsed.technicalFit || 50, 0), 100),
       experienceLevel: Math.min(Math.max(parsed.experienceLevel || 50, 0), 100),
-      riskAssessment: ['low', 'medium', 'high'].includes(parsed.riskAssessment) ? parsed.riskAssessment : 'medium',
+      culturalAlignment: Math.min(Math.max(parsed.culturalAlignment || 50, 0), 100),
+      riskAssessment: Math.min(Math.max(parsed.riskAssessment || 50, 0), 100),
+      communicationQuality: Math.min(Math.max(parsed.communicationQuality || 50, 0), 100),
+      projectConsistency: Math.min(Math.max(parsed.projectConsistency || 50, 0), 100),
+      confidence: Math.min(Math.max(parsed.confidence || 50, 0), 100),
       openSourceScore: Math.min(Math.max(parsed.openSourceScore || 0, 0), 100),
       aiExpertiseScore: Math.min(Math.max(parsed.aiExpertiseScore || 0, 0), 100),
       startupFitScore: Math.min(Math.max(parsed.startupFitScore || 50, 0), 100),
@@ -169,6 +178,7 @@ ORIGINAL QUERY: "${searchQuery.query || searchQuery}"`
       reasoning: parsed.reasoning || 'AI analysis completed',
       strengths: Array.isArray(parsed.strengths) ? parsed.strengths : [],
       concerns: Array.isArray(parsed.concerns) ? parsed.concerns : [],
+      recommendedActions: Array.isArray(parsed.recommendedActions) ? parsed.recommendedActions : [],
       detailedAnalysis: {
         openSourceContributions: {
           level: ['none', 'casual', 'regular', 'maintainer', 'creator'].includes(parsed.detailedAnalysis?.openSourceContributions?.level)
@@ -210,7 +220,11 @@ ORIGINAL QUERY: "${searchQuery.query || searchQuery}"`
       tier: 'C',
       technicalFit: 50,
       experienceLevel: 50,
-      riskAssessment: 'medium',
+      culturalAlignment: 50,
+      riskAssessment: 50,
+      communicationQuality: 50,
+      projectConsistency: 50,
+      confidence: 30,
       openSourceScore: 0,
       aiExpertiseScore: 0,
       startupFitScore: 50,
@@ -219,6 +233,7 @@ ORIGINAL QUERY: "${searchQuery.query || searchQuery}"`
       reasoning: 'Fallback scoring due to AI analysis failure',
       strengths: [],
       concerns: ['Unable to perform detailed AI analysis'],
+      recommendedActions: ['Manual review recommended'],
       detailedAnalysis: {
         openSourceContributions: {
           level: 'none',

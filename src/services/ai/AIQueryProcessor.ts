@@ -17,7 +17,7 @@ export interface EnhancedQuery extends ParsedQuery {
 }
 
 export class AIQueryProcessor {
-  private openaiApiKey: string;
+  protected openaiApiKey: string;
 
   constructor(openaiApiKey: string) {
     this.openaiApiKey = openaiApiKey;
