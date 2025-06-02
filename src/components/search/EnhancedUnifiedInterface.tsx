@@ -1,11 +1,9 @@
 
 import React, { useState, useEffect } from 'react';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Database, Plus, Shield, HardDrive } from 'lucide-react';
+import { Database, Shield } from 'lucide-react';
 import { AdvancedSearchPanel } from './AdvancedSearchPanel';
-import { DatabaseSearchTab } from './DatabaseSearchTab';
-import { CompactDataCollectionTab } from './CompactDataCollectionTab';
 import { CompactMonitoringDashboard } from './CompactMonitoringDashboard';
+import { UnifiedSearchBar } from './UnifiedSearchBar';
 import { DataCollectionService } from '@/services/dataCollectionService';
 import { useDatabaseSearch } from '@/hooks/useDatabaseSearch';
 import { SourceHealthMonitor } from '@/services/core/SourceHealthMonitor';
@@ -24,7 +22,6 @@ export const EnhancedUnifiedInterface = ({
   searchQuery,
   onDataCollected
 }: EnhancedUnifiedInterfaceProps) => {
-  const [activeTab, setActiveTab] = useState<'search' | 'collect'>('search');
   const [inputValue, setInputValue] = useState(searchQuery || '');
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [availableSources, setAvailableSources] = useState<string[]>([]);
@@ -38,15 +35,6 @@ export const EnhancedUnifiedInterface = ({
     handleDatabaseSearch,
     clearSearch: clearDbSearch
   } = useDatabaseSearch();
-  
-  // Search quality state
-  const [searchQuality, setSearchQuality] = useState({
-    quality: 0,
-    confidence: 0,
-    matchedSkills: [] as string[],
-    totalSkills: 0,
-    searchStrategy: 'basic'
-  });
 
   // Data collection state
   const [query, setQuery] = useState("");
@@ -64,8 +52,6 @@ export const EnhancedUnifiedInterface = ({
   useEffect(() => {
     if (inputValue.length > 2) {
       SourceHealthMonitor.getSourceRecommendations(inputValue).then(setRecommendedSources);
-      const quality = calculateSearchQuality(inputValue);
-      setSearchQuality(quality);
     }
   }, [inputValue]);
 
@@ -74,38 +60,6 @@ export const EnhancedUnifiedInterface = ({
       setInputValue(searchQuery);
     }
   }, [searchQuery]);
-
-  const calculateSearchQuality = (query: string) => {
-    const skills = extractSkills(query);
-    const hasRole = /\b(developer|engineer|scientist|analyst|manager)\b/i.test(query);
-    const hasLevel = /\b(senior|junior|lead|principal)\b/i.test(query);
-    const hasLocation = /\bin\s+\w+/i.test(query);
-    
-    let quality = 50;
-    if (skills.length > 0) quality += 20;
-    if (hasRole) quality += 15;
-    if (hasLevel) quality += 10;
-    if (hasLocation) quality += 5;
-    
-    return {
-      quality: Math.min(quality, 100),
-      confidence: Math.min(quality - 10, 95),
-      matchedSkills: skills,
-      totalSkills: skills.length,
-      searchStrategy: hasLevel && hasRole ? 'advanced' : 'standard'
-    };
-  };
-
-  const extractSkills = (query: string): string[] => {
-    const commonSkills = [
-      'react', 'javascript', 'typescript', 'python', 'java', 'go', 'rust',
-      'node.js', 'django', 'flask', 'spring', 'aws', 'docker', 'kubernetes',
-      'machine learning', 'ai', 'data science', 'devops'
-    ];
-    
-    const queryLower = query.toLowerCase();
-    return commonSkills.filter(skill => queryLower.includes(skill));
-  };
 
   const handleCollectionSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -180,14 +134,14 @@ export const EnhancedUnifiedInterface = ({
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex items-center justify-between mb-4">
         <div className="flex items-center space-x-3">
           <div className="w-6 h-6 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-lg flex items-center justify-center">
             <Database className="w-3 h-3 text-white" />
           </div>
           <div>
             <h3 className="font-semibold text-slate-900 text-sm">Talent Search & Collection</h3>
-            <p className="text-xs text-slate-600">Search existing candidates or collect new data</p>
+            <p className="text-xs text-slate-600">Unified interface for searching and collecting candidates</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -197,49 +151,30 @@ export const EnhancedUnifiedInterface = ({
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Main Interface - 2/3 width */}
-        <div className="lg:col-span-2 space-y-3">
-          <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'search' | 'collect')}>
-            <TabsList className="grid w-full grid-cols-2 h-8">
-              <TabsTrigger value="search" className="flex items-center gap-2 text-xs">
-                <HardDrive className="h-3 w-3" />
-                Search Existing
-              </TabsTrigger>
-              <TabsTrigger value="collect" className="flex items-center gap-2 text-xs">
-                <Plus className="h-3 w-3" />
-                Collect New Data
-              </TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="search" className="space-y-3 mt-3">
-              <DatabaseSearchTab
-                inputValue={inputValue}
-                setInputValue={setInputValue}
-                isSearching={isSearching}
-                isDbSearching={isDbSearching}
-                searchMetadata={dbSearchMetadata}
-                onDatabaseSearch={handleDatabaseSearch}
-                onSearch={onSearch}
-                onShowAdvanced={() => setShowAdvanced(true)}
-                searchQuality={searchQuality}
-              />
-            </TabsContent>
-
-            <TabsContent value="collect" className="space-y-3 mt-3">
-              <CompactDataCollectionTab
-                query={query}
-                setQuery={setQuery}
-                location={location}
-                setLocation={setLocation}
-                sources={sources}
-                setSources={setSources}
-                isCollecting={isCollecting}
-                availableSources={availableSources}
-                recommendedSources={recommendedSources}
-                onSubmit={handleCollectionSubmit}
-              />
-            </TabsContent>
-          </Tabs>
+        {/* Main Search Interface - 2/3 width */}
+        <div className="lg:col-span-2">
+          <UnifiedSearchBar
+            // Search props
+            searchValue={inputValue}
+            setSearchValue={setInputValue}
+            onSearch={onSearch}
+            onDatabaseSearch={handleDatabaseSearch}
+            isSearching={isSearching}
+            isDbSearching={isDbSearching}
+            onShowAdvanced={() => setShowAdvanced(true)}
+            
+            // Collection props
+            query={query}
+            setQuery={setQuery}
+            location={location}
+            setLocation={setLocation}
+            sources={sources}
+            setSources={setSources}
+            isCollecting={isCollecting}
+            availableSources={availableSources}
+            recommendedSources={recommendedSources}
+            onCollectionSubmit={handleCollectionSubmit}
+          />
         </div>
 
         {/* Monitoring Dashboard - 1/3 width */}
