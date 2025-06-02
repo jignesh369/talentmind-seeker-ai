@@ -71,13 +71,70 @@ serve(async (req) => {
             requestBody = { ...requestBody, location }
             break
           case 'linkedin':
-            functionName = 'collect-linkedin-data'
-            requestBody = { ...requestBody, location, use_apify: true }
-            break
+            // Use the enhanced LinkedIn workflow
+            console.log('🔄 Starting enhanced LinkedIn workflow (Google + Apify)...')
+            
+            // Step 1: Discover LinkedIn profile URLs
+            const discoveryResponse = await supabase.functions.invoke('discover-linkedin-profiles', {
+              body: {
+                searchQuery: `site:linkedin.com/in "${query}"${location ? ` AND "${location}"` : ''}`,
+                maxResults: 20
+              }
+            })
+
+            if (discoveryResponse.error) {
+              console.error(`❌ LinkedIn discovery failed:`, discoveryResponse.error)
+              collectionResults[source].error = discoveryResponse.error.message
+              return
+            }
+
+            const profileUrls = discoveryResponse.data?.profileUrls || []
+            
+            if (profileUrls.length === 0) {
+              console.log('📭 No LinkedIn profile URLs found')
+              collectionResults[source] = {
+                candidates: [],
+                total: 0,
+                error: 'No LinkedIn profiles found in search results'
+              }
+              return
+            }
+
+            console.log(`📍 Found ${profileUrls.length} LinkedIn profile URLs, proceeding to scrape...`)
+
+            // Step 2: Scrape profile details
+            const scrapingResponse = await supabase.functions.invoke('scrape-linkedin-profiles', {
+              body: {
+                profileUrls,
+                originalQuery: query
+              }
+            })
+
+            if (scrapingResponse.error) {
+              console.error(`❌ LinkedIn scraping failed:`, scrapingResponse.error)
+              collectionResults[source].error = scrapingResponse.error.message
+              return
+            }
+
+            const candidates = scrapingResponse.data?.candidates || []
+            
+            // Apply quality validation
+            const qualifiedCandidates = await validateCandidateQuality(candidates, query, qualityThreshold)
+            
+            collectionResults[source] = {
+              candidates: qualifiedCandidates,
+              total: qualifiedCandidates.length,
+              error: null
+            }
+
+            console.log(`✅ LinkedIn enhanced workflow: ${qualifiedCandidates.length}/${candidates.length} candidates passed quality threshold`)
+            return
+
           default:
             throw new Error(`Unknown source: ${source}`)
         }
 
+        // Handle other sources (non-LinkedIn)
         console.log(`🔄 Collecting from ${source}...`)
         const response = await supabase.functions.invoke(functionName, {
           body: requestBody

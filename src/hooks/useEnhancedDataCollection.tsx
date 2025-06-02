@@ -44,11 +44,12 @@ export const useEnhancedDataCollection = () => {
   const startProgress = () => {
     let step = 0;
     const steps = [
-      { message: 'Initializing collection...', phase: 'Initialization', percentage: 10 },
+      { message: 'Initializing enhanced collection...', phase: 'Initialization', percentage: 10 },
       { message: 'Connecting to data sources...', phase: 'Connection', percentage: 25 },
-      { message: 'Processing candidate data...', phase: 'Processing', percentage: 50 },
-      { message: 'Validating and saving results...', phase: 'Validation', percentage: 75 },
-      { message: 'Finalizing collection...', phase: 'Finalization', percentage: 90 }
+      { message: 'Discovering LinkedIn profiles via Google Search...', phase: 'Discovery', percentage: 40 },
+      { message: 'Scraping detailed profile information...', phase: 'Scraping', percentage: 65 },
+      { message: 'Validating and processing results...', phase: 'Validation', percentage: 85 },
+      { message: 'Finalizing collection...', phase: 'Finalization', percentage: 95 }
     ];
 
     const progressInterval = setInterval(() => {
@@ -87,14 +88,14 @@ export const useEnhancedDataCollection = () => {
       
       const stopProgress = startProgress();
 
-      console.log('🚀 Starting enhanced collection:', {
+      console.log('🚀 Starting enhanced collection with Google + LinkedIn workflow:', {
         query: query.trim(),
         location: location || 'Not specified',
         sources: sources.slice(0, 4),
         user: user.id
       });
 
-      // Call the enhanced data collection service
+      // Call the enhanced data collection service - NO FALLBACKS
       const data = await DataCollectionService.collectCandidates({
         query: query.trim(),
         location: location?.trim(),
@@ -104,9 +105,13 @@ export const useEnhancedDataCollection = () => {
       
       stopProgress();
       
-      // Validate response
+      // Validate response - FAIL if no real data
       if (!data) {
         throw new Error("No data returned from collection service");
+      }
+
+      if (data.total_candidates === 0) {
+        console.warn('⚠️ No candidates found - this is real data, not fallback');
       }
 
       setResult(data);
@@ -118,20 +123,20 @@ export const useEnhancedDataCollection = () => {
       
       let description = '';
       if (successCount === 0) {
-        description = "No candidates found. Try adjusting your search query or selecting different sources.";
+        description = "No candidates found using the enhanced workflow. Try adjusting your search query or selecting different sources.";
       } else if (successCount < 5) {
-        description = `Found ${successCount} candidates from ${sourceCount}/${totalSources} sources. Consider broadening your search.`;
+        description = `Found ${successCount} real candidates from ${sourceCount}/${totalSources} sources using enhanced workflow.`;
       } else {
-        description = `Successfully collected ${successCount} candidates from ${sourceCount}/${totalSources} sources.`;
+        description = `Successfully collected ${successCount} real candidates from ${sourceCount}/${totalSources} sources using enhanced workflow.`;
       }
 
       toast({
-        title: successCount > 0 ? "Collection completed" : "Collection completed with no results",
+        title: successCount > 0 ? "Enhanced collection completed" : "No results found",
         description,
         variant: successCount > 0 ? "default" : "destructive",
       });
 
-      console.log('✅ Enhanced collection completed:', {
+      console.log('✅ Enhanced collection completed with real data:', {
         candidates: data.total_candidates,
         sources_successful: data.enhancement_stats.sources_successful,
         processing_time: data.performance_metrics.total_time_ms,
@@ -143,17 +148,19 @@ export const useEnhancedDataCollection = () => {
     } catch (error: any) {
       console.error('Enhanced data collection error:', error);
       
-      // Enhanced error handling with user-friendly messages
-      let errorMessage = 'Data collection failed unexpectedly';
+      // Enhanced error handling with user-friendly messages - NO FALLBACKS
+      let errorMessage = 'Enhanced data collection failed';
       
       if (error.message?.includes('Authentication') || error.message?.includes('sign in')) {
         errorMessage = 'Please sign in again to collect data';
       } else if (error.message?.includes('timeout') || error.message?.includes('timed out')) {
-        errorMessage = 'Collection is taking longer than expected. Try using fewer sources or a simpler query.';
+        errorMessage = 'Collection timed out. Try using fewer sources or a simpler query.';
       } else if (error.message?.includes('network') || error.message?.includes('connection')) {
         errorMessage = 'Network connection issue. Please check your internet connection.';
       } else if (error.message?.includes('rate limit')) {
         errorMessage = 'API rate limits exceeded. Please wait a few minutes before trying again.';
+      } else if (error.message?.includes('Google Search') || error.message?.includes('Apify')) {
+        errorMessage = 'LinkedIn enhanced workflow failed. Please check API configuration.';
       } else if (error.message?.includes('query') || error.message?.includes('source')) {
         errorMessage = error.message;
       } else {
@@ -161,7 +168,7 @@ export const useEnhancedDataCollection = () => {
       }
       
       toast({
-        title: "Data collection failed",
+        title: "Enhanced data collection failed",
         description: errorMessage,
         variant: "destructive",
       });

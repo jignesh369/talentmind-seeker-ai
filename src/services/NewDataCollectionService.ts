@@ -1,6 +1,6 @@
 
 import { SearchEngine, SearchRequest, SearchResult } from './core/SearchEngine';
-import { LinkedInApifyPlugin } from './plugins/LinkedInApifyPlugin';
+import { EnhancedLinkedInPlugin } from './plugins/EnhancedLinkedInPlugin';
 import { GitHubRealPlugin } from './plugins/GitHubRealPlugin';
 import { GoogleSearchRealPlugin } from './plugins/GoogleSearchRealPlugin';
 
@@ -21,8 +21,8 @@ export class NewDataCollectionService {
   }
 
   private initializePlugins(): void {
-    // Register data source plugins
-    this.searchEngine.registerPlugin('linkedin', new LinkedInApifyPlugin());
+    // Register data source plugins - using enhanced LinkedIn plugin only
+    this.searchEngine.registerPlugin('linkedin', new EnhancedLinkedInPlugin());
     this.searchEngine.registerPlugin('github', new GitHubRealPlugin());
     this.searchEngine.registerPlugin('google', new GoogleSearchRealPlugin());
   }
@@ -47,7 +47,7 @@ export class NewDataCollectionService {
       limit: params.limit || 50
     };
 
-    console.log('🚀 NewDataCollectionService: Starting search');
+    console.log('🚀 NewDataCollectionService: Starting search with enhanced LinkedIn workflow');
     const searchResult = await this.searchEngine.search(searchRequest);
 
     return searchResult;
