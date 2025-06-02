@@ -41,7 +41,7 @@ const convertToCandidate = (profile: ApifyLinkedInProfile, query: string) => {
     title: profile.headline || 'Professional',
     location: profile.location || '',
     avatar_url: profile.photoUrl || null,
-    email: null, // LinkedIn doesn't provide emails directly
+    email: null,
     linkedin_url: profile.profileUrl,
     summary: profile.summary || '',
     skills: profile.skills || [],
@@ -52,7 +52,7 @@ const convertToCandidate = (profile: ApifyLinkedInProfile, query: string) => {
     reputation: Math.min((profile.connectionsCount || 0) / 10, 100),
     experience: experienceYears * 8,
     social_proof: calculateSocialProof(profile),
-    freshness: 95, // LinkedIn profiles are generally up-to-date
+    freshness: 95,
     platform: 'linkedin',
     platform_data: {
       headline: profile.headline,
@@ -126,29 +126,32 @@ const searchLinkedInProfiles = async (query: string, location?: string): Promise
   
   if (!apifyToken) {
     console.error('❌ APIFY_API_KEY not configured')
-    throw new Error('Apify API key not configured')
+    throw new Error('Apify API key not configured. Please add your Apify API key in the Supabase secrets.')
   }
 
-  console.log('🔍 Starting real LinkedIn search via Apify...')
+  console.log('🔍 Starting LinkedIn search via Apify...')
   
-  // Construct search keywords
   let searchKeywords = query
-  if (location) {
+  if (location && location !== 'undefined') {
     searchKeywords += ` ${location}`
   }
 
-  // Apify LinkedIn People Search Actor
-  const actorId = 'apify/linkedin-people-search'
+  // Updated to use a working LinkedIn scraper actor
+  const actorId = 'dSCLg0C3YEZ83HzYX' // Updated actor ID for LinkedIn profile scraper
   
   const runInput = {
     searchKeywords,
-    maxResults: 20,
-    includePrivateProfiles: false,
-    saveToDataset: false
+    maxResults: 15,
+    includeContacts: false,
+    includeSkills: true,
+    includeExperience: true,
+    includeEducation: true
   }
 
+  console.log('🚀 Apify run configuration:', { actorId, searchKeywords, maxResults: runInput.maxResults })
+
   try {
-    // Start the Apify actor run
+    // Start the Apify actor run with improved error handling
     const runResponse = await fetch(`https://api.apify.com/v2/acts/${actorId}/runs`, {
       method: 'POST',
       headers: {
@@ -158,18 +161,22 @@ const searchLinkedInProfiles = async (query: string, location?: string): Promise
       body: JSON.stringify(runInput),
     })
 
+    console.log(`📡 Apify run response status: ${runResponse.status}`)
+
     if (!runResponse.ok) {
-      throw new Error(`Apify run failed: ${runResponse.status} ${runResponse.statusText}`)
+      const errorText = await runResponse.text()
+      console.error('❌ Apify run failed:', errorText)
+      throw new Error(`Apify run failed: ${runResponse.status} ${runResponse.statusText} - ${errorText}`)
     }
 
     const runData = await runResponse.json()
     const runId = runData.data.id
 
-    console.log(`🚀 Apify run started: ${runId}`)
+    console.log(`🚀 Apify run started successfully: ${runId}`)
 
-    // Wait for the run to complete (with timeout)
+    // Wait for the run to complete with improved timeout handling
     let attempts = 0
-    const maxAttempts = 30 // 5 minutes timeout
+    const maxAttempts = 20 // Reduced timeout to 3.5 minutes
     
     while (attempts < maxAttempts) {
       await new Promise(resolve => setTimeout(resolve, 10000)) // Wait 10 seconds
@@ -180,26 +187,34 @@ const searchLinkedInProfiles = async (query: string, location?: string): Promise
         },
       })
 
+      if (!statusResponse.ok) {
+        console.error(`❌ Status check failed: ${statusResponse.status}`)
+        throw new Error(`Status check failed: ${statusResponse.status}`)
+      }
+
       const statusData = await statusResponse.json()
       const status = statusData.data.status
 
-      console.log(`⏳ Apify run status: ${status}`)
+      console.log(`⏳ Apify run status: ${status} (attempt ${attempts + 1}/${maxAttempts})`)
 
       if (status === 'SUCCEEDED') {
         console.log('✅ Apify run completed successfully')
         break
       } else if (status === 'FAILED' || status === 'ABORTED') {
-        throw new Error(`Apify run failed with status: ${status}`)
+        const errorMessage = statusData.data.statusMessage || 'Unknown error'
+        console.error(`❌ Apify run failed with status: ${status}, message: ${errorMessage}`)
+        throw new Error(`Apify run failed: ${status} - ${errorMessage}`)
       }
 
       attempts++
     }
 
     if (attempts >= maxAttempts) {
-      throw new Error('Apify run timed out')
+      console.error('❌ Apify run timed out after maximum attempts')
+      throw new Error('Apify run timed out - the search is taking longer than expected')
     }
 
-    // Get the results
+    // Get the results with better error handling
     const resultsResponse = await fetch(`https://api.apify.com/v2/acts/${actorId}/runs/${runId}/dataset/items`, {
       headers: {
         'Authorization': `Bearer ${apifyToken}`,
@@ -207,6 +222,7 @@ const searchLinkedInProfiles = async (query: string, location?: string): Promise
     })
 
     if (!resultsResponse.ok) {
+      console.error(`❌ Failed to fetch results: ${resultsResponse.status}`)
       throw new Error(`Failed to fetch results: ${resultsResponse.status}`)
     }
 
@@ -214,23 +230,23 @@ const searchLinkedInProfiles = async (query: string, location?: string): Promise
     
     console.log(`📊 Retrieved ${results.length} LinkedIn profiles from Apify`)
 
-    // Transform Apify results to our format
+    // Transform Apify results to our format with better field mapping
     return results.map((item: any) => ({
-      fullName: item.name || item.fullName || 'Unknown',
-      headline: item.headline || item.title || '',
-      location: item.location || '',
-      profileUrl: item.profileUrl || item.url || '',
-      photoUrl: item.photoUrl || item.profilePictureUrl,
-      summary: item.summary || item.about || '',
-      experience: item.experience || [],
-      education: item.education || [],
-      skills: item.skills || [],
+      fullName: item.name || item.fullName || item.displayName || 'Unknown',
+      headline: item.headline || item.title || item.occupation || '',
+      location: item.location || item.geo?.city || '',
+      profileUrl: item.profileUrl || item.url || item.linkedInUrl || '',
+      photoUrl: item.photoUrl || item.profilePictureUrl || item.avatar,
+      summary: item.summary || item.about || item.description || '',
+      experience: item.experience || item.positions || [],
+      education: item.education || item.schools || [],
+      skills: item.skills || item.skillsList || [],
       connectionsCount: item.connectionsCount || item.connections || 0,
-      industry: item.industry || ''
-    }))
+      industry: item.industry || item.companyIndustry || ''
+    })).filter(profile => profile.profileUrl && profile.fullName !== 'Unknown')
 
   } catch (error: any) {
-    console.error('❌ Apify LinkedIn search error:', error)
+    console.error('❌ LinkedIn Apify search error:', error.message)
     throw new Error(`LinkedIn search failed: ${error.message}`)
   }
 }
@@ -257,15 +273,15 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     const supabase = createClient(supabaseUrl, supabaseKey)
 
-    console.log('🚀 Starting REAL LinkedIn data collection via Apify...')
+    console.log('🚀 Starting LinkedIn data collection via Apify...')
     console.log(`Query: "${query}", Location: "${location}"`)
 
     const startTime = Date.now()
 
-    // Search LinkedIn profiles using real Apify API
+    // Search LinkedIn profiles using Apify API
     const profiles = await searchLinkedInProfiles(query, location)
 
-    console.log(`🎯 Found ${profiles.length} real LinkedIn profiles`)
+    console.log(`🎯 Found ${profiles.length} LinkedIn profiles`)
 
     // Convert profiles to candidates and save
     const savedCandidates = []
@@ -281,7 +297,7 @@ serve(async (req) => {
           data: {
             full_profile: profile,
             apify_source: true,
-            collection_method: 'real_api'
+            collection_method: 'apify_api'
           }
         }
 
@@ -289,7 +305,7 @@ serve(async (req) => {
         
         if (saveResult.success) {
           savedCandidates.push(candidate)
-          console.log(`💾 Saved real LinkedIn candidate: ${candidate.name} (${profile.headline})`)
+          console.log(`💾 Saved LinkedIn candidate: ${candidate.name} (${profile.headline})`)
         } else {
           console.error(`❌ Failed to save candidate ${candidate.name}:`, saveResult.error)
         }
@@ -303,19 +319,19 @@ serve(async (req) => {
       .sort((a, b) => (b.overall_score + b.experience + b.social_proof) - (a.overall_score + a.experience + a.social_proof))
 
     const processingTime = Date.now() - startTime
-    console.log(`✅ REAL LinkedIn collection completed in ${processingTime}ms: ${sortedCandidates.length} candidates`)
+    console.log(`✅ LinkedIn collection completed in ${processingTime}ms: ${sortedCandidates.length} candidates`)
 
     return new Response(
       JSON.stringify({ 
         candidates: sortedCandidates,
         total: sortedCandidates.length,
-        source: 'linkedin_real',
+        source: 'linkedin_apify',
         processing_time_ms: processingTime,
         collection_stats: {
           profiles_found: profiles.length,
           candidates_saved: sortedCandidates.length,
-          data_source: 'apify_real_api',
-          collection_method: 'real_linkedin_scraping',
+          data_source: 'apify_api',
+          collection_method: 'linkedin_scraping',
           quality_level: 'production_grade'
         }
       }),
@@ -323,13 +339,13 @@ serve(async (req) => {
     )
 
   } catch (error) {
-    console.error('❌ Error in REAL LinkedIn collection:', error)
+    console.error('❌ Error in LinkedIn collection:', error)
     return new Response(
       JSON.stringify({ 
         candidates: [], 
         total: 0, 
-        source: 'linkedin_real',
-        error: 'Real LinkedIn collection failed',
+        source: 'linkedin_apify',
+        error: 'LinkedIn collection failed',
         error_details: error.message
       }),
       { 
