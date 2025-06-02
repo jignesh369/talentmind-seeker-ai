@@ -5,7 +5,7 @@ import { StatsOverview } from '../components/StatsOverview';
 import { Header } from '../components/layout/Header';
 import { SimplifiedSearchResults } from '../components/candidates/SimplifiedSearchResults';
 import { CandidatesList } from '../components/candidates/CandidatesList';
-import { UnifiedSearchAndCollectionInterface } from '../components/search/UnifiedSearchAndCollectionInterface';
+import { EnhancedUnifiedInterface } from '../components/search/EnhancedUnifiedInterface';
 import { useCandidates } from '../hooks/useCandidates';
 import { useAuth } from '../hooks/useAuth';
 import { useNewSearchEngine } from '../hooks/useNewSearchEngine';
@@ -48,6 +48,11 @@ const Index = () => {
       if (searchQuery) {
         await handleSearch(searchQuery);
       }
+      
+      toast({
+        title: "Data Collection Complete",
+        description: "New high-quality candidates have been added to your database.",
+      });
     } catch (error) {
       console.error('Error refreshing data after collection:', error);
       toast({
@@ -64,8 +69,8 @@ const Index = () => {
     try {
       await handleSearch(searchQuery);
       toast({
-        title: "AI-Enhanced Search Expanded",
-        description: "Searching for additional candidates with AI intelligence",
+        title: "Enhanced Search Expanded",
+        description: "Searching for additional high-quality candidates",
       });
     } catch (error) {
       console.error('Error finding more candidates:', error);
@@ -88,9 +93,9 @@ const Index = () => {
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <StatsOverview totalCandidates={displayCandidates.length} />
 
-        {/* Unified Search and Collection Interface */}
+        {/* Enhanced Search and Collection Interface */}
         <div className="mt-8 mb-6">
-          <UnifiedSearchAndCollectionInterface
+          <EnhancedUnifiedInterface
             onSearch={handleSearch}
             isSearching={isSearching}
             searchQuery={searchQuery}
@@ -105,7 +110,7 @@ const Index = () => {
           </div>
         )}
 
-        {/* Simplified Search Results */}
+        {/* Enhanced Search Results */}
         <SimplifiedSearchResults 
           searchQuery={searchQuery}
           isSearching={isSearching}
