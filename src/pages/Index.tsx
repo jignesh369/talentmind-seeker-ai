@@ -1,13 +1,12 @@
 
 import React from 'react';
-import { ChatInterface } from '../components/ChatInterface';
 import { FilterPanel } from '../components/FilterPanel';
 import { StatsOverview } from '../components/StatsOverview';
 import { DataCollectionDrawer } from '../components/DataCollectionDrawer';
 import { Header } from '../components/layout/Header';
-import { SearchResults } from '../components/candidates/SearchResults';
+import { SimplifiedSearchResults } from '../components/candidates/SimplifiedSearchResults';
 import { CandidatesList } from '../components/candidates/CandidatesList';
-import { EnhancedSearchInterface } from '../components/search/EnhancedSearchInterface';
+import { UnifiedSearchInterface } from '../components/search/UnifiedSearchInterface';
 import { useCandidates } from '../hooks/useCandidates';
 import { useAuth } from '../hooks/useAuth';
 import { useNewSearchEngine } from '../hooks/useNewSearchEngine';
@@ -41,14 +40,12 @@ const Index = () => {
     });
   };
 
-  // Use new search results if available, otherwise use all candidates
   const displayCandidates = searchResults.length > 0 ? searchResults : candidates;
   const filteredCandidates = applyFilters(displayCandidates);
 
   const handleDataCollected = async (): Promise<void> => {
     try {
       await refetch();
-      // If we have an active search, refresh the search results
       if (searchQuery) {
         await handleSearch(searchQuery);
       }
@@ -66,9 +63,7 @@ const Index = () => {
     if (!searchQuery) return;
     
     try {
-      // Re-run search to find more candidates using the new engine
       await handleSearch(searchQuery);
-      
       toast({
         title: "AI-Enhanced Search Expanded",
         description: "Searching for additional candidates with AI intelligence",
@@ -92,60 +87,49 @@ const Index = () => {
         onOpenDataCollection={() => setIsDataCollectionOpen(true)}
       />
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <StatsOverview totalCandidates={displayCandidates.length} />
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mt-8">
-          {/* Left Sidebar - Enhanced Search Interface */}
-          <div className="lg:col-span-1 space-y-6">
-            <div className="bg-white rounded-lg border border-slate-200 p-6">
-              <h2 className="text-lg font-semibold mb-4">AI-Powered Search</h2>
-              <EnhancedSearchInterface
-                onSearch={handleSearch}
-                isSearching={isSearching}
-                searchQuery={searchQuery}
-              />
-            </div>
-            
-            {/* Chat Interface */}
-            <ChatInterface onSearch={handleSearch} />
-          </div>
-
-          {/* Main Content */}
-          <div className="lg:col-span-2">
-            <SearchResults 
-              searchQuery={searchQuery}
-              isSearching={isSearching}
-              candidateCount={filteredCandidates.length}
-              searchMetadata={searchMetadata}
-              searchError={searchError}
-              retryCount={0}
-              onRetry={() => handleSearch(searchQuery)}
-              onFindMore={handleFindMore}
-              enhancedQuery={enhancedQuery}
-              aiStats={aiStats}
-            />
-
-            {/* Filter Panel */}
-            {isFilterOpen && (
-              <div className="mb-6">
-                <FilterPanel filters={filters} setFilters={setFilters} />
-              </div>
-            )}
-
-            <CandidatesList 
-              candidates={filteredCandidates}
-              loading={loading}
-              isSearching={isSearching}
-              searchQuery={searchQuery}
-              onClearSearch={clearSearch}
-              onOpenDataCollection={() => setIsDataCollectionOpen(true)}
-            />
-          </div>
+        {/* Unified Search Interface */}
+        <div className="mt-8 mb-6">
+          <UnifiedSearchInterface
+            onSearch={handleSearch}
+            isSearching={isSearching}
+            searchQuery={searchQuery}
+          />
         </div>
+
+        {/* Simplified Filter Panel */}
+        {isFilterOpen && (
+          <div className="mb-6">
+            <FilterPanel filters={filters} setFilters={setFilters} />
+          </div>
+        )}
+
+        {/* Simplified Search Results */}
+        <SimplifiedSearchResults 
+          searchQuery={searchQuery}
+          isSearching={isSearching}
+          candidateCount={filteredCandidates.length}
+          searchMetadata={searchMetadata}
+          searchError={searchError}
+          onRetry={() => handleSearch(searchQuery)}
+          onFindMore={handleFindMore}
+          enhancedQuery={enhancedQuery}
+          aiStats={aiStats}
+        />
+
+        {/* Candidates List */}
+        <CandidatesList 
+          candidates={filteredCandidates}
+          loading={loading}
+          isSearching={isSearching}
+          searchQuery={searchQuery}
+          onClearSearch={clearSearch}
+          onOpenDataCollection={() => setIsDataCollectionOpen(true)}
+        />
       </div>
 
-      {/* Data Collection Drawer */}
       <DataCollectionDrawer 
         isOpen={isDataCollectionOpen} 
         onClose={() => setIsDataCollectionOpen(false)}
